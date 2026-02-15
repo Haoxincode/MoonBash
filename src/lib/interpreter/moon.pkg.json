@@ -1,0 +1,8 @@
+{
+  "import": [
+    "moonbash/lib/ast",
+    "moonbash/lib/parser",
+    "moonbash/lib/fs",
+    "moonbash/lib/commands"
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "name": "moon-bash",
+  "version": "0.1.0",
+  "description": "Zero-dependency pure-memory POSIX Shell sandbox written in MoonBit",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build:mbt": "cd src && moon build --target js",
+    "build:ts": "tsup",
+    "build": "pnpm build:mbt && pnpm build:ts",
+    "test:mbt": "cd src && moon test",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "cd src && moon check"
+  },
+  "keywords": [
+    "bash",
+    "shell",
+    "sandbox",
+    "moonbit",
+    "posix"
+  ],
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}
