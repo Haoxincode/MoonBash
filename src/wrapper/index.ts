@@ -9,6 +9,10 @@ import type { ExecResult, BashOptions, FileSystem } from "./types";
 
 export type { ExecResult, BashOptions, FileSystem } from "./types";
 
+// Import the compiled MoonBit engine
+// @ts-ignore - generated file has no type declarations
+import { execute as mbExecute, execute_with_fs as mbExecuteWithFs } from "../_build/js/debug/build/lib/entry/entry.js";
+
 /**
  * Main entry point for executing bash commands in a sandboxed environment.
  *
@@ -31,22 +35,30 @@ export class Bash {
    * Returns stdout, stderr, and exit code.
    */
   async exec(script: string): Promise<ExecResult> {
-    // TODO: Bridge to MoonBit compiled engine
-    // This is a stub that will be replaced when the MoonBit->JS build pipeline is set up.
-    void script;
-    return {
-      stdout: "",
-      stderr: "moonbash: engine not yet compiled\n",
-      exitCode: 1,
-    };
+    const hasFs = this.options.files && Object.keys(this.options.files).length > 0;
+    const hasEnv = this.options.env && Object.keys(this.options.env).length > 0;
+    const hasCwd = this.options.cwd && this.options.cwd.length > 0;
+
+    let jsonResult: string;
+
+    if (hasFs || hasEnv || hasCwd) {
+      const envJson = JSON.stringify(this.options.env || {});
+      const filesJson = JSON.stringify(this.options.files || {});
+      const cwd = this.options.cwd || "/home/user";
+      jsonResult = mbExecuteWithFs(script, envJson, filesJson, cwd);
+    } else {
+      jsonResult = mbExecute(script);
+    }
+
+    return JSON.parse(jsonResult) as ExecResult;
   }
 
   /**
    * Get the virtual filesystem interface.
+   * Note: Currently not implemented - filesystem is internal to execution.
    */
   getFs(): FileSystem {
-    // TODO: Bridge to MoonBit InMemoryFs
-    throw new Error("moonbash: engine not yet compiled");
+    throw new Error("moonbash: getFs() is not yet supported. Use the 'files' option in BashOptions instead.");
   }
 }
 

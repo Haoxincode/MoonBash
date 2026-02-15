@@ -1,0 +1,16 @@
+{
+  "import": [
+    "moonbash/lib/ast",
+    "moonbash/lib/fs",
+    "moonbash/lib/interpreter"
+  ],
+  "link": {
+    "js": {
+      "exports": [
+        "execute",
+        "execute_with_fs"
+      ],
+      "format": "esm"
+    }
+  }
+}
