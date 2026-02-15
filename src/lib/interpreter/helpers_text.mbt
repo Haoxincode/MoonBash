@@ -329,9 +329,18 @@ fn compare_ints(a : Int, b : Int) -> Int {
 }
 
 fn compare_strings(a : String, b : String) -> Int {
-  if a < b {
+  let min_len = if a.length() < b.length() { a.length() } else { b.length() }
+  for i = 0; i < min_len; i = i + 1 {
+    if a[i] < b[i] {
+      return -1
+    }
+    if a[i] > b[i] {
+      return 1
+    }
+  }
+  if a.length() < b.length() {
     -1
-  } else if a > b {
+  } else if a.length() > b.length() {
     1
   } else {
     0
@@ -545,4 +554,3 @@ fn tr_translate(set1 : Array[Char], set2 : Array[Char], ch : Char) -> Char {
   }
   ch
 }
-

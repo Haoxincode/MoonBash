@@ -24,6 +24,7 @@ pub fn find_command(
     "cp" => Some(cmd_cp)
     "mv" => Some(cmd_mv)
     "touch" => Some(cmd_touch)
+    "find" => Some(cmd_find)
     "head" => Some(cmd_head)
     "tail" => Some(cmd_tail)
     "wc" => Some(cmd_wc)

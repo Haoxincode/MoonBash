@@ -106,7 +106,7 @@ fn cmd_ls(ctx : CommandContext) -> @ast.ExecResult {
     // Sort
     for i = 0; i < names.length(); i = i + 1 {
       for j = 0; j < names.length() - i - 1; j = j + 1 {
-        if names[j] > names[j + 1] {
+        if names[j + 1] < names[j] {
           let tmp = names[j]
           names[j] = names[j + 1]
           names[j + 1] = tmp
@@ -343,4 +343,352 @@ fn cmd_touch(ctx : CommandContext) -> @ast.ExecResult {
     // If file exists, we'd update mtime - but our mtime is always 0
   }
   @ast.ExecResult::new(stderr=errbuf.to_string(), exit_code=exit_code)
+}
+
+/// Parse integer from string with optional sign.
+fn cmd_find_parse_int(s : String) -> Int {
+  let mut result = 0
+  let mut neg = false
+  let mut start = 0
+  if s.length() > 0 && s[0] == '-' {
+    neg = true
+    start = 1
+  } else if s.length() > 0 && s[0] == '+' {
+    start = 1
+  }
+  for i = start; i < s.length(); i = i + 1 {
+    let ch = s[i].to_int().unsafe_to_char()
+    if ch >= '0' && ch <= '9' {
+      result = result * 10 + (ch.to_int() - '0'.to_int())
+    } else {
+      break
+    }
+  }
+  if neg { -result } else { result }
+}
+
+/// Trim trailing slashes (except for root and ".").
+fn cmd_find_trim_trailing_slashes(path : String) -> String {
+  if path == "/" || path == "." {
+    return path
+  }
+  let mut end = path.length()
+  while end > 1 && path[end - 1] == '/' {
+    end -= 1
+  }
+  if end == path.length() {
+    path
+  } else {
+    path.substring(start=0, end=end)
+  }
+}
+
+/// Join display path with child name.
+fn cmd_find_join_display(base : String, name : String) -> String {
+  if base == "/" {
+    "/" + name
+  } else {
+    base + "/" + name
+  }
+}
+
+/// Basename logic for displayed path.
+fn cmd_find_display_basename(path : String) -> String {
+  if path == "." || path == "/" {
+    return path
+  }
+  let mut slash = -1
+  for i = 0; i < path.length(); i = i + 1 {
+    if path[i] == '/' {
+      slash = i
+    }
+  }
+  if slash < 0 {
+    path
+  } else if slash + 1 >= path.length() {
+    ""
+  } else {
+    path.substring(start=slash + 1)
+  }
+}
+
+/// Evaluate a parsed find expression for one entry.
+fn cmd_find_matches(
+  display_path : String,
+  is_file : Bool,
+  is_directory : Bool,
+  groups : Array[Array[(String, String)]],
+  has_predicates : Bool
+) -> Bool {
+  if not(has_predicates) {
+    return true
+  }
+  let base = cmd_find_display_basename(display_path)
+  for group in groups {
+    let mut group_match = true
+    for pred in group {
+      let (kind, value) = pred
+      if kind == "name" {
+        if not(@fs.glob_match(value, base)) {
+          group_match = false
+          break
+        }
+      } else if kind == "type" {
+        if value == "f" {
+          if not(is_file) {
+            group_match = false
+            break
+          }
+        } else if value == "d" {
+          if not(is_directory) {
+            group_match = false
+            break
+          }
+        } else {
+          group_match = false
+          break
+        }
+      }
+    }
+    if group_match {
+      return true
+    }
+  }
+  false
+}
+
+/// Recursively walk from start path and collect matching entries.
+fn cmd_find_walk(
+  fs : @fs.InMemoryFs,
+  abs_path : String,
+  display_path : String,
+  depth : Int,
+  mindepth : Int,
+  maxdepth : Int?,
+  groups : Array[Array[(String, String)]],
+  has_predicates : Bool,
+  matches : Array[String]
+) -> Unit {
+  match maxdepth {
+    Some(maxd) => {
+      if depth > maxd {
+        return
+      }
+    }
+    None => ()
+  }
+
+  let stat = try {
+    fs.stat(abs_path)
+  } catch {
+    @fs.FsError(_msg) => return
+  }
+
+  if depth >= mindepth &&
+    cmd_find_matches(
+      display_path,
+      stat.is_file,
+      stat.is_directory,
+      groups,
+      has_predicates,
+    ) {
+    matches.push(display_path)
+  }
+
+  if not(stat.is_directory) {
+    return
+  }
+
+  let should_descend = match maxdepth {
+    Some(maxd) => depth < maxd
+    None => true
+  }
+  if not(should_descend) {
+    return
+  }
+
+  let entries = try {
+    fs.readdir(abs_path)
+  } catch {
+    @fs.FsError(_msg) => return
+  }
+
+  let names : Array[String] = []
+  for entry in entries {
+    names.push(entry.name)
+  }
+  // Keep deterministic output order.
+  for i = 0; i < names.length(); i = i + 1 {
+    for j = 0; j < names.length() - i - 1; j = j + 1 {
+      if names[j + 1] < names[j] {
+        let tmp = names[j]
+        names[j] = names[j + 1]
+        names[j + 1] = tmp
+      }
+    }
+  }
+
+  for name in names {
+    let child_abs = if abs_path == "/" {
+      "/" + name
+    } else {
+      abs_path + "/" + name
+    }
+    let child_display = cmd_find_join_display(display_path, name)
+    cmd_find_walk(
+      fs,
+      child_abs,
+      child_display,
+      depth + 1,
+      mindepth,
+      maxdepth,
+      groups,
+      has_predicates,
+      matches,
+    )
+  }
+}
+
+/// ASCII byte-wise string compare for deterministic ordering.
+fn cmd_find_compare_ascii(a : String, b : String) -> Int {
+  let min_len = if a.length() < b.length() { a.length() } else { b.length() }
+  for i = 0; i < min_len; i = i + 1 {
+    if a[i] < b[i] {
+      return -1
+    }
+    if a[i] > b[i] {
+      return 1
+    }
+  }
+  if a.length() < b.length() {
+    -1
+  } else if a.length() > b.length() {
+    1
+  } else {
+    0
+  }
+}
+
+/// find: recursively search paths with minimal predicate support.
+fn cmd_find(ctx : CommandContext) -> @ast.ExecResult {
+  let start_paths : Array[String] = []
+  let mut i = 0
+  while i < ctx.args.length() {
+    let arg = ctx.args[i]
+    if arg == "-o" || arg.has_prefix("-") {
+      break
+    }
+    start_paths.push(arg)
+    i += 1
+  }
+  if start_paths.length() == 0 {
+    start_paths.push(".")
+  }
+
+  let groups : Array[Array[(String, String)]] = []
+  let mut current_group : Array[(String, String)] = []
+  let mut has_predicates = false
+  let mut maxdepth : Int? = None
+  let mut mindepth = 0
+
+  while i < ctx.args.length() {
+    let arg = ctx.args[i]
+    if arg == "-o" {
+      groups.push(current_group)
+      current_group = []
+      i += 1
+      continue
+    }
+    if arg == "-name" {
+      if i + 1 >= ctx.args.length() {
+        return @ast.ExecResult::err("find: missing argument to -name\n")
+      }
+      current_group.push(("name", ctx.args[i + 1]))
+      has_predicates = true
+      i += 2
+      continue
+    }
+    if arg == "-type" {
+      if i + 1 >= ctx.args.length() {
+        return @ast.ExecResult::err("find: missing argument to -type\n")
+      }
+      current_group.push(("type", ctx.args[i + 1]))
+      has_predicates = true
+      i += 2
+      continue
+    }
+    if arg == "-maxdepth" {
+      if i + 1 >= ctx.args.length() {
+        return @ast.ExecResult::err("find: missing argument to -maxdepth\n")
+      }
+      maxdepth = Some(cmd_find_parse_int(ctx.args[i + 1]))
+      i += 2
+      continue
+    }
+    if arg == "-mindepth" {
+      if i + 1 >= ctx.args.length() {
+        return @ast.ExecResult::err("find: missing argument to -mindepth\n")
+      }
+      mindepth = cmd_find_parse_int(ctx.args[i + 1])
+      i += 2
+      continue
+    }
+    return @ast.ExecResult::err("find: unsupported predicate: \{arg}\n")
+  }
+  groups.push(current_group)
+
+  let matches : Array[String] = []
+  let errbuf = StringBuilder::new()
+  let mut exit_code = 0
+
+  for start_arg in start_paths {
+    let start_abs = try {
+      @fs.resolve_path(ctx.cwd, start_arg)
+    } catch {
+      @fs.FsError(msg) => {
+        errbuf.write_string("find: \{msg}\n")
+        exit_code = 1
+        continue
+      }
+    }
+    let start_display = if start_arg.length() == 0 || start_arg == "." {
+      "."
+    } else if start_arg[0] == '/' {
+      start_abs
+    } else {
+      cmd_find_trim_trailing_slashes(start_arg)
+    }
+    cmd_find_walk(
+      ctx.fs,
+      start_abs,
+      start_display,
+      0,
+      mindepth,
+      maxdepth,
+      groups,
+      has_predicates,
+      matches,
+    )
+  }
+
+  // Keep deterministic output even before external `sort`.
+  for i = 0; i < matches.length(); i = i + 1 {
+    for j = 0; j < matches.length() - i - 1; j = j + 1 {
+      if cmd_find_compare_ascii(matches[j], matches[j + 1]) > 0 {
+        let tmp = matches[j]
+        matches[j] = matches[j + 1]
+        matches[j + 1] = tmp
+      }
+    }
+  }
+  let out = StringBuilder::new()
+  for m in matches {
+    out.write_string(m + "\n")
+  }
+
+  @ast.ExecResult::new(
+    stdout=out.to_string(),
+    stderr=errbuf.to_string(),
+    exit_code=exit_code,
+  )
 }
