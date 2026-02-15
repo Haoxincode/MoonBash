@@ -8,6 +8,17 @@
 4. **API Compatibility** - The TypeScript wrapper must expose an identical API to `just-bash`.
 5. **Incremental Migration** - Architecture must support incremental command implementation with fallback mechanisms.
 
+## 1.1 Ecosystem-First Implementation Strategy
+
+MoonBash follows an ecosystem-first implementation policy: reuse official MoonBit and vetted community packages before introducing custom algorithms. The command plan is split into four lanes:
+
+1. **Direct library takeover** - Regex/JSON/codec/hash/time-heavy commands should bind directly to mature packages.
+2. **Core stdlib composition** - Most text utilities should be implemented via `core/string`, `core/array`, `core/iter`, and `core/hash*` primitives.
+3. **Data-structure state machine** - env/alias/history and VFS commands should be modeled as deterministic in-memory state transitions.
+4. **FFI boundary commands** - network, timers, and heavyweight runtimes should stay in host JS via `extern "js"` bridges.
+
+This keeps parser/interpreter code small and auditable while preserving performance and security properties (notably regex safety and bounded execution). Full mapping and package guidance live in `docs/ECOSYSTEM_COMMAND_MAPPING.md`.
+
 ## 2. Three-Layer Architecture
 
 MoonBash uses a three-layer architecture to separate concerns between the MoonBit core engine, the JS interop boundary, and the TypeScript-facing API.

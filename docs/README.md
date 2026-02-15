@@ -74,6 +74,7 @@ console.log(result.exitCode); // 0
 | [Architecture](./ARCHITECTURE.md) | System architecture and module design |
 | [API Specification](./API.md) | Public API surface and type definitions |
 | [Commands](./COMMANDS.md) | All 80+ built-in command specifications |
+| [Ecosystem Mapping](./ECOSYSTEM_COMMAND_MAPPING.md) | Command-to-library implementation strategy and FFI boundary |
 | [Filesystem](./FILESYSTEM.md) | Virtual filesystem design and implementation |
 | [Security](./SECURITY.md) | Sandbox security model and threat mitigation |
 | [FFI & Interop](./FFI.md) | MoonBit-JavaScript interop design |

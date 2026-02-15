@@ -141,6 +141,16 @@ Phase 5: Multi-Platform Expansion
 - [ ] npm package structure
 - [ ] Verify drop-in compatibility with just-bash API
 
+### 1.10 Ecosystem-First Delivery Checklist
+
+- [ ] Create a command classification sheet (direct library / stdlib composition / state-machine / FFI).
+- [ ] For every Phase 1 command, record the primary MoonBit API(s) and fallback path.
+- [ ] Implement `cat`, `head`, `tail`, `wc` using shared line-stream helpers (`string` + `array`) rather than per-command parsing code.
+- [ ] Implement `ls`, `cd`, `pwd`, `mkdir`, `touch`, `rm`, `cp`, `mv` on top of a single VFS trait and common path-normalization utility.
+- [ ] Keep `echo`, `true`, `false` as builtin fast-path commands with zero allocator-heavy logic.
+- [ ] Add tests that assert algorithm reuse behavior (for example: one shared sorter/path normalizer used by multiple commands).
+- [ ] Add a merge gate: no new hand-rolled algorithm for a command if an approved package/stdlib path exists.
+
 ---
 
 ## Phase 2: Shell Feature Completeness
@@ -267,6 +277,16 @@ Phase 5: Multi-Platform Expansion
 | `tac` | Reverse file |
 | `paste` | Merge lines |
 | `nl` | Number lines |
+
+### 2.10 Ecosystem-First Expansion Checklist
+
+- [ ] Implement `env`, `printenv`, `export`, `alias`, `unalias`, `history` on a unified session-state `HashMap` model.
+- [ ] Implement `basename`, `dirname` as pure path-string transforms shared by parser expansions and command layer.
+- [ ] Implement `sort`, `uniq`, `cut`, `tr`, `rev`, `tac`, `paste`, `nl` with composable iterator/text helpers, not command-specific ad hoc loops.
+- [ ] Implement `seq`/`expr` on top of the math/eval helper module with strict numeric bounds.
+- [ ] Implement `date` with `@moonbitlang/x/time` adapter; keep output format compatibility tests in comparison suite.
+- [ ] Implement `sleep` via FFI timer bridge only; enforce cancellation + timeout behavior in security tests.
+- [ ] Before Phase 3, run a reuse audit documenting which commands still require custom engines (`awk` and parser-related paths).
 
 ---
 

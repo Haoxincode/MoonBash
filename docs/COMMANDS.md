@@ -1,6 +1,6 @@
 # MoonBash Built-in Commands
 
-MoonBash implements 80+ Unix commands as pure MoonBit code. Each command runs entirely in-memory with no system calls.
+MoonBash targets 80+ Unix commands. Most commands run as pure in-memory MoonBit logic; commands that require host capabilities (network, timers, optional external runtimes) cross an explicit FFI boundary.
 
 ## Command Categories
 
@@ -123,9 +123,11 @@ MoonBash implements 80+ Unix commands as pure MoonBit code. Each command runs en
 | `curl` | Transfer data from URLs | High |
 | `html-to-markdown` | Convert HTML to Markdown | Medium |
 
-## Implementation Priority
+## Implementation Cohorts
 
-### Phase 1: Core (MVP)
+These cohorts are implementation groupings, not release schedule commitments. For phase-by-phase delivery order, use `docs/ROADMAP.md` as the source of truth.
+
+### Cohort 1: Core (MVP)
 
 Essential commands for basic shell operation:
 
@@ -136,7 +138,7 @@ true, false, env, export, which, basename, dirname,
 read, test/[, seq, date, sleep, expr
 ```
 
-### Phase 2: Text Processing
+### Cohort 2: Text Processing
 
 Commands needed for data pipeline use cases:
 
@@ -146,7 +148,7 @@ fold, expand, unexpand, nl, rev, tac, column,
 xargs, find, du, split, strings, od
 ```
 
-### Phase 3: Data & Advanced
+### Cohort 3: Data & Advanced
 
 Commands for structured data processing:
 
@@ -157,7 +159,7 @@ ln, readlink, rmdir, chmod, hostname, whoami,
 timeout, time, help, history, clear
 ```
 
-### Phase 4: Network
+### Cohort 4: Network
 
 Commands requiring network access (opt-in):
 
