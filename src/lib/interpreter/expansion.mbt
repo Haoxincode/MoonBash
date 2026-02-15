@@ -7,6 +7,23 @@
 
 /// Expand a Word into an array of strings (after word splitting).
 fn ExecContext::expand_word(self : ExecContext, word : @ast.Word) -> Array[String] {
+  self.expand_word_internal(word, true)
+}
+
+/// Expand a word but skip pathname expansion (used for commands that should
+/// receive literal glob patterns such as `find -name "*.txt"`).
+fn ExecContext::expand_word_no_glob(
+  self : ExecContext,
+  word : @ast.Word
+) -> Array[String] {
+  self.expand_word_internal(word, false)
+}
+
+fn ExecContext::expand_word_internal(
+  self : ExecContext,
+  word : @ast.Word,
+  allow_glob : Bool
+) -> Array[String] {
   let expanded = self.expand_word_parts(word.parts)
   if expanded.length() == 0 {
     return [""]
@@ -28,10 +45,15 @@ fn ExecContext::expand_word(self : ExecContext, word : @ast.Word) -> Array[Strin
     }
   }
 
-  if not(has_splittable_expansion) {
+  let parts = if not(has_splittable_expansion) {
     [expanded]
   } else {
     self.word_split(expanded)
+  }
+  if allow_glob {
+    self.pathname_expand(parts)
+  } else {
+    parts
   }
 }
 
@@ -407,6 +429,219 @@ fn is_ifs_char(ch : Char, ifs : String) -> Bool {
     }
   }
   false
+}
+
+// ============================================================================
+// Pathname Expansion (Globbing)
+// ============================================================================
+
+fn ExecContext::pathname_expand(
+  self : ExecContext,
+  words : Array[String]
+) -> Array[String] {
+  if self.options.noglob {
+    return words
+  }
+  let expanded : Array[String] = []
+  for word in words {
+    if not(has_glob_meta(word)) {
+      expanded.push(word)
+      continue
+    }
+    let matches = self.expand_glob_word(word)
+    if matches.length() == 0 {
+      expanded.push(word)
+    } else {
+      for m in matches {
+        expanded.push(m)
+      }
+    }
+  }
+  expanded
+}
+
+fn ExecContext::expand_glob_word(
+  self : ExecContext,
+  pattern : String
+) -> Array[String] {
+  let absolute_pattern = if pattern.length() > 0 && pattern[0] == '/' {
+    try {
+      @fs.normalize_path(pattern)
+    } catch {
+      _ => pattern
+    }
+  } else {
+    try {
+      @fs.resolve_path(self.cwd, pattern)
+    } catch {
+      _ => self.cwd + "/" + pattern
+    }
+  }
+  let segments = split_path_segments(absolute_pattern)
+  let absolute_matches : Array[String] = []
+  self.glob_expand_segments(segments, 0, "/", absolute_matches)
+
+  let display_matches : Array[String] = []
+  for abs_path in absolute_matches {
+    if pattern.length() > 0 && pattern[0] == '/' {
+      display_matches.push(abs_path)
+    } else {
+      display_matches.push(self.abs_to_shell_path(abs_path))
+    }
+  }
+  sort_strings(display_matches)
+  display_matches
+}
+
+fn ExecContext::glob_expand_segments(
+  self : ExecContext,
+  segments : Array[String],
+  idx : Int,
+  current_abs : String,
+  out : Array[String]
+) -> Unit {
+  if idx >= segments.length() {
+    if self.fs.exists(current_abs) {
+      out.push(current_abs)
+    }
+    return
+  }
+
+  let segment = segments[idx]
+  if has_glob_meta(segment) {
+    let entries = try {
+      self.fs.readdir(current_abs)
+    } catch {
+      @fs.FsError(_msg) => return
+    }
+
+    let names : Array[String] = []
+    for entry in entries {
+      names.push(entry.name)
+    }
+    sort_strings(names)
+
+    let mut include_dotfiles = false
+    if segment.length() > 0 && segment[0] == '.' {
+      include_dotfiles = true
+    }
+
+    for name in names {
+      if not(include_dotfiles) && name.length() > 0 && name[0] == '.' {
+        continue
+      }
+      if not(@fs.glob_match(segment, name)) {
+        continue
+      }
+
+      let child_abs = if current_abs == "/" {
+        "/" + name
+      } else {
+        current_abs + "/" + name
+      }
+      if idx + 1 >= segments.length() {
+        if self.fs.exists(child_abs) {
+          out.push(child_abs)
+        }
+      } else {
+        let stat = try {
+          self.fs.stat(child_abs)
+        } catch {
+          @fs.FsError(_msg) => continue
+        }
+        if stat.is_directory {
+          self.glob_expand_segments(segments, idx + 1, child_abs, out)
+        }
+      }
+    }
+    return
+  }
+
+  let next_abs = if current_abs == "/" {
+    "/" + segment
+  } else {
+    current_abs + "/" + segment
+  }
+  if not(self.fs.exists(next_abs)) {
+    return
+  }
+  if idx + 1 >= segments.length() {
+    out.push(next_abs)
+    return
+  }
+  let stat = try {
+    self.fs.stat(next_abs)
+  } catch {
+    @fs.FsError(_msg) => return
+  }
+  if stat.is_directory {
+    self.glob_expand_segments(segments, idx + 1, next_abs, out)
+  }
+}
+
+fn split_path_segments(path : String) -> Array[String] {
+  let segments : Array[String] = []
+  let mut start = 0
+  for i = 0; i <= path.length(); i = i + 1 {
+    if i == path.length() || path[i] == '/' {
+      if i > start {
+        segments.push(path.substring(start=start, end=i))
+      }
+      start = i + 1
+    }
+  }
+  segments
+}
+
+fn has_glob_meta(s : String) -> Bool {
+  for i = 0; i < s.length(); i = i + 1 {
+    let ch = s[i].to_int().unsafe_to_char()
+    if ch == '*' || ch == '?' || ch == '[' {
+      return true
+    }
+  }
+  false
+}
+
+fn ExecContext::abs_to_shell_path(self : ExecContext, abs_path : String) -> String {
+  if abs_path == self.cwd {
+    return "."
+  }
+  if self.cwd == "/" {
+    if abs_path.length() > 0 && abs_path[0] == '/' {
+      return abs_path.substring(start=1)
+    }
+    return abs_path
+  }
+  let prefix = self.cwd + "/"
+  if starts_with(abs_path, prefix) {
+    return abs_path.substring(start=prefix.length())
+  }
+  abs_path
+}
+
+fn starts_with(s : String, prefix : String) -> Bool {
+  if prefix.length() > s.length() {
+    return false
+  }
+  for i = 0; i < prefix.length(); i = i + 1 {
+    if s[i] != prefix[i] {
+      return false
+    }
+  }
+  true
+}
+
+fn sort_strings(values : Array[String]) -> Unit {
+  for i = 0; i < values.length(); i = i + 1 {
+    for j = 0; j < values.length() - i - 1; j = j + 1 {
+      if values[j + 1] < values[j] {
+        let tmp = values[j]
+        values[j] = values[j + 1]
+        values[j + 1] = tmp
+      }
+    }
+  }
 }
 
 // ============================================================================

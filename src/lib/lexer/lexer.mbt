@@ -325,6 +325,7 @@ fn Lexer::scan_redirect_out(self : Lexer) -> Unit raise @ast.BashError {
 
 fn Lexer::scan_word(self : Lexer) -> Unit raise @ast.BashError {
   let buf = StringBuilder::new()
+  let mut had_quoted = false
 
   while not(self.at_end()) {
     let ch = self.peek()
@@ -335,9 +336,11 @@ fn Lexer::scan_word(self : Lexer) -> Unit raise @ast.BashError {
 
     match ch {
       '\'' => {
+        had_quoted = true
         self.scan_single_quote(buf)
       }
       '"' => {
+        had_quoted = true
         self.scan_double_quote(buf)
       }
       '\\' => {
@@ -354,6 +357,9 @@ fn Lexer::scan_word(self : Lexer) -> Unit raise @ast.BashError {
 
   let word = buf.to_string()
   if word.length() == 0 {
+    if had_quoted {
+      self.emit(@ast.Token::Word(""))
+    }
     return
   }
 
@@ -396,6 +402,8 @@ fn Lexer::scan_single_quote(self : Lexer, buf : StringBuilder) -> Unit raise @as
     if ch == '\'' {
       return
     }
+    // Mark characters coming from single quotes as "always literal".
+    buf.write_char('\u0001')
     buf.write_char(ch)
   }
   raise @ast.BashError("unterminated single quote")

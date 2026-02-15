@@ -4,7 +4,7 @@
 fn is_shell_builtin(name : String) -> Bool {
   match name {
     "export" | "unset" | "set" | "shift" | "exit" | "return" | "break"
-    | "continue" | "read" | "test" | "[" | "printf" | "eval" | "source"
+    | "continue" | "read" | "test" | "[" | "[[" | "printf" | "eval" | "source"
     | "." | "local" | "declare" | "typeset" | ":" | "type" | "command" | "basename"
     | "dirname" | "seq" | "rev" | "nl" | "fold" | "expand" | "unexpand" | "paste"
     | "column" | "join" | "tr" | "sort" | "uniq" | "cut" | "tee" | "sed" | "grep"
@@ -193,6 +193,35 @@ fn split_string_by_delimiter(s : String, delim : String) -> Array[String] {
 // ============================================================================
 
 fn evaluate_test(args : Array[String], ctx : ExecContext) -> Bool {
+  // Logical operators inside test/[ ... ].
+  // Implement minimal precedence: -a binds tighter than -o.
+  for i = 0; i < args.length(); i = i + 1 {
+    if args[i] == "-o" {
+      let left : Array[String] = []
+      let right : Array[String] = []
+      for j = 0; j < i; j = j + 1 {
+        left.push(args[j])
+      }
+      for j = i + 1; j < args.length(); j = j + 1 {
+        right.push(args[j])
+      }
+      return evaluate_test(left, ctx) || evaluate_test(right, ctx)
+    }
+  }
+  for i = 0; i < args.length(); i = i + 1 {
+    if args[i] == "-a" {
+      let left : Array[String] = []
+      let right : Array[String] = []
+      for j = 0; j < i; j = j + 1 {
+        left.push(args[j])
+      }
+      for j = i + 1; j < args.length(); j = j + 1 {
+        right.push(args[j])
+      }
+      return evaluate_test(left, ctx) && evaluate_test(right, ctx)
+    }
+  }
+
   if args.length() == 0 {
     return false
   }

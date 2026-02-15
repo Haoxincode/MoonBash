@@ -308,6 +308,8 @@ fn ExecContext::builtin_cut(
 ) -> Unit {
   let mut delimiter = "\t"
   let mut fields : Array[Int] = []
+  let mut char_mode = false
+  let mut char_ranges : Array[(Int, Int)] = []
   let mut input_file : String? = None
   let mut i = 0
   while i < args.length() {
@@ -317,11 +319,19 @@ fn ExecContext::builtin_cut(
     } else if args[i] == "-f" && i + 1 < args.length() {
       fields = parse_field_spec(args[i + 1])
       i += 2
+    } else if args[i] == "-c" && i + 1 < args.length() {
+      char_mode = true
+      char_ranges = parse_cut_char_spec(args[i + 1])
+      i += 2
     } else if args[i].has_prefix("-d") {
       delimiter = args[i].substring(start=2)
       i += 1
     } else if args[i].has_prefix("-f") {
       fields = parse_field_spec(args[i].substring(start=2))
+      i += 1
+    } else if args[i].has_prefix("-c") {
+      char_mode = true
+      char_ranges = parse_cut_char_spec(args[i].substring(start=2))
       i += 1
     } else {
       input_file = Some(args[i])
@@ -351,21 +361,86 @@ fn ExecContext::builtin_cut(
 
   let lines = split_lines_no_trailing(input)
   for line in lines {
-    let parts = split_string_by_delimiter(line, delimiter)
-    let out_buf = StringBuilder::new()
-    let mut first = true
-    for field_num in fields {
-      if field_num > 0 && field_num <= parts.length() {
-        if not(first) {
-          out_buf.write_string(delimiter)
+    if char_mode {
+      self.stdout_buf.write_string(cut_by_char_ranges(line, char_ranges) + "\n")
+    } else {
+      let parts = split_string_by_delimiter(line, delimiter)
+      let out_buf = StringBuilder::new()
+      let mut first = true
+      for field_num in fields {
+        if field_num > 0 && field_num <= parts.length() {
+          if not(first) {
+            out_buf.write_string(delimiter)
+          }
+          out_buf.write_string(parts[field_num - 1])
+          first = false
         }
-        out_buf.write_string(parts[field_num - 1])
-        first = false
       }
+      self.stdout_buf.write_string(out_buf.to_string() + "\n")
     }
-    self.stdout_buf.write_string(out_buf.to_string() + "\n")
   }
   self.exit_code = 0
+}
+
+fn parse_cut_char_spec(spec : String) -> Array[(Int, Int)] {
+  let ranges : Array[(Int, Int)] = []
+  for raw in split_string_by_delimiter(spec, ",") {
+    if raw.length() == 0 {
+      continue
+    }
+    let mut dash = -1
+    for i = 0; i < raw.length(); i = i + 1 {
+      if raw[i] == '-' {
+        dash = i
+        break
+      }
+    }
+    if dash < 0 {
+      let pos = parse_int_str(raw)
+      ranges.push((pos, pos))
+      continue
+    }
+    let left = substring_slice(raw, 0, dash)
+    let right = substring_slice(raw, dash + 1, raw.length())
+    let start = if left.length() == 0 { 1 } else { parse_int_str(left) }
+    let end = if right.length() == 0 { -1 } else { parse_int_str(right) }
+    ranges.push((start, end))
+  }
+  ranges
+}
+
+fn cut_by_char_ranges(line : String, ranges : Array[(Int, Int)]) -> String {
+  if line.length() == 0 || ranges.length() == 0 {
+    return ""
+  }
+  let selected : Array[Bool] = []
+  for i = 0; i <= line.length(); i = i + 1 {
+    selected.push(false)
+  }
+
+  for range in ranges {
+    let (raw_start, raw_end) = range
+    let start = if raw_start < 1 { 1 } else { raw_start }
+    let end = if raw_end < 0 || raw_end > line.length() {
+      line.length()
+    } else {
+      raw_end
+    }
+    if start > line.length() || start > end {
+      continue
+    }
+    for pos = start; pos <= end; pos = pos + 1 {
+      selected[pos] = true
+    }
+  }
+
+  let out = StringBuilder::new()
+  for pos = 1; pos <= line.length(); pos = pos + 1 {
+    if selected[pos] {
+      out.write_char(line[pos - 1].to_int().unsafe_to_char())
+    }
+  }
+  out.to_string()
 }
 
 fn ExecContext::builtin_tee(
@@ -423,4 +498,3 @@ fn ExecContext::builtin_xargs(
   }
   self.run_command(cmd_name, cmd_args)
 }
-

@@ -47,6 +47,10 @@ fn ExecContext::run_builtin(
       self.builtin_test(args)
       true
     }
+    "[[" => {
+      self.builtin_double_bracket(args)
+      true
+    }
     "printf" => {
       self.builtin_printf(args)
       true
@@ -183,8 +187,12 @@ fn ExecContext::run_builtin(
       self.builtin_date(args)
       true
     }
-    "env" | "printenv" => {
+    "env" => {
       self.builtin_env(args)
+      true
+    }
+    "printenv" => {
+      self.builtin_printenv(args)
       true
     }
     "which" => {

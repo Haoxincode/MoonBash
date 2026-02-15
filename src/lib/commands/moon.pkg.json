@@ -1,6 +1,7 @@
 {
   "import": [
     "moonbash/lib/ast",
-    "moonbash/lib/fs"
+    "moonbash/lib/fs",
+    "moonbitlang/core/json"
   ]
 }

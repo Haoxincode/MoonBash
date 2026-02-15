@@ -489,6 +489,32 @@ pub fn InMemoryFs::chmod(
   }
 }
 
+/// Snapshot all filesystem entries as (path, kind, data) tuples.
+/// kind: "f" = file (data is content), "d" = directory, "l" = symlink (data is target)
+pub fn InMemoryFs::snapshot_entries(
+  self : InMemoryFs
+) -> Array[(String, String, String)] {
+  let entries : Array[(String, String, String)] = []
+  self.entries.each(fn(path, entry) {
+    match entry {
+      File(data) => entries.push((path, "f", data.content))
+      Directory(_) => entries.push((path, "d", ""))
+      Symlink(data) => entries.push((path, "l", data.target))
+    }
+  })
+  // Deterministic order for stable JSON snapshots.
+  for i = 0; i < entries.length(); i = i + 1 {
+    for j = 0; j < entries.length() - i - 1; j = j + 1 {
+      if entries[j + 1].0 < entries[j].0 {
+        let tmp = entries[j]
+        entries[j] = entries[j + 1]
+        entries[j + 1] = tmp
+      }
+    }
+  }
+  entries
+}
+
 // String utility helpers
 
 /// Check if string starts with a given prefix.

@@ -10,16 +10,84 @@ fn ExecContext::builtin_basename(
     self.exit_code = 1
     return
   }
-  let path = args[0]
-  let mut name = @fs.basename(path)
-  // Remove suffix if provided
-  if args.length() > 1 {
-    let suffix = args[1]
-    if name.length() > suffix.length() && name.has_suffix(suffix) {
-      name = name.substring(start=0, end=name.length() - suffix.length())
+
+  let mut allow_multiple = false
+  let mut suffix : String? = None
+  let paths : Array[String] = []
+  let mut i = 0
+  while i < args.length() {
+    let arg = args[i]
+    if arg == "-a" {
+      allow_multiple = true
+      i += 1
+      continue
     }
+    if arg == "-s" {
+      if i + 1 >= args.length() {
+        self.stderr_buf.write_string("basename: option requires an argument -- 's'\n")
+        self.exit_code = 1
+        return
+      }
+      suffix = Some(args[i + 1])
+      allow_multiple = true
+      i += 2
+      continue
+    }
+    if arg.has_prefix("-s") && arg.length() > 2 {
+      suffix = Some(arg.substring(start=2))
+      allow_multiple = true
+      i += 1
+      continue
+    }
+    paths.push(arg)
+    i += 1
   }
-  self.stdout_buf.write_string(name + "\n")
+
+  if paths.length() == 0 {
+    self.stderr_buf.write_string("basename: missing operand\n")
+    self.exit_code = 1
+    return
+  }
+
+  if not(allow_multiple) {
+    let raw = trim_trailing_slashes_for_path(paths[0])
+    let effective_suffix = match suffix {
+      Some(s) => Some(s)
+      None => {
+        if paths.length() > 1 {
+          Some(paths[1])
+        } else {
+          None
+        }
+      }
+    }
+    let mut name = @fs.basename(raw)
+    match effective_suffix {
+      Some(s) => {
+        if name.length() > s.length() && name.has_suffix(s) {
+          name = name.substring(start=0, end=name.length() - s.length())
+        }
+      }
+      None => ()
+    }
+    self.stdout_buf.write_string(name + "\n")
+    self.exit_code = 0
+    return
+  }
+
+  for path in paths {
+    let raw = trim_trailing_slashes_for_path(path)
+    let mut name = @fs.basename(raw)
+    match suffix {
+      Some(s) => {
+        if name.length() > s.length() && name.has_suffix(s) {
+          name = name.substring(start=0, end=name.length() - s.length())
+        }
+      }
+      None => ()
+    }
+    self.stdout_buf.write_string(name + "\n")
+  }
   self.exit_code = 0
 }
 
@@ -32,18 +100,39 @@ fn ExecContext::builtin_dirname(
     self.exit_code = 1
     return
   }
-  let path = args[0]
-  let parent = @fs.parent_path(path)
-  // dirname returns "." for paths without a slash
-  let result = if parent == "/" && not(path.has_prefix("/")) {
-    "."
-  } else if parent == path {
-    "."
-  } else {
-    parent
+
+  for path in args {
+    let normalized = trim_trailing_slashes_for_path(path)
+    if normalized == "/" {
+      self.stdout_buf.write_string("/\n")
+      continue
+    }
+    let parent = @fs.parent_path(normalized)
+    let result = if parent == "/" && not(normalized.has_prefix("/")) {
+      "."
+    } else if parent == normalized {
+      "."
+    } else {
+      parent
+    }
+    self.stdout_buf.write_string(result + "\n")
   }
-  self.stdout_buf.write_string(result + "\n")
   self.exit_code = 0
+}
+
+fn trim_trailing_slashes_for_path(path : String) -> String {
+  if path.length() == 0 {
+    return path
+  }
+  let mut end = path.length()
+  while end > 1 && path[end - 1] == '/' {
+    end -= 1
+  }
+  if end == path.length() {
+    path
+  } else {
+    path.substring(start=0, end=end)
+  }
 }
 
 fn ExecContext::builtin_seq(
@@ -105,6 +194,24 @@ fn ExecContext::builtin_env(
   self.exit_code = 0
 }
 
+fn ExecContext::builtin_printenv(
+  self : ExecContext,
+  args : Array[String]
+) -> Unit {
+  if args.length() == 0 {
+    self.builtin_env([])
+    return
+  }
+  let mut all_found = true
+  for name in args {
+    match self.env.get(name) {
+      Some(value) => self.stdout_buf.write_string(value + "\n")
+      None => all_found = false
+    }
+  }
+  self.exit_code = if all_found { 0 } else { 1 }
+}
+
 fn ExecContext::builtin_which(
   self : ExecContext,
   args : Array[String]
@@ -121,4 +228,3 @@ fn ExecContext::builtin_which(
     self.exit_code = 0
   }
 }
-

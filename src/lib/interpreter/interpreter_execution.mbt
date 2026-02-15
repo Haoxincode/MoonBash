@@ -21,29 +21,61 @@ fn ExecContext::execute_statement(
   self : ExecContext,
   stmt : @ast.Statement
 ) -> Unit {
+  let pipelines : Array[@ast.Pipeline] = []
+  let ops : Array[Int] = []
+  self.flatten_statement(stmt, pipelines, ops)
+  if pipelines.length() == 0 {
+    return
+  }
+
+  self.execute_pipeline(pipelines[0])
+  let mut i = 0
+  while i < ops.length() {
+    if self.should_exit || self.return_requested || self.break_count > 0 ||
+      self.continue_count > 0 {
+      break
+    }
+    let should_run = match ops[i] {
+      0 => true // ;
+      1 => self.exit_code == 0 // &&
+      2 => self.exit_code != 0 // ||
+      3 => true // &
+      _ => false
+    }
+    if should_run {
+      self.execute_pipeline(pipelines[i + 1])
+    }
+    i += 1
+  }
+}
+
+/// Flatten right-recursive statement AST into linear pipeline/op lists.
+/// op encoding: 0=';', 1='&&', 2='||', 3='&'
+fn ExecContext::flatten_statement(
+  self : ExecContext,
+  stmt : @ast.Statement,
+  pipelines : Array[@ast.Pipeline],
+  ops : Array[Int]
+) -> Unit {
   match stmt {
-    @ast.Statement::Pipeline(pipeline) => self.execute_pipeline(pipeline)
+    @ast.Statement::Pipeline(pipeline) => pipelines.push(pipeline)
     @ast.Statement::AndList(pipeline, next) => {
-      self.execute_pipeline(pipeline)
-      if self.exit_code == 0 {
-        self.execute_statement(next)
-      }
+      pipelines.push(pipeline)
+      ops.push(1)
+      self.flatten_statement(next, pipelines, ops)
     }
     @ast.Statement::OrList(pipeline, next) => {
-      self.execute_pipeline(pipeline)
-      if self.exit_code != 0 {
-        self.execute_statement(next)
-      }
+      pipelines.push(pipeline)
+      ops.push(2)
+      self.flatten_statement(next, pipelines, ops)
     }
     @ast.Statement::Sequence(pipeline, next) => {
-      self.execute_pipeline(pipeline)
-      if not(self.should_exit) && not(self.return_requested) {
-        self.execute_statement(next)
-      }
+      pipelines.push(pipeline)
+      ops.push(0)
+      self.flatten_statement(next, pipelines, ops)
     }
     @ast.Statement::Background(pipeline) => {
-      // In sandbox, background just executes synchronously
-      self.execute_pipeline(pipeline)
+      pipelines.push(pipeline)
     }
   }
 }
@@ -196,10 +228,21 @@ fn ExecContext::execute_simple(
 
   // Expand all words
   let expanded : Array[String] = []
-  for word in cmd.words {
-    let parts = self.expand_word(word)
-    for part in parts {
+  if cmd.words.length() > 0 {
+    let first_parts = self.expand_word(cmd.words[0])
+    for part in first_parts {
       expanded.push(part)
+    }
+    let disable_glob_args = expanded.length() > 0 && expanded[0] == "find"
+    for i = 1; i < cmd.words.length(); i = i + 1 {
+      let parts = if disable_glob_args {
+        self.expand_word_no_glob(cmd.words[i])
+      } else {
+        self.expand_word(cmd.words[i])
+      }
+      for part in parts {
+        expanded.push(part)
+      }
     }
   }
 
@@ -271,6 +314,11 @@ fn ExecContext::execute_simple(
       @ast.RedirectOp::HereString => {
         let content = self.expand_word_to_string(redir.target)
         self.stdin_buf = content + "\n"
+        input_from_file = true
+      }
+      @ast.RedirectOp::HereDoc(_strip_tabs) => {
+        let content = self.expand_word_to_string(redir.target)
+        self.stdin_buf = content
         input_from_file = true
       }
       @ast.RedirectOp::AndOutput => {
@@ -457,6 +505,10 @@ fn ExecContext::apply_redirections(
       @ast.RedirectOp::HereString => {
         let content = self.expand_word_to_string(redir.target)
         self.stdin_buf = content + "\n"
+      }
+      @ast.RedirectOp::HereDoc(_strip_tabs) => {
+        let content = self.expand_word_to_string(redir.target)
+        self.stdin_buf = content
       }
       @ast.RedirectOp::Output => {
         let target = self.expand_word_to_string(redir.target)

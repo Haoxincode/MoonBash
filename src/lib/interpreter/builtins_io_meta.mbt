@@ -91,6 +91,23 @@ fn ExecContext::builtin_test(
   self.exit_code = if evaluate_test(test_args, self) { 0 } else { 1 }
 }
 
+fn ExecContext::builtin_double_bracket(
+  self : ExecContext,
+  args : Array[String]
+) -> Unit {
+  // Mirror [[ ... ]] minimal semantics through the same evaluator.
+  let test_args = if args.length() > 0 && args[args.length() - 1] == "]]" {
+    let a : Array[String] = []
+    for i = 0; i < args.length() - 1; i = i + 1 {
+      a.push(args[i])
+    }
+    a
+  } else {
+    args
+  }
+  self.exit_code = if evaluate_test(test_args, self) { 0 } else { 1 }
+}
+
 fn ExecContext::builtin_printf(
   self : ExecContext,
   args : Array[String]

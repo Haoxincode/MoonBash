@@ -19,7 +19,28 @@ pub fn execute_with_fs(
   files_json : String,
   cwd : String
 ) -> String {
+  execute_with_state(script, env_json, files_json, "{}", "{}", cwd)
+}
+
+/// Execute a bash script and return result plus filesystem snapshot.
+/// dirs_json: JSON object with directory paths as keys.
+/// links_json: JSON object of symlink path->target.
+pub fn execute_with_state(
+  script : String,
+  env_json : String,
+  files_json : String,
+  dirs_json : String,
+  links_json : String,
+  cwd : String
+) -> String {
   let fs = @fs.InMemoryFs::new()
+
+  // Parse and apply dirs
+  let dir_entries = parse_json_object(dirs_json)
+  for i = 0; i < dir_entries.length(); i = i + 1 {
+    let (path, _value) = dir_entries[i]
+    try { fs.mkdir(path, recursive=true) } catch { _ => () }
+  }
 
   // Parse and apply files
   let file_entries = parse_json_object(files_json)
@@ -28,6 +49,13 @@ pub fn execute_with_fs(
     // Ensure parent directories exist
     ensure_parents(fs, path)
     try { fs.write_file(path, content) } catch { _ => () }
+  }
+
+  // Parse and apply symlinks
+  let link_entries = parse_json_object(links_json)
+  for i = 0; i < link_entries.length(); i = i + 1 {
+    let (path, target) = link_entries[i]
+    try { fs.symlink(target, path) } catch { _ => () }
   }
 
   // Parse env vars
@@ -39,9 +67,25 @@ pub fn execute_with_fs(
   }
 
   let actual_cwd = if cwd.length() > 0 { cwd } else { "/home/user" }
+  // Ensure cwd exists for relative-path commands in empty fixtures.
+  try { fs.mkdir(actual_cwd, recursive=true) } catch { _ => () }
   let ctx = @interpreter.ExecContext::new(fs, env=env, cwd=actual_cwd)
   let result = ctx.execute(script)
-  result_to_json(result)
+
+  let files_out : Array[(String, String)] = []
+  let dirs_out : Array[(String, String)] = []
+  let links_out : Array[(String, String)] = []
+  for entry in fs.snapshot_entries() {
+    let (path, kind, data) = entry
+    if kind == "f" {
+      files_out.push((path, data))
+    } else if kind == "d" {
+      dirs_out.push((path, "1"))
+    } else if kind == "l" {
+      links_out.push((path, data))
+    }
+  }
+  result_with_state_to_json(result, files_out, dirs_out, links_out)
 }
 
 // ============================================================================
@@ -58,6 +102,47 @@ fn result_to_json(result : @ast.ExecResult) -> String {
   buf.write_string(",\"exitCode\":")
   buf.write_string(result.exit_code.to_string())
   buf.write_string("}")
+  buf.to_string()
+}
+
+/// Convert ExecResult + filesystem snapshot to JSON string.
+fn result_with_state_to_json(
+  result : @ast.ExecResult,
+  files : Array[(String, String)],
+  dirs : Array[(String, String)],
+  links : Array[(String, String)]
+) -> String {
+  let buf = StringBuilder::new()
+  buf.write_string("{\"stdout\":")
+  buf.write_string(json_escape_string(result.stdout))
+  buf.write_string(",\"stderr\":")
+  buf.write_string(json_escape_string(result.stderr))
+  buf.write_string(",\"exitCode\":")
+  buf.write_string(result.exit_code.to_string())
+  buf.write_string(",\"files\":")
+  buf.write_string(json_object_from_pairs(files))
+  buf.write_string(",\"dirs\":")
+  buf.write_string(json_object_from_pairs(dirs))
+  buf.write_string(",\"links\":")
+  buf.write_string(json_object_from_pairs(links))
+  buf.write_string("}")
+  buf.to_string()
+}
+
+/// Convert string pairs into a JSON object.
+fn json_object_from_pairs(pairs : Array[(String, String)]) -> String {
+  let buf = StringBuilder::new()
+  buf.write_char('{')
+  for i = 0; i < pairs.length(); i = i + 1 {
+    if i > 0 {
+      buf.write_char(',')
+    }
+    let (k, v) = pairs[i]
+    buf.write_string(json_escape_string(k))
+    buf.write_char(':')
+    buf.write_string(json_escape_string(v))
+  }
+  buf.write_char('}')
   buf.to_string()
 }
 

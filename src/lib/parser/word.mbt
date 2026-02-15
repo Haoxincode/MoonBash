@@ -17,7 +17,12 @@ pub fn parse_word_parts(s : String) -> Array[@ast.WordPart] {
   while i < len {
     let ch = wchar_at(s, i)
 
-    if ch == '$' && i + 1 < len {
+    if ch == '\u0001' && i + 1 < len {
+      // Literal marker emitted by lexer for single-quoted content.
+      buf.write_char(wchar_at(s, i + 1))
+      i += 2
+      continue
+    } else if ch == '$' && i + 1 < len {
       // Flush literal buffer
       let lit = buf.to_string()
       if lit.length() > 0 {

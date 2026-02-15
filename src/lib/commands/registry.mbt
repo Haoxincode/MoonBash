@@ -28,6 +28,11 @@ pub fn find_command(
     "head" => Some(cmd_head)
     "tail" => Some(cmd_tail)
     "wc" => Some(cmd_wc)
+    "strings" => Some(cmd_strings)
+    "split" => Some(cmd_split)
+    "tar" => Some(cmd_tar)
+    "awk" => Some(cmd_awk)
+    "jq" => Some(cmd_jq)
     "true" => Some(cmd_true)
     "false" => Some(cmd_false)
     _ => None

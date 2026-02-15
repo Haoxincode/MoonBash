@@ -8,7 +8,8 @@
     "js": {
       "exports": [
         "execute",
-        "execute_with_fs"
+        "execute_with_fs",
+        "execute_with_state"
       ],
       "format": "esm"
     }

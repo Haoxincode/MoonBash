@@ -3,16 +3,36 @@
 
 /// cat: concatenate and display file contents
 fn cmd_cat(ctx : CommandContext) -> @ast.ExecResult {
-  if ctx.args.length() == 0 {
+  let mut number_lines = false
+  let files : Array[String] = []
+  for arg in ctx.args {
+    if arg == "-n" {
+      number_lines = true
+    } else {
+      files.push(arg)
+    }
+  }
+
+  if files.length() == 0 {
     // No args = output stdin
-    return @ast.ExecResult::ok(ctx.stdin_content)
+    if not(number_lines) {
+      return @ast.ExecResult::ok(ctx.stdin_content)
+    }
+    let out = StringBuilder::new()
+    ignore(cmd_cat_write_numbered(out, ctx.stdin_content, 1))
+    return @ast.ExecResult::ok(out.to_string())
   }
   let buf = StringBuilder::new()
   let errbuf = StringBuilder::new()
   let mut exit_code = 0
-  for arg in ctx.args {
+  let mut line_no = 1
+  for arg in files {
     if arg == "-" {
-      buf.write_string(ctx.stdin_content)
+      if number_lines {
+        line_no = cmd_cat_write_numbered(buf, ctx.stdin_content, line_no)
+      } else {
+        buf.write_string(ctx.stdin_content)
+      }
       continue
     }
     let path = try {
@@ -33,7 +53,11 @@ fn cmd_cat(ctx : CommandContext) -> @ast.ExecResult {
         continue
       }
     }
-    buf.write_string(content)
+    if number_lines {
+      line_no = cmd_cat_write_numbered(buf, content, line_no)
+    } else {
+      buf.write_string(content)
+    }
   }
   @ast.ExecResult::new(
     stdout=buf.to_string(),
@@ -42,51 +66,96 @@ fn cmd_cat(ctx : CommandContext) -> @ast.ExecResult {
   )
 }
 
+fn cmd_cat_line_prefix(n : Int) -> String {
+  let digits = n.to_string()
+  let out = StringBuilder::new()
+  let pad = 6 - digits.length()
+  let mut i = 0
+  while i < pad {
+    out.write_char(' ')
+    i += 1
+  }
+  out.write_string(digits)
+  out.write_char('\t')
+  out.to_string()
+}
+
+fn cmd_cat_write_numbered(
+  out : StringBuilder,
+  content : String,
+  start_line : Int
+) -> Int {
+  let line_buf = StringBuilder::new()
+  let mut line_no = start_line
+  for i = 0; i < content.length(); i = i + 1 {
+    let ch = content[i].to_int().unsafe_to_char()
+    line_buf.write_char(ch)
+    if ch == '\n' {
+      out.write_string(cmd_cat_line_prefix(line_no))
+      out.write_string(line_buf.to_string())
+      line_buf.reset()
+      line_no += 1
+    }
+  }
+  if line_buf.to_string().length() > 0 {
+    out.write_string(cmd_cat_line_prefix(line_no))
+    out.write_string(line_buf.to_string())
+    line_no += 1
+  }
+  line_no
+}
+
 /// ls: list directory contents
 fn cmd_ls(ctx : CommandContext) -> @ast.ExecResult {
   let mut show_all = false
-  let mut long_format = false
-  let mut one_per_line = false
+  let mut almost_all = false
+  let mut recursive = false
+  let mut reverse = false
+  let mut one_per_line = true
   let paths : Array[String] = []
 
   for arg in ctx.args {
-    if arg == "-a" {
-      show_all = true
-    } else if arg == "-l" {
-      long_format = true
-    } else if arg == "-1" {
-      one_per_line = true
-    } else if arg == "-la" || arg == "-al" {
-      long_format = true
-      show_all = true
-    } else if arg == "-a1" || arg == "-1a" {
-      show_all = true
-      one_per_line = true
+    if arg.length() > 1 && arg[0] == '-' && arg != "--" {
+      let mut valid_flags = true
+      for i = 1; i < arg.length(); i = i + 1 {
+        let flag = arg[i].to_int().unsafe_to_char()
+        match flag {
+          'a' => {
+            show_all = true
+            almost_all = false
+          }
+          'A' => if not(show_all) { almost_all = true }
+          'R' => recursive = true
+          'r' => reverse = true
+          '1' => one_per_line = true
+          'l' => () // accepted but not fully formatted in comparison mode
+          _ => {
+            valid_flags = false
+            break
+          }
+        }
+      }
+      if not(valid_flags) {
+        paths.push(arg)
+      }
     } else {
       paths.push(arg)
     }
   }
 
   if paths.length() == 0 {
-    paths.push(ctx.cwd)
+    paths.push(".")
   }
 
-  let buf = StringBuilder::new()
+  let out = StringBuilder::new()
   let errbuf = StringBuilder::new()
   let mut exit_code = 0
+  let files : Array[(String, String)] = []
+  let dirs : Array[(String, String)] = []
 
-  for path in paths {
+  for raw in paths {
     let resolved = try {
-      @fs.resolve_path(ctx.cwd, path)
-    } catch {
-      @fs.FsError(msg) => {
-        errbuf.write_string("ls: \{msg}\n")
-        exit_code = 1
-        continue
-      }
-    }
-    let entries = try {
-      ctx.fs.readdir(resolved)
+      @fs.resolve_path(ctx.cwd, raw)
     } catch {
       @fs.FsError(msg) => {
         errbuf.write_string("ls: \{msg}\n")
@@ -95,72 +164,244 @@ fn cmd_ls(ctx : CommandContext) -> @ast.ExecResult {
       }
     }
 
-    // Sort entries alphabetically
-    let names : Array[String] = []
-    for entry in entries {
-      if not(show_all) && entry.name.length() > 0 && entry.name[0] == '.' {
+    let stat = try {
+      ctx.fs.stat(resolved)
+    } catch {
+      @fs.FsError(msg) => {
+        errbuf.write_string("ls: \{msg}\n")
+        exit_code = 1
         continue
-      }
-      names.push(entry.name)
-    }
-    // Sort
-    for i = 0; i < names.length(); i = i + 1 {
-      for j = 0; j < names.length() - i - 1; j = j + 1 {
-        if names[j + 1] < names[j] {
-          let tmp = names[j]
-          names[j] = names[j + 1]
-          names[j + 1] = tmp
-        }
       }
     }
 
-    if long_format {
-      for name in names {
-        let full_path = if resolved == "/" {
-          "/" + name
-        } else {
-          resolved + "/" + name
-        }
-        let stat = try {
-          ctx.fs.stat(full_path)
-        } catch {
-          @fs.FsError(_msg) => continue
-        }
-        let type_char = if stat.is_directory {
-          "d"
-        } else if stat.is_symlink {
-          "l"
-        } else {
-          "-"
-        }
-        buf.write_string(
-          "\{type_char}rw-r--r-- 1 user user \{stat.size} Jan  1 00:00 \{name}\n",
-        )
-      }
-    } else if one_per_line {
-      for name in names {
-        buf.write_string(name + "\n")
-      }
+    if stat.is_directory {
+      dirs.push((raw, resolved))
     } else {
-      // Default: space-separated
-      let mut first = true
-      for name in names {
-        if not(first) {
-          buf.write_string("  ")
-        }
-        buf.write_string(name)
-        first = false
-      }
-      if names.length() > 0 {
-        buf.write_char('\n')
-      }
+      files.push((raw, resolved))
     }
   }
+
+  for file in files {
+    out.write_string(file.0 + "\n")
+  }
+  if files.length() > 0 && dirs.length() > 0 {
+    out.write_char('\n')
+  }
+
+  let show_headers = files.length() + dirs.length() > 1
+  for idx = 0; idx < dirs.length(); idx = idx + 1 {
+    let (label_raw, abs_path) = dirs[idx]
+    let label = cmd_ls_display_label(label_raw, abs_path)
+
+    if recursive {
+      cmd_ls_list_recursive(
+        ctx.fs,
+        abs_path,
+        label,
+        show_all,
+        almost_all,
+        reverse,
+        one_per_line,
+        out,
+      )
+    } else {
+      if show_headers {
+        out.write_string(label + ":\n")
+      }
+      let names = cmd_ls_read_names(
+        ctx.fs,
+        abs_path,
+        show_all,
+        almost_all,
+        reverse,
+      )
+      cmd_ls_write_names(out, names, one_per_line)
+    }
+
+    if idx + 1 < dirs.length() {
+      out.write_char('\n')
+    }
+  }
+
   @ast.ExecResult::new(
-    stdout=buf.to_string(),
+    stdout=out.to_string(),
     stderr=errbuf.to_string(),
     exit_code=exit_code,
   )
+}
+
+fn cmd_ls_display_label(raw : String, abs_path : String) -> String {
+  if raw == "." || raw.length() == 0 {
+    "."
+  } else if raw == "/" {
+    "/"
+  } else if raw[0] == '/' {
+    abs_path
+  } else {
+    cmd_find_trim_trailing_slashes(raw)
+  }
+}
+
+fn cmd_ls_read_names(
+  fs : @fs.InMemoryFs,
+  dir_abs : String,
+  show_all : Bool,
+  almost_all : Bool,
+  reverse : Bool
+) -> Array[String] {
+  let entries = try {
+    fs.readdir(dir_abs)
+  } catch {
+    @fs.FsError(_msg) => return []
+  }
+
+  let names : Array[String] = []
+  if show_all {
+    names.push(".")
+    names.push("..")
+  }
+
+  for entry in entries {
+    let name = entry.name
+    if show_all || almost_all {
+      names.push(name)
+    } else if not(name.length() > 0 && name[0] == '.') {
+      names.push(name)
+    }
+  }
+
+  for i = 0; i < names.length(); i = i + 1 {
+    for j = 0; j < names.length() - i - 1; j = j + 1 {
+      if cmd_find_compare_ascii(names[j], names[j + 1]) > 0 {
+        let tmp = names[j]
+        names[j] = names[j + 1]
+        names[j + 1] = tmp
+      }
+    }
+  }
+  if reverse {
+    let mut l = 0
+    let mut r = names.length() - 1
+    while l < r {
+      let tmp = names[l]
+      names[l] = names[r]
+      names[r] = tmp
+      l += 1
+      r -= 1
+    }
+  }
+  names
+}
+
+fn cmd_ls_write_names(
+  out : StringBuilder,
+  names : Array[String],
+  one_per_line : Bool
+) -> Unit {
+  if one_per_line {
+    for name in names {
+      out.write_string(name + "\n")
+    }
+    return
+  }
+
+  let mut first = true
+  for name in names {
+    if not(first) {
+      out.write_string("  ")
+    }
+    out.write_string(name)
+    first = false
+  }
+  if names.length() > 0 {
+    out.write_char('\n')
+  }
+}
+
+fn cmd_ls_list_recursive(
+  fs : @fs.InMemoryFs,
+  dir_abs : String,
+  label : String,
+  show_all : Bool,
+  almost_all : Bool,
+  reverse : Bool,
+  one_per_line : Bool,
+  out : StringBuilder
+) -> Unit {
+  out.write_string(label + ":\n")
+  let names = cmd_ls_read_names(fs, dir_abs, show_all, almost_all, reverse)
+  cmd_ls_write_names(out, names, one_per_line)
+
+  let subdirs : Array[(String, String)] = []
+  let entries = try {
+    fs.readdir(dir_abs)
+  } catch {
+    @fs.FsError(_msg) => return
+  }
+
+  let child_names : Array[String] = []
+  for entry in entries {
+    match entry.entry_type {
+      @fs.EntryType::DirectoryType => {
+        let name = entry.name
+        if not(show_all) && not(almost_all) && name.length() > 0 && name[0] == '.' {
+          continue
+        }
+        child_names.push(name)
+      }
+      _ => ()
+    }
+  }
+  for i = 0; i < child_names.length(); i = i + 1 {
+    for j = 0; j < child_names.length() - i - 1; j = j + 1 {
+      if cmd_find_compare_ascii(child_names[j], child_names[j + 1]) > 0 {
+        let tmp = child_names[j]
+        child_names[j] = child_names[j + 1]
+        child_names[j + 1] = tmp
+      }
+    }
+  }
+  if reverse {
+    let mut l = 0
+    let mut r = child_names.length() - 1
+    while l < r {
+      let tmp = child_names[l]
+      child_names[l] = child_names[r]
+      child_names[r] = tmp
+      l += 1
+      r -= 1
+    }
+  }
+
+  for name in child_names {
+    let child_abs = if dir_abs == "/" {
+      "/" + name
+    } else {
+      dir_abs + "/" + name
+    }
+    let child_label = if label == "." {
+      "./" + name
+    } else if label == "/" {
+      "/" + name
+    } else {
+      label + "/" + name
+    }
+    subdirs.push((child_abs, child_label))
+  }
+
+  for i = 0; i < subdirs.length(); i = i + 1 {
+    out.write_char('\n')
+    cmd_ls_list_recursive(
+      fs,
+      subdirs[i].0,
+      subdirs[i].1,
+      show_all,
+      almost_all,
+      reverse,
+      one_per_line,
+      out,
+    )
+  }
 }
 
 /// mkdir: create directories
@@ -263,21 +504,35 @@ fn cmd_cp(ctx : CommandContext) -> @ast.ExecResult {
     return @ast.ExecResult::err("cp: missing operand\n")
   }
 
-  let src = try {
-    @fs.resolve_path(ctx.cwd, paths[0])
-  } catch {
-    @fs.FsError(msg) => return @ast.ExecResult::err("cp: \{msg}\n")
-  }
   let dst = try {
-    @fs.resolve_path(ctx.cwd, paths[1])
+    @fs.resolve_path(ctx.cwd, paths[paths.length() - 1])
   } catch {
     @fs.FsError(msg) => return @ast.ExecResult::err("cp: \{msg}\n")
   }
 
-  try {
-    ctx.fs.cp(src, dst, recursive=recursive)
-  } catch {
-    @fs.FsError(msg) => return @ast.ExecResult::err("cp: \{msg}\n")
+  if paths.length() > 2 {
+    let dst_is_dir = try {
+      let stat = ctx.fs.stat(dst)
+      stat.is_directory
+    } catch {
+      @fs.FsError(_msg) => false
+    }
+    if not(dst_is_dir) {
+      return @ast.ExecResult::err("cp: target '\{paths[paths.length() - 1]}' is not a directory\n")
+    }
+  }
+
+  for i = 0; i < paths.length() - 1; i = i + 1 {
+    let src = try {
+      @fs.resolve_path(ctx.cwd, paths[i])
+    } catch {
+      @fs.FsError(msg) => return @ast.ExecResult::err("cp: \{msg}\n")
+    }
+    try {
+      ctx.fs.cp(src, dst, recursive=recursive)
+    } catch {
+      @fs.FsError(msg) => return @ast.ExecResult::err("cp: \{msg}\n")
+    }
   }
   @ast.ExecResult::new()
 }
@@ -293,21 +548,35 @@ fn cmd_mv(ctx : CommandContext) -> @ast.ExecResult {
     return @ast.ExecResult::err("mv: missing operand\n")
   }
 
-  let src = try {
-    @fs.resolve_path(ctx.cwd, paths[0])
-  } catch {
-    @fs.FsError(msg) => return @ast.ExecResult::err("mv: \{msg}\n")
-  }
   let dst = try {
-    @fs.resolve_path(ctx.cwd, paths[1])
+    @fs.resolve_path(ctx.cwd, paths[paths.length() - 1])
   } catch {
     @fs.FsError(msg) => return @ast.ExecResult::err("mv: \{msg}\n")
   }
 
-  try {
-    ctx.fs.mv(src, dst)
-  } catch {
-    @fs.FsError(msg) => return @ast.ExecResult::err("mv: \{msg}\n")
+  if paths.length() > 2 {
+    let dst_is_dir = try {
+      let stat = ctx.fs.stat(dst)
+      stat.is_directory
+    } catch {
+      @fs.FsError(_msg) => false
+    }
+    if not(dst_is_dir) {
+      return @ast.ExecResult::err("mv: target '\{paths[paths.length() - 1]}' is not a directory\n")
+    }
+  }
+
+  for i = 0; i < paths.length() - 1; i = i + 1 {
+    let src = try {
+      @fs.resolve_path(ctx.cwd, paths[i])
+    } catch {
+      @fs.FsError(msg) => return @ast.ExecResult::err("mv: \{msg}\n")
+    }
+    try {
+      ctx.fs.mv(src, dst)
+    } catch {
+      @fs.FsError(msg) => return @ast.ExecResult::err("mv: \{msg}\n")
+    }
   }
   @ast.ExecResult::new()
 }

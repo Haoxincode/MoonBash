@@ -26,7 +26,12 @@ pub fn parse(input : String) -> @ast.Script raise @ast.BashError {
 /// Parse a token array into an AST Script.
 pub fn parse_tokens(tokens : Array[@ast.Token]) -> @ast.Script raise @ast.BashError {
   let parser : Parser = { tokens, pos: 0, depth: 0 }
-  parser.parse_script()
+  let script = parser.parse_script()
+  parser.skip_newlines()
+  if not(parser.at_end()) {
+    raise @ast.BashError("syntax error near unexpected token")
+  }
+  script
 }
 
 // ============================================================================
@@ -333,7 +338,7 @@ fn Parser::parse_simple_command(self : Parser) -> @ast.SimpleCommand raise @ast.
       @ast.Token::AssignmentWord(name, value) => {
         self.advance() |> ignore
         let word_value : @ast.Word? = if value.length() > 0 {
-          Some(make_literal_word(value))
+          Some(parse_word_content(value))
         } else {
           None
         }
@@ -363,6 +368,8 @@ fn Parser::parse_simple_command(self : Parser) -> @ast.SimpleCommand raise @ast.
       _ => break
     }
   }
+
+  self.consume_heredoc_bodies(redirections)
 
   { assignments, words, redirections }
 }
@@ -433,7 +440,20 @@ fn Parser::parse_redirection(self : Parser) -> @ast.Redirection raise @ast.BashE
   let target = match self.peek() {
     @ast.Token::Word(s) => {
       self.advance() |> ignore
-      parse_word_content(s)
+      match op {
+        @ast.RedirectOp::HereDoc(_strip_tabs) => {
+          // Quoted heredoc delimiters disable body expansion.
+          if has_single_quote_markers(s) {
+            let quoted_word : @ast.Word = {
+              parts: [@ast.WordPart::SingleQuoted(strip_single_quote_markers(s))]
+            }
+            quoted_word
+          } else {
+            parse_word_content(s)
+          }
+        }
+        _ => parse_word_content(s)
+      }
     }
     @ast.Token::Number(n) => {
       self.advance() |> ignore
@@ -443,6 +463,195 @@ fn Parser::parse_redirection(self : Parser) -> @ast.Redirection raise @ast.BashE
   }
 
   { fd, fd_var: None, op, target }
+}
+
+fn Parser::consume_heredoc_bodies(
+  self : Parser,
+  redirections : Array[@ast.Redirection]
+) -> Unit raise @ast.BashError {
+  let mut heredoc_count = 0
+  for redir in redirections {
+    match redir.op {
+      @ast.RedirectOp::HereDoc(_strip_tabs) => heredoc_count += 1
+      _ => ()
+    }
+  }
+  if heredoc_count == 0 {
+    return
+  }
+
+  // Heredoc payload starts on the next physical line.
+  if self.check(@ast.Token::Newline) {
+    self.advance() |> ignore
+  } else {
+    return
+  }
+
+  for i = 0; i < redirections.length(); i = i + 1 {
+    match redirections[i].op {
+      @ast.RedirectOp::HereDoc(_strip_tabs) => {
+        let (delimiter, quoted_delim) = heredoc_delimiter(redirections[i].target)
+        let body = self.read_heredoc_until(delimiter)
+        let body_word : @ast.Word = if quoted_delim {
+          {
+            parts: [@ast.WordPart::SingleQuoted(body)]
+          }
+        } else {
+          parse_word_content(body)
+        }
+        let redir = redirections[i]
+        redirections[i] = { fd: redir.fd, fd_var: redir.fd_var, op: redir.op, target: body_word }
+      }
+      _ => ()
+    }
+  }
+}
+
+fn Parser::read_heredoc_until(
+  self : Parser,
+  delimiter : String
+) -> String raise @ast.BashError {
+  let body = StringBuilder::new()
+  while not(self.at_end()) {
+    let line = self.read_line_tokens()
+    if line == delimiter {
+      return body.to_string()
+    }
+    body.write_string(line)
+    body.write_char('\n')
+  }
+  raise @ast.BashError("unexpected EOF while looking for matching heredoc delimiter")
+}
+
+fn Parser::read_line_tokens(self : Parser) -> String {
+  let parts : Array[String] = []
+  while not(self.at_end()) && not(self.check(@ast.Token::Newline)) {
+    let tok = self.advance()
+    parts.push(token_line_text(tok))
+  }
+  if self.check(@ast.Token::Newline) {
+    self.advance() |> ignore
+  }
+  join_tokens_with_space(parts)
+}
+
+fn token_line_text(tok : @ast.Token) -> String {
+  match tok {
+    @ast.Token::Word(s) => strip_single_quote_markers(s)
+    @ast.Token::Number(n) => n.to_string()
+    @ast.Token::Semi => ";"
+    @ast.Token::Pipe => "|"
+    @ast.Token::PipeAnd => "|&"
+    @ast.Token::And => "&&"
+    @ast.Token::Or => "||"
+    @ast.Token::Ampersand => "&"
+    @ast.Token::LeftParen => "("
+    @ast.Token::RightParen => ")"
+    @ast.Token::LeftBrace => "{"
+    @ast.Token::RightBrace => "}"
+    @ast.Token::Bang => "!"
+    @ast.Token::If => "if"
+    @ast.Token::Then => "then"
+    @ast.Token::Elif => "elif"
+    @ast.Token::Else => "else"
+    @ast.Token::Fi => "fi"
+    @ast.Token::For => "for"
+    @ast.Token::While => "while"
+    @ast.Token::Until => "until"
+    @ast.Token::Do => "do"
+    @ast.Token::Done => "done"
+    @ast.Token::Case => "case"
+    @ast.Token::Esac => "esac"
+    @ast.Token::In => "in"
+    @ast.Token::Function => "function"
+    @ast.Token::Select => "select"
+    @ast.Token::Time => "time"
+    @ast.Token::RedirectIn => "<"
+    @ast.Token::RedirectOut => ">"
+    @ast.Token::RedirectAppend => ">>"
+    @ast.Token::RedirectClobber => ">|"
+    @ast.Token::HereDoc => "<<"
+    @ast.Token::HereDocStrip => "<<-"
+    @ast.Token::HereString => "<<<"
+    @ast.Token::DupIn => "<&"
+    @ast.Token::DupOut => ">&"
+    @ast.Token::RedirectInOut => "<>"
+    @ast.Token::RedirectAndOut => "&>"
+    @ast.Token::RedirectAndAppend => "&>>"
+    @ast.Token::AssignmentWord(name, value) => {
+      if value.length() == 0 {
+        name + "="
+      } else {
+        name + "=" + strip_single_quote_markers(value)
+      }
+    }
+    @ast.Token::FdNumber(n) => n.to_string()
+    @ast.Token::DoubleBracketOpen => "[["
+    @ast.Token::DoubleBracketClose => "]]"
+    @ast.Token::Newline | @ast.Token::EOF => ""
+  }
+}
+
+fn join_tokens_with_space(parts : Array[String]) -> String {
+  let out = StringBuilder::new()
+  for i = 0; i < parts.length(); i = i + 1 {
+    if i > 0 {
+      out.write_char(' ')
+    }
+    out.write_string(parts[i])
+  }
+  out.to_string()
+}
+
+fn heredoc_delimiter(word : @ast.Word) -> (String, Bool) {
+  let out = StringBuilder::new()
+  let mut quoted = false
+  for part in word.parts {
+    match part {
+      @ast.WordPart::Literal(s) => out.write_string(s)
+      @ast.WordPart::SingleQuoted(s) => {
+        quoted = true
+        out.write_string(s)
+      }
+      @ast.WordPart::DoubleQuoted(inner) => {
+        quoted = true
+        for p in inner {
+          match p {
+            @ast.WordPart::Literal(s) => out.write_string(s)
+            @ast.WordPart::SingleQuoted(s) => out.write_string(s)
+            _ => ()
+          }
+        }
+      }
+      _ => ()
+    }
+  }
+  (out.to_string(), quoted)
+}
+
+fn has_single_quote_markers(s : String) -> Bool {
+  for i = 0; i < s.length(); i = i + 1 {
+    if s[i].to_int().unsafe_to_char() == '\u0001' {
+      return true
+    }
+  }
+  false
+}
+
+fn strip_single_quote_markers(s : String) -> String {
+  let out = StringBuilder::new()
+  let mut i = 0
+  while i < s.length() {
+    let ch = s[i].to_int().unsafe_to_char()
+    if ch == '\u0001' && i + 1 < s.length() {
+      out.write_char(s[i + 1].to_int().unsafe_to_char())
+      i += 2
+      continue
+    }
+    out.write_char(ch)
+    i += 1
+  }
+  out.to_string()
 }
 
 // ============================================================================

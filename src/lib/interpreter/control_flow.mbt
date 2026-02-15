@@ -126,6 +126,8 @@ fn ExecContext::execute_while(
 ) -> Unit {
   self.loop_depth += 1
   let mut iter_count = 0
+  let mut has_body_run = false
+  let mut last_body_status = 0
 
   while true {
     if self.should_exit || self.return_requested {
@@ -142,6 +144,13 @@ fn ExecContext::execute_while(
       }
     }
 
+    // Evaluate condition
+    self.execute_script(clause.condition)
+    if self.exit_code != 0 {
+      self.exit_code = if has_body_run { last_body_status } else { 0 }
+      break
+    }
+
     iter_count += 1
     if iter_count > self.limits.max_loop_iterations {
       self.stderr_buf.write_string("moonbash: while loop iteration limit exceeded\n")
@@ -149,14 +158,10 @@ fn ExecContext::execute_while(
       break
     }
 
-    // Evaluate condition
-    self.execute_script(clause.condition)
-    if self.exit_code != 0 {
-      break
-    }
-
     // Execute body
     self.execute_script(clause.body)
+    has_body_run = true
+    last_body_status = self.exit_code
   }
 
   self.loop_depth -= 1
@@ -172,6 +177,8 @@ fn ExecContext::execute_until(
 ) -> Unit {
   self.loop_depth += 1
   let mut iter_count = 0
+  let mut has_body_run = false
+  let mut last_body_status = 0
 
   while true {
     if self.should_exit || self.return_requested {
@@ -188,6 +195,13 @@ fn ExecContext::execute_until(
       }
     }
 
+    // Evaluate condition
+    self.execute_script(clause.condition)
+    if self.exit_code == 0 {
+      self.exit_code = if has_body_run { last_body_status } else { 0 }
+      break
+    }
+
     iter_count += 1
     if iter_count > self.limits.max_loop_iterations {
       self.stderr_buf.write_string("moonbash: until loop iteration limit exceeded\n")
@@ -195,14 +209,10 @@ fn ExecContext::execute_until(
       break
     }
 
-    // Evaluate condition
-    self.execute_script(clause.condition)
-    if self.exit_code == 0 {
-      break
-    }
-
     // Execute body
     self.execute_script(clause.body)
+    has_body_run = true
+    last_body_status = self.exit_code
   }
 
   self.loop_depth -= 1
