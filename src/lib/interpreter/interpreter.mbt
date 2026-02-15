@@ -656,6 +656,14 @@ fn ExecContext::run_builtin(
       self.builtin_paste(args)
       true
     }
+    "column" => {
+      self.builtin_column(args)
+      true
+    }
+    "join" => {
+      self.builtin_join(args)
+      true
+    }
     "tr" => {
       self.builtin_tr(args)
       true
@@ -1784,6 +1792,276 @@ fn ExecContext::builtin_paste(
   self.exit_code = 0
 }
 
+fn ExecContext::builtin_column(
+  self : ExecContext,
+  args : Array[String]
+) -> Unit {
+  let mut table_mode = false
+  let mut separator : String? = None
+  let files : Array[String] = []
+
+  let mut i = 0
+  while i < args.length() {
+    let arg = args[i]
+    if arg == "-t" {
+      table_mode = true
+      i += 1
+      continue
+    }
+    if arg == "-s" && i + 1 < args.length() {
+      separator = Some(args[i + 1])
+      i += 2
+      continue
+    }
+    if arg.has_prefix("-s") && arg.length() > 2 {
+      separator = Some(arg.substring(start=2))
+      i += 1
+      continue
+    }
+    if arg.length() > 1 && arg[0] == '-' {
+      for j = 1; j < arg.length(); j = j + 1 {
+        let flag = arg[j].to_int().unsafe_to_char()
+        match flag {
+          't' => table_mode = true
+          's' => {
+            if j + 1 < arg.length() {
+              separator = Some(arg.substring(start=j + 1))
+            } else if i + 1 < args.length() {
+              i += 1
+              separator = Some(args[i])
+            }
+            break
+          }
+          _ => ()
+        }
+      }
+      i += 1
+      continue
+    }
+    files.push(arg)
+    i += 1
+  }
+
+  let inputs : Array[String] = []
+  if files.length() == 0 {
+    inputs.push(self.stdin_buf)
+  } else {
+    for path in files {
+      let resolved = try {
+        @fs.resolve_path(self.cwd, path)
+      } catch {
+        _ => path
+      }
+      let content = try {
+        self.fs.read_file(resolved)
+      } catch {
+        @fs.FsError(msg) => {
+          self.stderr_buf.write_string("column: \{msg}\n")
+          self.exit_code = 1
+          return
+        }
+      }
+      inputs.push(content)
+    }
+  }
+
+  for input in inputs {
+    if table_mode {
+      self.stdout_buf.write_string(format_column_table(input, separator))
+    } else {
+      self.stdout_buf.write_string(input)
+    }
+  }
+
+  self.exit_code = 0
+}
+
+fn ExecContext::builtin_join(
+  self : ExecContext,
+  args : Array[String]
+) -> Unit {
+  let mut field1 = 1
+  let mut field2 = 1
+  let mut delimiter = " "
+  let mut include_unpair_1 = false
+  let mut include_unpair_2 = false
+  let mut only_unpair_file : Int? = None
+  let files : Array[String] = []
+
+  let mut i = 0
+  while i < args.length() {
+    let arg = args[i]
+    if arg == "-1" && i + 1 < args.length() {
+      field1 = parse_int_str(args[i + 1])
+      i += 2
+      continue
+    }
+    if arg.has_prefix("-1") && arg.length() > 2 {
+      field1 = parse_int_str(arg.substring(start=2))
+      i += 1
+      continue
+    }
+    if arg == "-2" && i + 1 < args.length() {
+      field2 = parse_int_str(args[i + 1])
+      i += 2
+      continue
+    }
+    if arg.has_prefix("-2") && arg.length() > 2 {
+      field2 = parse_int_str(arg.substring(start=2))
+      i += 1
+      continue
+    }
+    if arg == "-t" && i + 1 < args.length() {
+      delimiter = args[i + 1]
+      i += 2
+      continue
+    }
+    if arg.has_prefix("-t") && arg.length() > 2 {
+      delimiter = arg.substring(start=2)
+      i += 1
+      continue
+    }
+    if arg == "-a" && i + 1 < args.length() {
+      let side = parse_int_str(args[i + 1])
+      if side == 1 {
+        include_unpair_1 = true
+      } else if side == 2 {
+        include_unpair_2 = true
+      }
+      i += 2
+      continue
+    }
+    if arg.has_prefix("-a") && arg.length() > 2 {
+      let side = parse_int_str(arg.substring(start=2))
+      if side == 1 {
+        include_unpair_1 = true
+      } else if side == 2 {
+        include_unpair_2 = true
+      }
+      i += 1
+      continue
+    }
+    if arg == "-v" && i + 1 < args.length() {
+      let side = parse_int_str(args[i + 1])
+      if side == 1 || side == 2 {
+        only_unpair_file = Some(side)
+      }
+      i += 2
+      continue
+    }
+    if arg.has_prefix("-v") && arg.length() > 2 {
+      let side = parse_int_str(arg.substring(start=2))
+      if side == 1 || side == 2 {
+        only_unpair_file = Some(side)
+      }
+      i += 1
+      continue
+    }
+    files.push(arg)
+    i += 1
+  }
+
+  if files.length() < 2 {
+    self.stderr_buf.write_string("join: missing operand\n")
+    self.exit_code = 1
+    return
+  }
+
+  let read_join_file = (path : String) => {
+    let resolved = try {
+      @fs.resolve_path(self.cwd, path)
+    } catch {
+      _ => path
+    }
+    try {
+      self.fs.read_file(resolved)
+    } catch {
+      @fs.FsError(msg) => {
+        self.stderr_buf.write_string("join: \{msg}\n")
+        self.exit_code = 1
+        ""
+      }
+    }
+  }
+
+  let content1 = read_join_file(files[0])
+  if self.exit_code != 0 {
+    return
+  }
+  let content2 = read_join_file(files[1])
+  if self.exit_code != 0 {
+    return
+  }
+
+  let lines1 = split_lines_no_trailing(content1)
+  let lines2 = split_lines_no_trailing(content2)
+  let rows1 : Array[Array[String]] = []
+  let rows2 : Array[Array[String]] = []
+  for line in lines1 {
+    rows1.push(split_join_fields(line, delimiter))
+  }
+  for line in lines2 {
+    rows2.push(split_join_fields(line, delimiter))
+  }
+
+  let join_idx1 = if field1 > 0 { field1 - 1 } else { 0 }
+  let join_idx2 = if field2 > 0 { field2 - 1 } else { 0 }
+  let mut idx1 = 0
+  let mut idx2 = 0
+
+  let should_emit_unpair = (source : Int) => {
+    match only_unpair_file {
+      Some(side) => side == source
+      None => if source == 1 { include_unpair_1 } else { include_unpair_2 }
+    }
+  }
+
+  while idx1 < rows1.length() && idx2 < rows2.length() {
+    let key1 = join_field_value(rows1[idx1], join_idx1)
+    let key2 = join_field_value(rows2[idx2], join_idx2)
+    let cmp = compare_strings(key1, key2)
+    if cmp == 0 {
+      if only_unpair_file is None {
+        let line = format_join_line(
+          rows1[idx1],
+          rows2[idx2],
+          join_idx1,
+          join_idx2,
+          delimiter,
+        )
+        self.stdout_buf.write_string(line + "\n")
+      }
+      idx1 += 1
+      idx2 += 1
+    } else if cmp < 0 {
+      if should_emit_unpair(1) {
+        self.stdout_buf.write_string(lines1[idx1] + "\n")
+      }
+      idx1 += 1
+    } else {
+      if should_emit_unpair(2) {
+        self.stdout_buf.write_string(lines2[idx2] + "\n")
+      }
+      idx2 += 1
+    }
+  }
+
+  while idx1 < rows1.length() {
+    if should_emit_unpair(1) {
+      self.stdout_buf.write_string(lines1[idx1] + "\n")
+    }
+    idx1 += 1
+  }
+  while idx2 < rows2.length() {
+    if should_emit_unpair(2) {
+      self.stdout_buf.write_string(lines2[idx2] + "\n")
+    }
+    idx2 += 1
+  }
+
+  self.exit_code = 0
+}
+
 fn ExecContext::builtin_tr(
   self : ExecContext,
   args : Array[String]
@@ -2752,8 +3030,8 @@ fn is_shell_builtin(name : String) -> Bool {
     "export" | "unset" | "set" | "shift" | "exit" | "return" | "break"
     | "continue" | "read" | "test" | "[" | "printf" | "eval" | "source"
     | "." | "local" | "declare" | "typeset" | ":" | "type" | "command" | "basename"
-    | "dirname" | "seq" | "rev" | "nl" | "fold" | "expand" | "unexpand"
-    | "paste" | "tr" | "sort" | "uniq" | "cut" | "tee" | "sed" | "grep"
+    | "dirname" | "seq" | "rev" | "nl" | "fold" | "expand" | "unexpand" | "paste"
+    | "column" | "join" | "tr" | "sort" | "uniq" | "cut" | "tee" | "sed" | "grep"
     | "egrep" | "fgrep" | "rg" | "xargs" | "date" | "env" | "printenv"
     | "which" => true
     _ => false
@@ -3052,6 +3330,96 @@ fn parse_paste_delimiters(spec : String) -> Array[Char] {
     }
   }
   delimiters
+}
+
+fn format_column_table(input : String, separator : String?) -> String {
+  let lines = split_lines_no_trailing(input)
+  if lines.length() == 0 {
+    return ""
+  }
+
+  let rows : Array[Array[String]] = []
+  let widths : Array[Int] = []
+  for line in lines {
+    let fields = match separator {
+      Some(delim) => split_string_by_delimiter(line, delim)
+      None => split_by_whitespace(line)
+    }
+    rows.push(fields)
+    for col = 0; col < fields.length(); col = col + 1 {
+      let field_width = fields[col].length()
+      if col >= widths.length() {
+        widths.push(field_width)
+      } else if field_width > widths[col] {
+        widths[col] = field_width
+      }
+    }
+  }
+
+  let out = StringBuilder::new()
+  for row in rows {
+    for col = 0; col < row.length(); col = col + 1 {
+      let field = row[col]
+      out.write_string(field)
+      if col + 1 < row.length() {
+        let padding = widths[col] - field.length() + 2
+        out.write_string(repeat_char(' ', padding))
+      }
+    }
+    out.write_char('\n')
+  }
+  out.to_string()
+}
+
+fn split_join_fields(line : String, delimiter : String) -> Array[String] {
+  if delimiter == " " {
+    split_by_whitespace(line)
+  } else {
+    split_string_by_delimiter(line, delimiter)
+  }
+}
+
+fn join_field_value(fields : Array[String], index : Int) -> String {
+  if index >= 0 && index < fields.length() {
+    fields[index]
+  } else {
+    ""
+  }
+}
+
+fn join_parts_with_delimiter(parts : Array[String], delimiter : String) -> String {
+  let out = StringBuilder::new()
+  for i = 0; i < parts.length(); i = i + 1 {
+    if i > 0 {
+      out.write_string(delimiter)
+    }
+    out.write_string(parts[i])
+  }
+  out.to_string()
+}
+
+fn format_join_line(
+  fields1 : Array[String],
+  fields2 : Array[String],
+  join_idx1 : Int,
+  join_idx2 : Int,
+  delimiter : String
+) -> String {
+  let parts : Array[String] = []
+  parts.push(join_field_value(fields1, join_idx1))
+
+  for i = 0; i < fields1.length(); i = i + 1 {
+    if i != join_idx1 {
+      parts.push(fields1[i])
+    }
+  }
+  for i = 0; i < fields2.length(); i = i + 1 {
+    if i != join_idx2 {
+      parts.push(fields2[i])
+    }
+  }
+
+  join_parts_with_delimiter(parts, delimiter)
 }
 
 fn reverse_string(s : String) -> String {
