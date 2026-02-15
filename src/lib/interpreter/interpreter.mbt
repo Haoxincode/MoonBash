@@ -660,6 +660,30 @@ fn ExecContext::run_builtin(
       self.builtin_grep(args)
       true
     }
+    "egrep" => {
+      let grep_args : Array[String] = ["-E"]
+      for arg in args {
+        grep_args.push(arg)
+      }
+      self.builtin_grep(grep_args)
+      true
+    }
+    "fgrep" => {
+      let grep_args : Array[String] = ["-F"]
+      for arg in args {
+        grep_args.push(arg)
+      }
+      self.builtin_grep(grep_args)
+      true
+    }
+    "rg" => {
+      let grep_args : Array[String] = ["-E"]
+      for arg in args {
+        grep_args.push(arg)
+      }
+      self.builtin_grep(grep_args)
+      true
+    }
     "xargs" => {
       self.builtin_xargs(args)
       true
@@ -1289,16 +1313,55 @@ fn ExecContext::builtin_sort(
   let mut reverse = false
   let mut numeric = false
   let mut unique = false
+  let mut human = false
+  let mut version = false
+  let mut check_only = false
+  let mut ignore_leading_blanks = false
+  let mut key_field : Int? = None
+  let mut delimiter : String? = None
   let mut input_file : String? = None
 
-  for arg in args {
-    match arg {
-      "-r" => reverse = true
-      "-n" => numeric = true
-      "-u" => unique = true
-      "-rn" | "-nr" => { reverse = true; numeric = true }
-      _ => input_file = Some(arg)
+  let mut i = 0
+  while i < args.length() {
+    let arg = args[i]
+    if arg == "-k" && i + 1 < args.length() {
+      key_field = Some(parse_int_str(args[i + 1]))
+      i += 2
+      continue
     }
+    if arg.has_prefix("-k") && arg.length() > 2 {
+      key_field = Some(parse_int_str(arg.substring(start=2)))
+      i += 1
+      continue
+    }
+    if arg == "-t" && i + 1 < args.length() {
+      delimiter = Some(args[i + 1])
+      i += 2
+      continue
+    }
+    if arg.has_prefix("-t") && arg.length() > 2 {
+      delimiter = Some(arg.substring(start=2))
+      i += 1
+      continue
+    }
+    if arg.length() > 1 && arg[0] == '-' {
+      for j = 1; j < arg.length(); j = j + 1 {
+        let flag = arg[j].to_int().unsafe_to_char()
+        match flag {
+          'r' => reverse = true
+          'n' => numeric = true
+          'u' => unique = true
+          'h' => human = true
+          'V' => version = true
+          'c' => check_only = true
+          'b' => ignore_leading_blanks = true
+          _ => ()
+        }
+      }
+    } else {
+      input_file = Some(arg)
+    }
+    i += 1
   }
 
   let input = match input_file {
@@ -1322,34 +1385,56 @@ fn ExecContext::builtin_sort(
   }
 
   let lines = split_lines_no_trailing(input)
-
-  // Simple bubble sort
   let sorted = lines
-  for i = 0; i < sorted.length(); i = i + 1 {
-    for j = 0; j < sorted.length() - i - 1; j = j + 1 {
-      let should_swap = if numeric {
-        let a = parse_int_str(sorted[j])
-        let b = parse_int_str(sorted[j + 1])
-        if reverse { a < b } else { a > b }
-      } else {
-        if reverse { sorted[j] < sorted[j + 1] } else { sorted[j] > sorted[j + 1] }
-      }
-      if should_swap {
-        let tmp = sorted[j]
-        sorted[j] = sorted[j + 1]
-        sorted[j + 1] = tmp
-      }
+  let compare_lines = (a : String, b : String) => {
+    let key_a = extract_sort_key(a, key_field, delimiter, ignore_leading_blanks)
+    let key_b = extract_sort_key(b, key_field, delimiter, ignore_leading_blanks)
+
+    let mut cmp = if version {
+      compare_version_like(key_a, key_b)
+    } else if human {
+      compare_ints(parse_human_size(key_a), parse_human_size(key_b))
+    } else if numeric {
+      compare_ints(parse_int_str(key_a), parse_int_str(key_b))
+    } else {
+      compare_strings(key_a, key_b)
     }
+
+    if cmp == 0 {
+      cmp = compare_strings(a, b)
+    }
+    if reverse { -cmp } else { cmp }
   }
 
-  // Handle unique
-  let mut prev = ""
+  if check_only {
+    if sorted.length() > 1 {
+      for j = 1; j < sorted.length(); j = j + 1 {
+        if compare_lines(sorted[j - 1], sorted[j]) > 0 {
+          let label = input_file.unwrap_or("(stdin)")
+          let msg = "sort: \{label}:\{j + 1}: disorder: \{sorted[j]}\n"
+          self.stderr_buf.write_string(msg)
+          self.stdout_buf.write_string(msg)
+          self.exit_code = 1
+          return
+        }
+      }
+    }
+    self.exit_code = 0
+    return
+  }
+
+  sorted.sort_by(compare_lines)
+
+  let mut prev : String? = None
   for i = 0; i < sorted.length(); i = i + 1 {
-    if unique && i > 0 && sorted[i] == prev {
-      continue
+    if unique {
+      match prev {
+        Some(last) if last == sorted[i] => continue
+        _ => ()
+      }
     }
     self.stdout_buf.write_string(sorted[i] + "\n")
-    prev = sorted[i]
+    prev = Some(sorted[i])
   }
   self.exit_code = 0
 }
@@ -1527,14 +1612,30 @@ fn ExecContext::builtin_grep(
   let mut count_only = false
   let mut ignore_case = false
   let mut line_number = false
+  let mut list_files_only = false
+  let mut only_matching = false
+  let mut word_match = false
+  let mut no_filename = false
+  let mut recursive = false
+  let mut quiet = false
+  let mut extended = false
+  let mut fixed = false
+  let mut before_context = 0
+  let mut after_context = 0
+  let mut include_glob : String? = None
   let mut pattern = ""
-  let mut input_file : String? = None
+  let file_args : Array[String] = []
   let mut pattern_set = false
 
   let mut i = 0
   while i < args.length() {
     let arg = args[i]
-    if arg == "-v" {
+    if arg.has_prefix("--include=") {
+      include_glob = Some(arg.substring(start=10))
+    } else if arg == "--include" && i + 1 < args.length() {
+      i += 1
+      include_glob = Some(args[i])
+    } else if arg == "-v" {
       invert = true
     } else if arg == "-c" {
       count_only = true
@@ -1542,6 +1643,95 @@ fn ExecContext::builtin_grep(
       ignore_case = true
     } else if arg == "-n" {
       line_number = true
+    } else if arg == "-l" {
+      list_files_only = true
+    } else if arg == "-o" {
+      only_matching = true
+    } else if arg == "-w" {
+      word_match = true
+    } else if arg == "-h" {
+      no_filename = true
+    } else if arg == "-r" || arg == "-R" {
+      recursive = true
+    } else if arg == "-q" {
+      quiet = true
+    } else if arg == "-E" {
+      extended = true
+    } else if arg == "-F" {
+      fixed = true
+    } else if arg == "-A" && i + 1 < args.length() {
+      i += 1
+      after_context = parse_int_str(args[i])
+    } else if arg == "-B" && i + 1 < args.length() {
+      i += 1
+      before_context = parse_int_str(args[i])
+    } else if arg == "-C" && i + 1 < args.length() {
+      i += 1
+      let ctx = parse_int_str(args[i])
+      before_context = ctx
+      after_context = ctx
+    } else if arg.has_prefix("-A") && arg.length() > 2 {
+      after_context = parse_int_str(arg.substring(start=2))
+    } else if arg.has_prefix("-B") && arg.length() > 2 {
+      before_context = parse_int_str(arg.substring(start=2))
+    } else if arg.has_prefix("-C") && arg.length() > 2 {
+      let ctx = parse_int_str(arg.substring(start=2))
+      before_context = ctx
+      after_context = ctx
+    } else if arg.length() > 1 && arg[0] == '-' {
+      let mut consumed_value = false
+      for j = 1; j < arg.length(); j = j + 1 {
+        let flag = arg[j].to_int().unsafe_to_char()
+        match flag {
+          'v' => invert = true
+          'c' => count_only = true
+          'i' => ignore_case = true
+          'n' => line_number = true
+          'l' => list_files_only = true
+          'o' => only_matching = true
+          'w' => word_match = true
+          'h' => no_filename = true
+          'r' | 'R' => recursive = true
+          'q' => quiet = true
+          'E' => extended = true
+          'F' => fixed = true
+          'A' => {
+            if j + 1 < arg.length() {
+              after_context = parse_int_str(arg.substring(start=j + 1))
+            } else if i + 1 < args.length() {
+              i += 1
+              after_context = parse_int_str(args[i])
+            }
+            consumed_value = true
+          }
+          'B' => {
+            if j + 1 < arg.length() {
+              before_context = parse_int_str(arg.substring(start=j + 1))
+            } else if i + 1 < args.length() {
+              i += 1
+              before_context = parse_int_str(args[i])
+            }
+            consumed_value = true
+          }
+          'C' => {
+            let ctx = if j + 1 < arg.length() {
+              parse_int_str(arg.substring(start=j + 1))
+            } else if i + 1 < args.length() {
+              i += 1
+              parse_int_str(args[i])
+            } else {
+              0
+            }
+            before_context = ctx
+            after_context = ctx
+            consumed_value = true
+          }
+          _ => ()
+        }
+        if consumed_value {
+          break
+        }
+      }
     } else if arg == "-e" && i + 1 < args.length() {
       i += 1
       pattern = args[i]
@@ -1550,7 +1740,7 @@ fn ExecContext::builtin_grep(
       pattern = arg
       pattern_set = true
     } else {
-      input_file = Some(arg)
+      file_args.push(arg)
     }
     i += 1
   }
@@ -1561,54 +1751,195 @@ fn ExecContext::builtin_grep(
     return
   }
 
-  let input = match input_file {
-    Some(path) => {
+  let matcher = try {
+    @regex.compile_grep_matcher(
+      pattern,
+      extended~,
+      fixed~,
+      ignore_case~,
+    )
+  } catch {
+    _ => {
+      self.stderr_buf.write_string("grep: invalid regular expression\n")
+      self.exit_code = 2
+      return
+    }
+  }
+
+  let targets : Array[GrepTarget] = []
+  let mut had_io_error = false
+  if file_args.length() == 0 {
+    targets.push({ display_path: "", content: self.stdin_buf })
+  } else {
+    for raw_path in file_args {
       let resolved = try {
-        @fs.resolve_path(self.cwd, path)
+        @fs.resolve_path(self.cwd, raw_path)
       } catch {
-        _ => path
+        _ => raw_path
       }
-      try {
-        self.fs.read_file(resolved)
-      } catch {
-        @fs.FsError(msg) => {
-          self.stderr_buf.write_string("grep: \{msg}\n")
-          self.exit_code = 2
-          return
+      match self.fs.entries.get(resolved) {
+        Some(@fs.FsEntry::Directory(_)) if recursive => {
+          let mut prefix = resolved
+          if not(prefix.has_suffix("/")) {
+            prefix = prefix + "/"
+          }
+          let matched_paths : Array[String] = []
+          for full_path, entry in self.fs.entries {
+            if full_path.has_prefix(prefix) {
+              match entry {
+                @fs.FsEntry::File(_) => matched_paths.push(full_path)
+                _ => ()
+              }
+            }
+          }
+          matched_paths.sort()
+          for full_path in matched_paths {
+            let display = to_display_path(self.cwd, full_path)
+            match include_glob {
+              Some(glob) => {
+                if not(@fs.glob_match(glob, path_basename(display))) {
+                  continue
+                }
+              }
+              None => ()
+            }
+            match self.fs.entries.get(full_path) {
+              Some(@fs.FsEntry::File(file)) =>
+                targets.push({ display_path: display, content: file.content })
+              _ => ()
+            }
+          }
+        }
+        Some(@fs.FsEntry::Directory(_)) => {
+          self.stderr_buf.write_string("grep: \{raw_path}: Is a directory\n")
+          had_io_error = true
+        }
+        _ => {
+          let content = try {
+            self.fs.read_file(resolved)
+          } catch {
+            @fs.FsError(msg) => {
+              self.stderr_buf.write_string("grep: \{msg}\n")
+              had_io_error = true
+              continue
+            }
+          }
+          targets.push({ display_path: raw_path, content })
         }
       }
     }
-    None => self.stdin_buf
   }
 
-  let lines = split_lines_no_trailing(input)
-  let mut match_count = 0
+  let show_filename = not(no_filename) && (targets.length() > 1 || recursive)
+  let mut total_selected = 0
 
-  for line_idx = 0; line_idx < lines.length(); line_idx = line_idx + 1 {
-    let line = lines[line_idx]
-    let matches = if ignore_case {
-      contains_substring(to_lowercase(line), to_lowercase(pattern))
-    } else {
-      contains_substring(line, pattern)
+  for target in targets {
+    let lines = split_lines_no_trailing(target.content)
+    let line_matches : Array[Array[(Int, Int)]] = []
+    let selected_lines : Array[Bool] = []
+    let mut selected_count = 0
+
+    for line_idx = 0; line_idx < lines.length(); line_idx = line_idx + 1 {
+      let line = lines[line_idx]
+      let raw_ranges = matcher.find_all(line)
+      let ranges = filter_word_ranges(raw_ranges, line, word_match)
+      let has_match = ranges.length() > 0
+      let selected = if invert { not(has_match) } else { has_match }
+      line_matches.push(ranges)
+      selected_lines.push(selected)
+      if selected {
+        selected_count += 1
+      }
     }
-    let selected = if invert { not(matches) } else { matches }
-    if selected {
-      match_count += 1
-      if not(count_only) {
-        if line_number {
-          self.stdout_buf.write_string(
-            (line_idx + 1).to_string() + ":" + line + "\n",
+
+    if selected_count > 0 {
+      total_selected += selected_count
+    }
+
+    if quiet && selected_count > 0 {
+      self.exit_code = 0
+      return
+    }
+
+    if list_files_only {
+      if selected_count > 0 {
+        self.stdout_buf.write_string(target.display_path + "\n")
+      }
+      continue
+    }
+
+    if count_only {
+      if show_filename {
+        self.stdout_buf.write_string(
+          target.display_path + ":" + selected_count.to_string() + "\n",
+        )
+      } else {
+        self.stdout_buf.write_string(selected_count.to_string() + "\n")
+      }
+      continue
+    }
+
+    if only_matching {
+      for line_idx = 0; line_idx < lines.length(); line_idx = line_idx + 1 {
+        if not(selected_lines[line_idx]) || invert {
+          continue
+        }
+        let line = lines[line_idx]
+        for range in line_matches[line_idx] {
+          let prefix = grep_output_prefix(
+            target.display_path,
+            line_idx + 1,
+            show_filename,
+            line_number,
           )
-        } else {
-          self.stdout_buf.write_string(line + "\n")
+          let matched = substring_slice(line, range.0, range.1)
+          self.stdout_buf.write_string(prefix + matched + "\n")
+        }
+      }
+      continue
+    }
+
+    let mut print_mask = selected_lines
+    if before_context > 0 || after_context > 0 {
+      print_mask = Array::makei(lines.length(), _ => false)
+      for line_idx = 0; line_idx < lines.length(); line_idx = line_idx + 1 {
+        if selected_lines[line_idx] {
+          let start = if line_idx - before_context < 0 {
+            0
+          } else {
+            line_idx - before_context
+          }
+          let end = if line_idx + after_context >= lines.length() {
+            lines.length() - 1
+          } else {
+            line_idx + after_context
+          }
+          for j = start; j <= end; j = j + 1 {
+            print_mask[j] = true
+          }
         }
       }
     }
+
+    for line_idx = 0; line_idx < lines.length(); line_idx = line_idx + 1 {
+      if not(print_mask[line_idx]) {
+        continue
+      }
+      let prefix = grep_output_prefix(
+        target.display_path,
+        line_idx + 1,
+        show_filename,
+        line_number,
+      )
+      self.stdout_buf.write_string(prefix + lines[line_idx] + "\n")
+    }
   }
-  if count_only {
-    self.stdout_buf.write_string(match_count.to_string() + "\n")
+
+  if had_io_error {
+    self.exit_code = 2
+  } else {
+    self.exit_code = if total_selected > 0 { 0 } else { 1 }
   }
-  self.exit_code = if match_count > 0 { 0 } else { 1 }
 }
 
 fn ExecContext::builtin_xargs(
@@ -1663,6 +1994,11 @@ fn ExecContext::builtin_which(
   }
 }
 
+priv struct GrepTarget {
+  display_path : String
+  content : String
+}
+
 // ============================================================================
 // Helper Functions
 // ============================================================================
@@ -1673,7 +2009,7 @@ fn is_shell_builtin(name : String) -> Bool {
     | "continue" | "read" | "test" | "[" | "printf" | "eval" | "source"
     | "." | "local" | "declare" | "typeset" | ":" | "type" | "command"
     | "basename" | "dirname" | "seq" | "rev" | "tr" | "sort" | "uniq"
-    | "cut" | "tee" | "grep" | "xargs" | "date" | "env" | "printenv"
+    | "cut" | "tee" | "grep" | "egrep" | "fgrep" | "rg" | "xargs" | "date" | "env" | "printenv"
     | "which" => true
     _ => false
   }
@@ -1799,6 +2135,260 @@ fn contains_substring(haystack : String, needle : String) -> Bool {
     }
   }
   false
+}
+
+fn compare_ints(a : Int, b : Int) -> Int {
+  if a < b {
+    -1
+  } else if a > b {
+    1
+  } else {
+    0
+  }
+}
+
+fn compare_strings(a : String, b : String) -> Int {
+  if a < b {
+    -1
+  } else if a > b {
+    1
+  } else {
+    0
+  }
+}
+
+fn ltrim_blanks(s : String) -> String {
+  let mut i = 0
+  while i < s.length() {
+    let ch = s[i].to_int().unsafe_to_char()
+    if ch == ' ' || ch == '\t' {
+      i += 1
+    } else {
+      break
+    }
+  }
+  s.substring(start=i)
+}
+
+fn split_version_tokens(s : String) -> Array[String] {
+  let tokens : Array[String] = []
+  if s.length() == 0 {
+    return tokens
+  }
+  let mut start = 0
+  let mut in_digit = is_ascii_digit(s[0].to_int().unsafe_to_char())
+  for i = 1; i < s.length(); i = i + 1 {
+    let is_digit = is_ascii_digit(s[i].to_int().unsafe_to_char())
+    if is_digit != in_digit {
+      tokens.push(s.substring(start=start, end=i))
+      start = i
+      in_digit = is_digit
+    }
+  }
+  tokens.push(s.substring(start=start))
+  tokens
+}
+
+fn compare_version_like(a : String, b : String) -> Int {
+  let ta = split_version_tokens(a)
+  let tb = split_version_tokens(b)
+  let max_len = if ta.length() > tb.length() { ta.length() } else { tb.length() }
+  for i = 0; i < max_len; i = i + 1 {
+    if i >= ta.length() {
+      return -1
+    }
+    if i >= tb.length() {
+      return 1
+    }
+    let sa = ta[i]
+    let sb = tb[i]
+    let a_num = is_numeric_token(sa)
+    let b_num = is_numeric_token(sb)
+    let cmp = if a_num && b_num {
+      compare_ints(parse_int_str(sa), parse_int_str(sb))
+    } else {
+      compare_strings(sa, sb)
+    }
+    if cmp != 0 {
+      return cmp
+    }
+  }
+  0
+}
+
+fn is_numeric_token(s : String) -> Bool {
+  if s.length() == 0 {
+    return false
+  }
+  for i = 0; i < s.length(); i = i + 1 {
+    if not(is_ascii_digit(s[i].to_int().unsafe_to_char())) {
+      return false
+    }
+  }
+  true
+}
+
+fn parse_human_size(s : String) -> Int {
+  let trimmed = ltrim_blanks(s)
+  if trimmed.length() == 0 {
+    return 0
+  }
+
+  let mut i = 0
+  if trimmed[i] == '-' || trimmed[i] == '+' {
+    i += 1
+  }
+  while i < trimmed.length() {
+    let ch = trimmed[i].to_int().unsafe_to_char()
+    if is_ascii_digit(ch) || ch == '.' {
+      i += 1
+    } else {
+      break
+    }
+  }
+  if i == 0 {
+    return 0
+  }
+
+  let number = parse_int_str(trimmed.substring(start=0, end=i))
+  if i >= trimmed.length() {
+    return number
+  }
+  let unit = ascii_upper(trimmed[i].to_int().unsafe_to_char())
+  let factor = match unit {
+    'K' => 1024
+    'M' => 1024 * 1024
+    'G' => 1024 * 1024 * 1024
+    'T' => 1024 * 1024 * 1024 * 1024
+    _ => 1
+  }
+  number * factor
+}
+
+fn ascii_upper(ch : Char) -> Char {
+  if ch >= 'a' && ch <= 'z' {
+    (ch.to_int() - 32).unsafe_to_char()
+  } else {
+    ch
+  }
+}
+
+fn is_ascii_digit(ch : Char) -> Bool {
+  ch >= '0' && ch <= '9'
+}
+
+fn extract_sort_key(
+  line : String,
+  key_field : Int?,
+  delimiter : String?,
+  ignore_leading_blanks : Bool
+) -> String {
+  let key = match key_field {
+    None => line
+    Some(field) => {
+      let parts = match delimiter {
+        Some(delim) => split_string_by_delimiter(line, delim)
+        None => split_by_whitespace(line)
+      }
+      if field > 0 && field <= parts.length() {
+        parts[field - 1]
+      } else {
+        ""
+      }
+    }
+  }
+  if ignore_leading_blanks {
+    ltrim_blanks(key)
+  } else {
+    key
+  }
+}
+
+fn to_display_path(cwd : String, path : String) -> String {
+  let prefix = cwd + "/"
+  if path.has_prefix(prefix) {
+    path.substring(start=prefix.length())
+  } else {
+    path
+  }
+}
+
+fn path_basename(path : String) -> String {
+  let mut slash = -1
+  for i = 0; i < path.length(); i = i + 1 {
+    if path[i] == '/' {
+      slash = i
+    }
+  }
+  if slash < 0 {
+    path
+  } else if slash + 1 >= path.length() {
+    ""
+  } else {
+    path.substring(start=slash + 1)
+  }
+}
+
+fn grep_output_prefix(
+  display_path : String,
+  line_number : Int,
+  show_filename : Bool,
+  show_line_number : Bool
+) -> String {
+  if show_filename && show_line_number {
+    display_path + ":" + line_number.to_string() + ":"
+  } else if show_filename {
+    display_path + ":"
+  } else if show_line_number {
+    line_number.to_string() + ":"
+  } else {
+    ""
+  }
+}
+
+fn substring_slice(s : String, start : Int, end : Int) -> String {
+  if start >= end || start < 0 || end > s.length() {
+    return ""
+  }
+  s.substring(start=start, end=end)
+}
+
+fn filter_word_ranges(
+  ranges : Array[(Int, Int)],
+  line : String,
+  word_match : Bool
+) -> Array[(Int, Int)] {
+  if not(word_match) {
+    return ranges
+  }
+  let filtered : Array[(Int, Int)] = []
+  for range in ranges {
+    if is_word_boundary(line, range.0, range.1) {
+      filtered.push(range)
+    }
+  }
+  filtered
+}
+
+fn is_word_boundary(line : String, start : Int, end : Int) -> Bool {
+  let left_ok = if start <= 0 {
+    true
+  } else {
+    not(is_word_char(line[start - 1].to_int().unsafe_to_char()))
+  }
+  let right_ok = if end >= line.length() {
+    true
+  } else {
+    not(is_word_char(line[end].to_int().unsafe_to_char()))
+  }
+  left_ok && right_ok
+}
+
+fn is_word_char(ch : Char) -> Bool {
+  (ch >= 'a' && ch <= 'z') ||
+  (ch >= 'A' && ch <= 'Z') ||
+  (ch >= '0' && ch <= '9') ||
+  ch == '_'
 }
 
 fn expand_tr_set(s : String) -> Array[Char] {
