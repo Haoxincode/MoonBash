@@ -11,18 +11,24 @@ fn ExecContext::expand_word(self : ExecContext, word : @ast.Word) -> Array[Strin
   if expanded.length() == 0 {
     return [""]
   }
-  // Word splitting only happens on unquoted expansions
-  // For simplicity, we check if the word is entirely quoted
-  let is_quoted = if word.parts.length() == 1 {
-    match word.parts[0] {
-      @ast.WordPart::SingleQuoted(_) => true
-      @ast.WordPart::DoubleQuoted(_) => true
-      _ => false
+  // Word splitting only applies after expansions. Pure literal words
+  // (including quoted/escaped literals that become a single token) must
+  // remain a single argument.
+  let mut has_splittable_expansion = false
+  for part in word.parts {
+    match part {
+      @ast.WordPart::Variable(_)
+      | @ast.WordPart::ParameterExpansion(_)
+      | @ast.WordPart::CommandSubstitution(_)
+      | @ast.WordPart::ArithmeticExpansion(_) => {
+        has_splittable_expansion = true
+        break
+      }
+      _ => ()
     }
-  } else {
-    false
   }
-  if is_quoted {
+
+  if not(has_splittable_expansion) {
     [expanded]
   } else {
     self.word_split(expanded)

@@ -636,6 +636,26 @@ fn ExecContext::run_builtin(
       self.builtin_rev(args)
       true
     }
+    "nl" => {
+      self.builtin_nl(args)
+      true
+    }
+    "fold" => {
+      self.builtin_fold(args)
+      true
+    }
+    "expand" => {
+      self.builtin_expand(args)
+      true
+    }
+    "unexpand" => {
+      self.builtin_unexpand(args)
+      true
+    }
+    "paste" => {
+      self.builtin_paste(args)
+      true
+    }
     "tr" => {
       self.builtin_tr(args)
       true
@@ -1252,6 +1272,515 @@ fn ExecContext::builtin_rev(
     let reversed = reverse_string(line)
     self.stdout_buf.write_string(reversed + "\n")
   }
+  self.exit_code = 0
+}
+
+fn ExecContext::builtin_nl(
+  self : ExecContext,
+  args : Array[String]
+) -> Unit {
+  let mut number_all = false
+  let mut number_format = "rn"
+  let mut width = 6
+  let mut separator = "\t"
+  let mut current_number = 1
+  let mut increment = 1
+  let files : Array[String] = []
+
+  let mut i = 0
+  while i < args.length() {
+    let arg = args[i]
+    if arg == "-b" && i + 1 < args.length() {
+      let style = args[i + 1]
+      number_all = style == "a"
+      i += 2
+      continue
+    }
+    if arg.has_prefix("-b") && arg.length() > 2 {
+      let style = arg.substring(start=2)
+      number_all = style == "a"
+      i += 1
+      continue
+    }
+    if arg == "-n" && i + 1 < args.length() {
+      number_format = args[i + 1]
+      i += 2
+      continue
+    }
+    if arg.has_prefix("-n") && arg.length() > 2 {
+      number_format = arg.substring(start=2)
+      i += 1
+      continue
+    }
+    if arg == "-w" && i + 1 < args.length() {
+      width = parse_int_str(args[i + 1])
+      i += 2
+      continue
+    }
+    if arg.has_prefix("-w") && arg.length() > 2 {
+      width = parse_int_str(arg.substring(start=2))
+      i += 1
+      continue
+    }
+    if arg == "-s" && i + 1 < args.length() {
+      separator = args[i + 1]
+      i += 2
+      continue
+    }
+    if arg.has_prefix("-s") && arg.length() > 2 {
+      separator = arg.substring(start=2)
+      i += 1
+      continue
+    }
+    if arg == "-v" && i + 1 < args.length() {
+      current_number = parse_int_str(args[i + 1])
+      i += 2
+      continue
+    }
+    if arg.has_prefix("-v") && arg.length() > 2 {
+      current_number = parse_int_str(arg.substring(start=2))
+      i += 1
+      continue
+    }
+    if arg == "-i" && i + 1 < args.length() {
+      increment = parse_int_str(args[i + 1])
+      i += 2
+      continue
+    }
+    if arg.has_prefix("-i") && arg.length() > 2 {
+      increment = parse_int_str(arg.substring(start=2))
+      i += 1
+      continue
+    }
+    files.push(arg)
+    i += 1
+  }
+
+  if width < 0 {
+    width = 0
+  }
+
+  let inputs : Array[String] = []
+  if files.length() == 0 {
+    inputs.push(self.stdin_buf)
+  } else {
+    for path in files {
+      let resolved = try {
+        @fs.resolve_path(self.cwd, path)
+      } catch {
+        _ => path
+      }
+      let content = try {
+        self.fs.read_file(resolved)
+      } catch {
+        @fs.FsError(msg) => {
+          self.stderr_buf.write_string("nl: \{msg}\n")
+          self.exit_code = 1
+          return
+        }
+      }
+      inputs.push(content)
+    }
+  }
+
+  for input in inputs {
+    let lines = split_lines_no_trailing(input)
+    for line in lines {
+      let should_number = number_all || line.length() > 0
+      if should_number {
+        self.stdout_buf.write_string(
+          format_nl_number(current_number, width, number_format),
+        )
+        current_number += increment
+      } else {
+        self.stdout_buf.write_string(repeat_char(' ', width))
+      }
+      self.stdout_buf.write_string(separator)
+      self.stdout_buf.write_string(line)
+      self.stdout_buf.write_char('\n')
+    }
+  }
+  self.exit_code = 0
+}
+
+fn ExecContext::builtin_fold(
+  self : ExecContext,
+  args : Array[String]
+) -> Unit {
+  let mut width = 80
+  let mut break_spaces = false
+  let files : Array[String] = []
+
+  let mut i = 0
+  while i < args.length() {
+    let arg = args[i]
+    if arg == "-s" {
+      break_spaces = true
+      i += 1
+      continue
+    }
+    if arg == "-w" && i + 1 < args.length() {
+      width = parse_int_str(args[i + 1])
+      i += 2
+      continue
+    }
+    if arg.has_prefix("-w") && arg.length() > 2 {
+      width = parse_int_str(arg.substring(start=2))
+      i += 1
+      continue
+    }
+    if arg.length() > 1 && arg[0] == '-' {
+      let mut consumed_value = false
+      for j = 1; j < arg.length(); j = j + 1 {
+        let flag = arg[j].to_int().unsafe_to_char()
+        match flag {
+          's' => break_spaces = true
+          'w' => {
+            if j + 1 < arg.length() {
+              width = parse_int_str(arg.substring(start=j + 1))
+            } else if i + 1 < args.length() {
+              i += 1
+              width = parse_int_str(args[i])
+            }
+            consumed_value = true
+            break
+          }
+          _ => ()
+        }
+      }
+      i += 1
+      if consumed_value {
+        continue
+      }
+      continue
+    }
+    files.push(arg)
+    i += 1
+  }
+
+  if width <= 0 {
+    width = 1
+  }
+
+  if files.length() == 0 {
+    self.stdout_buf.write_string(fold_text(self.stdin_buf, width, break_spaces))
+    self.exit_code = 0
+    return
+  }
+
+  for path in files {
+    let resolved = try {
+      @fs.resolve_path(self.cwd, path)
+    } catch {
+      _ => path
+    }
+    let content = try {
+      self.fs.read_file(resolved)
+    } catch {
+      @fs.FsError(msg) => {
+        self.stderr_buf.write_string("fold: \{msg}\n")
+        self.exit_code = 1
+        return
+      }
+    }
+    self.stdout_buf.write_string(fold_text(content, width, break_spaces))
+  }
+
+  self.exit_code = 0
+}
+
+fn ExecContext::builtin_expand(
+  self : ExecContext,
+  args : Array[String]
+) -> Unit {
+  let mut tab_width = 8
+  let files : Array[String] = []
+
+  let mut i = 0
+  while i < args.length() {
+    let arg = args[i]
+    if arg == "-t" && i + 1 < args.length() {
+      tab_width = parse_int_str(args[i + 1])
+      i += 2
+      continue
+    }
+    if arg.has_prefix("-t") && arg.length() > 2 {
+      tab_width = parse_int_str(arg.substring(start=2))
+      i += 1
+      continue
+    }
+    files.push(arg)
+    i += 1
+  }
+
+  if tab_width <= 0 {
+    tab_width = 8
+  }
+
+  if files.length() == 0 {
+    self.stdout_buf.write_string(expand_tabs(self.stdin_buf, tab_width))
+    self.exit_code = 0
+    return
+  }
+
+  for path in files {
+    let resolved = try {
+      @fs.resolve_path(self.cwd, path)
+    } catch {
+      _ => path
+    }
+    let content = try {
+      self.fs.read_file(resolved)
+    } catch {
+      @fs.FsError(msg) => {
+        self.stderr_buf.write_string("expand: \{msg}\n")
+        self.exit_code = 1
+        return
+      }
+    }
+    self.stdout_buf.write_string(expand_tabs(content, tab_width))
+  }
+
+  self.exit_code = 0
+}
+
+fn ExecContext::builtin_unexpand(
+  self : ExecContext,
+  args : Array[String]
+) -> Unit {
+  let mut convert_all = false
+  let mut tab_width = 8
+  let files : Array[String] = []
+
+  let mut i = 0
+  while i < args.length() {
+    let arg = args[i]
+    if arg == "-a" {
+      convert_all = true
+      i += 1
+      continue
+    }
+    if arg == "-t" && i + 1 < args.length() {
+      tab_width = parse_int_str(args[i + 1])
+      i += 2
+      continue
+    }
+    if arg.has_prefix("-t") && arg.length() > 2 {
+      tab_width = parse_int_str(arg.substring(start=2))
+      i += 1
+      continue
+    }
+    if arg.length() > 1 && arg[0] == '-' {
+      for j = 1; j < arg.length(); j = j + 1 {
+        let flag = arg[j].to_int().unsafe_to_char()
+        match flag {
+          'a' => convert_all = true
+          't' => {
+            if j + 1 < arg.length() {
+              tab_width = parse_int_str(arg.substring(start=j + 1))
+            } else if i + 1 < args.length() {
+              i += 1
+              tab_width = parse_int_str(args[i])
+            }
+            break
+          }
+          _ => ()
+        }
+      }
+      i += 1
+      continue
+    }
+    files.push(arg)
+    i += 1
+  }
+
+  if tab_width <= 0 {
+    tab_width = 8
+  }
+
+  if files.length() == 0 {
+    self.stdout_buf.write_string(
+      unexpand_tabs(self.stdin_buf, tab_width, convert_all),
+    )
+    self.exit_code = 0
+    return
+  }
+
+  for path in files {
+    let resolved = try {
+      @fs.resolve_path(self.cwd, path)
+    } catch {
+      _ => path
+    }
+    let content = try {
+      self.fs.read_file(resolved)
+    } catch {
+      @fs.FsError(msg) => {
+        self.stderr_buf.write_string("unexpand: \{msg}\n")
+        self.exit_code = 1
+        return
+      }
+    }
+    self.stdout_buf.write_string(
+      unexpand_tabs(content, tab_width, convert_all),
+    )
+  }
+
+  self.exit_code = 0
+}
+
+fn ExecContext::builtin_paste(
+  self : ExecContext,
+  args : Array[String]
+) -> Unit {
+  let mut serial_mode = false
+  let mut delimiter_spec = "\t"
+  let sources : Array[String] = []
+
+  let mut i = 0
+  while i < args.length() {
+    let arg = args[i]
+    if arg == "-s" {
+      serial_mode = true
+      i += 1
+      continue
+    }
+    if arg == "-d" && i + 1 < args.length() {
+      delimiter_spec = args[i + 1]
+      i += 2
+      continue
+    }
+    if arg.has_prefix("-d") && arg.length() > 2 {
+      delimiter_spec = arg.substring(start=2)
+      i += 1
+      continue
+    }
+    if arg.length() > 1 && arg[0] == '-' && arg != "-" {
+      for j = 1; j < arg.length(); j = j + 1 {
+        let flag = arg[j].to_int().unsafe_to_char()
+        match flag {
+          's' => serial_mode = true
+          'd' => {
+            if j + 1 < arg.length() {
+              delimiter_spec = arg.substring(start=j + 1)
+            } else if i + 1 < args.length() {
+              i += 1
+              delimiter_spec = args[i]
+            } else {
+              delimiter_spec = ""
+            }
+            break
+          }
+          _ => ()
+        }
+      }
+      i += 1
+      continue
+    }
+    sources.push(arg)
+    i += 1
+  }
+
+  if sources.length() == 0 {
+    sources.push("-")
+  }
+
+  let source_is_stdin : Array[Bool] = []
+  let source_lines : Array[Array[String]] = []
+  for source in sources {
+    if source == "-" {
+      source_is_stdin.push(true)
+      source_lines.push([])
+      continue
+    }
+    let resolved = try {
+      @fs.resolve_path(self.cwd, source)
+    } catch {
+      _ => source
+    }
+    let content = try {
+      self.fs.read_file(resolved)
+    } catch {
+      @fs.FsError(msg) => {
+        self.stderr_buf.write_string("paste: \{msg}\n")
+        self.exit_code = 1
+        return
+      }
+    }
+    source_is_stdin.push(false)
+    source_lines.push(split_lines_no_trailing(content))
+  }
+
+  let delimiters = parse_paste_delimiters(delimiter_spec)
+  let stdin_lines = split_lines_no_trailing(self.stdin_buf)
+  let mut stdin_cursor = 0
+
+  if serial_mode {
+    for source_idx = 0; source_idx < sources.length(); source_idx = source_idx + 1 {
+      let lines : Array[String] = if source_is_stdin[source_idx] {
+        let remaining : Array[String] = []
+        for j = stdin_cursor; j < stdin_lines.length(); j = j + 1 {
+          remaining.push(stdin_lines[j])
+        }
+        stdin_cursor = stdin_lines.length()
+        remaining
+      } else {
+        source_lines[source_idx]
+      }
+
+      for line_idx = 0; line_idx < lines.length(); line_idx = line_idx + 1 {
+        if line_idx > 0 && delimiters.length() > 0 {
+          let delim = delimiters[(line_idx - 1) % delimiters.length()]
+          self.stdout_buf.write_char(delim)
+        }
+        self.stdout_buf.write_string(lines[line_idx])
+      }
+      self.stdout_buf.write_char('\n')
+    }
+    self.exit_code = 0
+    return
+  }
+
+  let mut row = 0
+  while true {
+    let row_values : Array[String] = []
+    let mut row_has_data = false
+
+    for source_idx = 0; source_idx < sources.length(); source_idx = source_idx + 1 {
+      if source_is_stdin[source_idx] {
+        if stdin_cursor < stdin_lines.length() {
+          row_values.push(stdin_lines[stdin_cursor])
+          stdin_cursor += 1
+          row_has_data = true
+        } else {
+          row_values.push("")
+        }
+      } else {
+        let lines = source_lines[source_idx]
+        if row < lines.length() {
+          row_values.push(lines[row])
+          row_has_data = true
+        } else {
+          row_values.push("")
+        }
+      }
+    }
+
+    if not(row_has_data) {
+      break
+    }
+
+    for col_idx = 0; col_idx < row_values.length(); col_idx = col_idx + 1 {
+      if col_idx > 0 && delimiters.length() > 0 {
+        let delim = delimiters[(col_idx - 1) % delimiters.length()]
+        self.stdout_buf.write_char(delim)
+      }
+      self.stdout_buf.write_string(row_values[col_idx])
+    }
+    self.stdout_buf.write_char('\n')
+    row += 1
+  }
+
   self.exit_code = 0
 }
 
@@ -2222,9 +2751,10 @@ fn is_shell_builtin(name : String) -> Bool {
   match name {
     "export" | "unset" | "set" | "shift" | "exit" | "return" | "break"
     | "continue" | "read" | "test" | "[" | "printf" | "eval" | "source"
-    | "." | "local" | "declare" | "typeset" | ":" | "type" | "command"
-    | "basename" | "dirname" | "seq" | "rev" | "tr" | "sort" | "uniq"
-    | "cut" | "tee" | "sed" | "grep" | "egrep" | "fgrep" | "rg" | "xargs" | "date" | "env" | "printenv"
+    | "." | "local" | "declare" | "typeset" | ":" | "type" | "command" | "basename"
+    | "dirname" | "seq" | "rev" | "nl" | "fold" | "expand" | "unexpand"
+    | "paste" | "tr" | "sort" | "uniq" | "cut" | "tee" | "sed" | "grep"
+    | "egrep" | "fgrep" | "rg" | "xargs" | "date" | "env" | "printenv"
     | "which" => true
     _ => false
   }
@@ -2307,6 +2837,221 @@ fn split_lines_no_trailing(s : String) -> Array[String] {
   } else {
     lines
   }
+}
+
+fn repeat_char(ch : Char, count : Int) -> String {
+  let out = StringBuilder::new()
+  let total = if count < 0 { 0 } else { count }
+  for i = 0; i < total; i = i + 1 {
+    out.write_char(ch)
+  }
+  out.to_string()
+}
+
+fn format_nl_number(number : Int, width : Int, number_format : String) -> String {
+  let text = number.to_string()
+  let padding = width - text.length()
+  if padding <= 0 {
+    return text
+  }
+  match number_format {
+    "ln" => text + repeat_char(' ', padding)
+    "rz" => repeat_char('0', padding) + text
+    _ => repeat_char(' ', padding) + text
+  }
+}
+
+fn fold_text(input : String, width : Int, break_spaces : Bool) -> String {
+  let out = StringBuilder::new()
+  let line = StringBuilder::new()
+
+  for i = 0; i < input.length(); i = i + 1 {
+    let ch = input[i].to_int().unsafe_to_char()
+    if ch == '\n' {
+      out.write_string(fold_single_line(line.to_string(), width, break_spaces))
+      out.write_char('\n')
+      line.reset()
+    } else {
+      line.write_char(ch)
+    }
+  }
+
+  let remaining = line.to_string()
+  if remaining.length() > 0 {
+    out.write_string(fold_single_line(remaining, width, break_spaces))
+  }
+
+  out.to_string()
+}
+
+fn fold_single_line(line : String, width : Int, break_spaces : Bool) -> String {
+  if line.length() <= width {
+    return line
+  }
+
+  let out = StringBuilder::new()
+  let mut cursor = 0
+  while cursor < line.length() {
+    let remaining = line.length() - cursor
+    if remaining <= width {
+      out.write_string(substring_slice(line, cursor, line.length()))
+      break
+    }
+
+    let mut cut = cursor + width
+    if break_spaces {
+      let mut last_blank = -1
+      for i = cursor; i < cut; i = i + 1 {
+        let ch = line[i].to_int().unsafe_to_char()
+        if ch == ' ' || ch == '\t' {
+          last_blank = i
+        }
+      }
+      if last_blank >= cursor {
+        cut = last_blank + 1
+      }
+    }
+
+    if cut <= cursor {
+      cut = cursor + width
+    }
+
+    out.write_string(substring_slice(line, cursor, cut))
+    out.write_char('\n')
+    cursor = cut
+  }
+
+  out.to_string()
+}
+
+fn expand_tabs(input : String, tab_width : Int) -> String {
+  let width = if tab_width <= 0 { 8 } else { tab_width }
+  let out = StringBuilder::new()
+  let mut col = 0
+  for i = 0; i < input.length(); i = i + 1 {
+    let ch = input[i].to_int().unsafe_to_char()
+    if ch == '\t' {
+      let spaces = width - (col % width)
+      for j = 0; j < spaces; j = j + 1 {
+        out.write_char(' ')
+      }
+      col += spaces
+    } else {
+      out.write_char(ch)
+      if ch == '\n' {
+        col = 0
+      } else {
+        col += 1
+      }
+    }
+  }
+  out.to_string()
+}
+
+fn write_unexpand_space_run(
+  out : StringBuilder,
+  count : Int,
+  start_col : Int,
+  tab_width : Int
+) -> Unit {
+  let mut remaining = count
+  let mut col = start_col
+  while remaining > 0 {
+    let mut to_tab = tab_width - (col % tab_width)
+    if to_tab <= 0 {
+      to_tab = tab_width
+    }
+    if to_tab <= remaining {
+      out.write_char('\t')
+      col += to_tab
+      remaining -= to_tab
+    } else {
+      out.write_char(' ')
+      col += 1
+      remaining -= 1
+    }
+  }
+}
+
+fn unexpand_tabs(input : String, tab_width : Int, convert_all : Bool) -> String {
+  let width = if tab_width <= 0 { 8 } else { tab_width }
+  let out = StringBuilder::new()
+  let mut col = 0
+  let mut leading = true
+  let mut pending_spaces = 0
+
+  for i = 0; i < input.length(); i = i + 1 {
+    let ch = input[i].to_int().unsafe_to_char()
+
+    if ch == ' ' {
+      pending_spaces += 1
+      col += 1
+      continue
+    }
+
+    if pending_spaces > 0 {
+      let start_col = col - pending_spaces
+      if convert_all || leading {
+        write_unexpand_space_run(out, pending_spaces, start_col, width)
+      } else {
+        out.write_string(repeat_char(' ', pending_spaces))
+      }
+      pending_spaces = 0
+    }
+
+    if ch == '\n' {
+      out.write_char('\n')
+      col = 0
+      leading = true
+      continue
+    }
+
+    if ch == '\t' {
+      out.write_char('\t')
+      let advance = width - (col % width)
+      col += advance
+      continue
+    }
+
+    out.write_char(ch)
+    col += 1
+    leading = false
+  }
+
+  if pending_spaces > 0 {
+    let start_col = col - pending_spaces
+    if convert_all || leading {
+      write_unexpand_space_run(out, pending_spaces, start_col, width)
+    } else {
+      out.write_string(repeat_char(' ', pending_spaces))
+    }
+  }
+
+  out.to_string()
+}
+
+fn parse_paste_delimiters(spec : String) -> Array[Char] {
+  let delimiters : Array[Char] = []
+  let mut i = 0
+  while i < spec.length() {
+    let ch = spec[i].to_int().unsafe_to_char()
+    if ch == '\\' && i + 1 < spec.length() {
+      let next = spec[i + 1].to_int().unsafe_to_char()
+      let mapped = match next {
+        't' => '\t'
+        'n' => '\n'
+        '0' => '\u0000'
+        '\\' => '\\'
+        _ => next
+      }
+      delimiters.push(mapped)
+      i += 2
+    } else {
+      delimiters.push(ch)
+      i += 1
+    }
+  }
+  delimiters
 }
 
 fn reverse_string(s : String) -> String {
