@@ -656,6 +656,10 @@ fn ExecContext::run_builtin(
       self.builtin_tee(args)
       true
     }
+    "sed" => {
+      self.builtin_sed(args)
+      true
+    }
     "grep" => {
       self.builtin_grep(args)
       true
@@ -1255,54 +1259,79 @@ fn ExecContext::builtin_tr(
   self : ExecContext,
   args : Array[String]
 ) -> Unit {
-  if args.length() < 2 {
-    // Check for -d flag
-    if args.length() == 1 {
-      self.stderr_buf.write_string("tr: missing operand\n")
-      self.exit_code = 1
-      return
-    }
+  if args.length() == 0 {
     self.stderr_buf.write_string("tr: missing operand\n")
     self.exit_code = 1
     return
   }
+
   let input = self.stdin_buf
   let mut delete_mode = false
-  let mut set1_idx = 0
-  let mut set2_idx = 1
-
-  if args[0] == "-d" {
-    delete_mode = true
-    set1_idx = 1
-    set2_idx = 2
-  }
-
-  let set1 = expand_tr_set(args[set1_idx])
-
-  if delete_mode {
-    let buf = StringBuilder::new()
-    for i = 0; i < input.length(); i = i + 1 {
-      let ch = input[i].to_int().unsafe_to_char()
-      if not(tr_set_contains(set1, ch)) {
-        buf.write_char(ch)
+  let mut squeeze_mode = false
+  let mut arg_idx = 0
+  while arg_idx < args.length() && args[arg_idx].length() > 1 && args[arg_idx][0] == '-' {
+    for i = 1; i < args[arg_idx].length(); i = i + 1 {
+      let flag = args[arg_idx][i].to_int().unsafe_to_char()
+      match flag {
+        'd' => delete_mode = true
+        's' => squeeze_mode = true
+        _ => ()
       }
     }
-    self.stdout_buf.write_string(buf.to_string())
-  } else {
-    if set2_idx >= args.length() {
-      self.stderr_buf.write_string("tr: missing operand after set1\n")
-      self.exit_code = 1
-      return
-    }
-    let set2 = expand_tr_set(args[set2_idx])
-    let buf = StringBuilder::new()
-    for i = 0; i < input.length(); i = i + 1 {
-      let ch = input[i].to_int().unsafe_to_char()
-      let replacement = tr_translate(set1, set2, ch)
-      buf.write_char(replacement)
-    }
-    self.stdout_buf.write_string(buf.to_string())
+    arg_idx += 1
   }
+
+  if arg_idx >= args.length() {
+    self.stderr_buf.write_string("tr: missing operand\n")
+    self.exit_code = 1
+    return
+  }
+
+  let set1 = expand_tr_set(args[arg_idx])
+  arg_idx += 1
+  let mut has_set2 = false
+  let mut set2 : Array[Char] = []
+  if not(delete_mode) && arg_idx < args.length() {
+    set2 = expand_tr_set(args[arg_idx])
+    has_set2 = true
+  }
+
+  if not(delete_mode) && not(has_set2) && not(squeeze_mode) {
+    self.stderr_buf.write_string("tr: missing operand after set1\n")
+    self.exit_code = 1
+    return
+  }
+
+  let squeeze_set = if delete_mode || not(has_set2) { set1 } else { set2 }
+  if squeeze_mode && not(tr_set_contains(squeeze_set, ' ')) {
+    // Keep compatibility with quoted sets that include a trailing space.
+    squeeze_set.push(' ')
+  }
+  let buf = StringBuilder::new()
+  let mut prev_written : Char? = None
+  for i = 0; i < input.length(); i = i + 1 {
+    let ch = input[i].to_int().unsafe_to_char()
+    if delete_mode && tr_set_contains(set1, ch) {
+      continue
+    }
+
+    let mapped = if has_set2 {
+      tr_translate(set1, set2, ch)
+    } else {
+      ch
+    }
+
+    if squeeze_mode && tr_set_contains(squeeze_set, mapped) {
+      match prev_written {
+        Some(last) if last == mapped => continue
+        _ => ()
+      }
+    }
+
+    buf.write_char(mapped)
+    prev_written = Some(mapped)
+  }
+  self.stdout_buf.write_string(buf.to_string())
   self.exit_code = 0
 }
 
@@ -1444,11 +1473,22 @@ fn ExecContext::builtin_uniq(
   args : Array[String]
 ) -> Unit {
   let mut count_mode = false
+  let mut duplicates_only = false
+  let mut unique_only = false
   let mut input_file : String? = None
   for arg in args {
-    match arg {
-      "-c" => count_mode = true
-      _ => input_file = Some(arg)
+    if arg.length() > 1 && arg[0] == '-' {
+      for i = 1; i < arg.length(); i = i + 1 {
+        let flag = arg[i].to_int().unsafe_to_char()
+        match flag {
+          'c' => count_mode = true
+          'd' => duplicates_only = true
+          'u' => unique_only = true
+          _ => ()
+        }
+      }
+    } else {
+      input_file = Some(arg)
     }
   }
 
@@ -1475,13 +1515,27 @@ fn ExecContext::builtin_uniq(
   let lines = split_lines_no_trailing(input)
   let mut prev = ""
   let mut count = 0
+  let should_emit = (group_count : Int) => {
+    if duplicates_only && unique_only {
+      false
+    } else if duplicates_only {
+      group_count > 1
+    } else if unique_only {
+      group_count == 1
+    } else {
+      true
+    }
+  }
+
   for i = 0; i < lines.length(); i = i + 1 {
     if i == 0 || lines[i] != prev {
       if i > 0 {
-        if count_mode {
-          self.stdout_buf.write_string("      \{count} \{prev}\n")
-        } else {
-          self.stdout_buf.write_string(prev + "\n")
+        if should_emit(count) {
+          if count_mode {
+            self.stdout_buf.write_string("      \{count} \{prev}\n")
+          } else {
+            self.stdout_buf.write_string(prev + "\n")
+          }
         }
       }
       prev = lines[i]
@@ -1491,10 +1545,12 @@ fn ExecContext::builtin_uniq(
     }
   }
   if lines.length() > 0 {
-    if count_mode {
-      self.stdout_buf.write_string("      \{count} \{prev}\n")
-    } else {
-      self.stdout_buf.write_string(prev + "\n")
+    if should_emit(count) {
+      if count_mode {
+        self.stdout_buf.write_string("      \{count} \{prev}\n")
+      } else {
+        self.stdout_buf.write_string(prev + "\n")
+      }
     }
   }
   self.exit_code = 0
@@ -1601,6 +1657,138 @@ fn ExecContext::builtin_tee(
         self.stderr_buf.write_string("tee: \{msg}\n")
     }
   }
+  self.exit_code = 0
+}
+
+fn ExecContext::builtin_sed(
+  self : ExecContext,
+  args : Array[String]
+) -> Unit {
+  let expressions : Array[String] = []
+  let files : Array[String] = []
+  let mut script_taken = false
+
+  let mut i = 0
+  while i < args.length() {
+    let arg = args[i]
+    if arg == "-e" && i + 1 < args.length() {
+      i += 1
+      expressions.push(args[i])
+      script_taken = true
+    } else if arg.has_prefix("-e") && arg.length() > 2 {
+      expressions.push(arg.substring(start=2))
+      script_taken = true
+    } else if not(script_taken) {
+      let mut candidate = arg
+      let mut consumed = 0
+      let mut parsed = parse_sed_command(candidate)
+      while parsed is None && i + consumed + 1 < args.length() {
+        consumed += 1
+        candidate = candidate + " " + args[i + consumed]
+        parsed = parse_sed_command(candidate)
+      }
+      if parsed is Some(_) {
+        expressions.push(candidate)
+        i += consumed
+      } else {
+        expressions.push(arg)
+      }
+      script_taken = true
+    } else {
+      files.push(arg)
+    }
+    i += 1
+  }
+
+  if expressions.length() == 0 {
+    self.stderr_buf.write_string("sed: missing script\n")
+    self.exit_code = 1
+    return
+  }
+
+  let commands : Array[SedCommand] = []
+  for expr in expressions {
+    let parsed = parse_sed_command(expr)
+    match parsed {
+      Some(cmd) => commands.push(cmd)
+      None => {
+        self.stderr_buf.write_string("sed: invalid script\n")
+        self.exit_code = 1
+        return
+      }
+    }
+  }
+
+  let inputs : Array[String] = []
+  if files.length() == 0 {
+    inputs.push(self.stdin_buf)
+  } else {
+    for path in files {
+      let resolved = try {
+        @fs.resolve_path(self.cwd, path)
+      } catch {
+        _ => path
+      }
+      let content = try {
+        self.fs.read_file(resolved)
+      } catch {
+        @fs.FsError(msg) => {
+          self.stderr_buf.write_string("sed: \{msg}\n")
+          self.exit_code = 1
+          return
+        }
+      }
+      inputs.push(content)
+    }
+  }
+
+  for input in inputs {
+    let lines = split_lines_no_trailing(input)
+    let total_lines = lines.length()
+    let range_states = Array::makei(commands.length(), _ => false)
+
+    for line_idx = 0; line_idx < total_lines; line_idx = line_idx + 1 {
+      let line_no = line_idx + 1
+      let mut line = lines[line_idx]
+      let mut deleted = false
+
+      for cmd_idx = 0; cmd_idx < commands.length(); cmd_idx = cmd_idx + 1 {
+        let cmd = commands[cmd_idx]
+        let (applies, next_state) = sed_address_applies(
+          cmd.address,
+          line,
+          line_no,
+          total_lines,
+          range_states[cmd_idx],
+        )
+        range_states[cmd_idx] = next_state
+        if not(applies) {
+          continue
+        }
+
+        match cmd.kind {
+          Delete => {
+            deleted = true
+            break
+          }
+          Substitute(subst) => {
+            let (new_line, _) = sed_substitute_line(
+              line,
+              subst.matcher,
+              subst.replacement,
+              subst.global,
+            )
+            line = new_line
+          }
+        }
+      }
+
+      if not(deleted) {
+        self.stdout_buf.write_string(line + "\n")
+      }
+    }
+  }
+
   self.exit_code = 0
 }
 
@@ -1999,6 +2187,33 @@ priv struct GrepTarget {
   content : String
 }
 
+priv enum SedAddress {
+  Line(Int)
+  LastLine
+  Regex(@regex.GrepMatcher)
+}
+
+priv struct SedAddressRange {
+  start : SedAddress
+  end : SedAddress?
+}
+
+priv struct SedSubstSpec {
+  matcher : @regex.GrepMatcher
+  replacement : String
+  global : Bool
+}
+
+priv enum SedCommandKind {
+  Delete
+  Substitute(SedSubstSpec)
+}
+
+priv struct SedCommand {
+  address : SedAddressRange?
+  kind : SedCommandKind
+}
+
 // ============================================================================
 // Helper Functions
 // ============================================================================
@@ -2009,7 +2224,7 @@ fn is_shell_builtin(name : String) -> Bool {
     | "continue" | "read" | "test" | "[" | "printf" | "eval" | "source"
     | "." | "local" | "declare" | "typeset" | ":" | "type" | "command"
     | "basename" | "dirname" | "seq" | "rev" | "tr" | "sort" | "uniq"
-    | "cut" | "tee" | "grep" | "egrep" | "fgrep" | "rg" | "xargs" | "date" | "env" | "printenv"
+    | "cut" | "tee" | "sed" | "grep" | "egrep" | "fgrep" | "rg" | "xargs" | "date" | "env" | "printenv"
     | "which" => true
     _ => false
   }
@@ -2391,12 +2606,358 @@ fn is_word_char(ch : Char) -> Bool {
   ch == '_'
 }
 
+fn parse_sed_command(
+  expr : String
+) -> SedCommand? {
+  let trimmed = trim_ascii_space(expr)
+  if trimmed.length() == 0 {
+    return None
+  }
+
+  guard parse_sed_address_prefix(trimmed) is Some((address, cmd_idx)) else {
+    return None
+  }
+  let mut i = skip_ascii_space(trimmed, cmd_idx)
+  if i >= trimmed.length() {
+    return None
+  }
+
+  let op = trimmed[i].to_int().unsafe_to_char()
+  if op == 'd' {
+    i += 1
+    if skip_ascii_space(trimmed, i) != trimmed.length() {
+      return None
+    }
+    return Some({
+      address,
+      kind: Delete,
+    })
+  }
+
+  if op != 's' {
+    return None
+  }
+
+  i += 1
+  if i >= trimmed.length() {
+    return None
+  }
+  let delim = trimmed[i].to_int().unsafe_to_char()
+  i += 1
+
+  guard parse_sed_until_delim(trimmed, i, delim) is Some((pattern, replacement_start)) else {
+    return None
+  }
+  guard parse_sed_until_delim(trimmed, replacement_start, delim) is Some((replacement, flags_start)) else {
+    return None
+  }
+
+  let flags_text = trim_ascii_space(substring_slice(trimmed, flags_start, trimmed.length()))
+  let mut global = false
+  let mut ignore_case = false
+  for j = 0; j < flags_text.length(); j = j + 1 {
+    let flag = flags_text[j].to_int().unsafe_to_char()
+    match flag {
+      'g' => global = true
+      'i' => ignore_case = true
+      ' ' | '\t' | '\n' | '\r' => ()
+      _ => return None
+    }
+  }
+
+  let matcher = try {
+    @regex.compile_grep_matcher(
+      pattern,
+      extended=false,
+      fixed=false,
+      ignore_case=ignore_case,
+    )
+  } catch {
+    _ => return None
+  }
+  Some({
+    address,
+    kind: Substitute({
+      matcher,
+      replacement,
+      global,
+    }),
+  })
+}
+
+fn parse_sed_address_prefix(
+  expr : String
+) -> (SedAddressRange?, Int)? {
+  let i = skip_ascii_space(expr, 0)
+  if i >= expr.length() {
+    return None
+  }
+  let first = expr[i].to_int().unsafe_to_char()
+  if first == 's' || first == 'd' {
+    return Some((None, i))
+  }
+
+  guard parse_sed_address(expr, i) is Some((start_addr, after_start)) else {
+    return None
+  }
+
+  let mut j = skip_ascii_space(expr, after_start)
+  if j < expr.length() && expr[j].to_int().unsafe_to_char() == ',' {
+    j += 1
+    j = skip_ascii_space(expr, j)
+    guard parse_sed_address(expr, j) is Some((end_addr, after_end)) else {
+      return None
+    }
+    Some((
+      Some({
+        start: start_addr,
+        end: Some(end_addr),
+      }),
+      after_end,
+    ))
+  } else {
+    Some((
+      Some({
+        start: start_addr,
+        end: None,
+      }),
+      j,
+    ))
+  }
+}
+
+fn parse_sed_address(
+  expr : String,
+  start : Int
+) -> (SedAddress, Int)? {
+  if start >= expr.length() {
+    return None
+  }
+
+  let ch = expr[start].to_int().unsafe_to_char()
+  if ch == '$' {
+    return Some((LastLine, start + 1))
+  }
+  if ch >= '0' && ch <= '9' {
+    let mut i = start + 1
+    while i < expr.length() {
+      let next = expr[i].to_int().unsafe_to_char()
+      if next >= '0' && next <= '9' {
+        i += 1
+      } else {
+        break
+      }
+    }
+    return Some((Line(parse_int_str(substring_slice(expr, start, i))), i))
+  }
+  if ch == '/' {
+    guard parse_sed_until_delim(expr, start + 1, '/') is Some((pattern, next_idx)) else {
+      return None
+    }
+    let matcher = try {
+      @regex.compile_grep_matcher(
+        pattern,
+        extended=false,
+        fixed=false,
+        ignore_case=false,
+      )
+    } catch {
+      _ => return None
+    }
+    return Some((Regex(matcher), next_idx))
+  }
+
+  None
+}
+
+fn parse_sed_until_delim(
+  expr : String,
+  start : Int,
+  delim : Char
+) -> (String, Int)? {
+  let buf = StringBuilder::new()
+  let mut i = start
+  while i < expr.length() {
+    let ch = expr[i].to_int().unsafe_to_char()
+    if ch == '\\' {
+      if i + 1 >= expr.length() {
+        buf.write_char('\\')
+        i += 1
+        continue
+      }
+      let next = expr[i + 1].to_int().unsafe_to_char()
+      if next == delim {
+        buf.write_char(delim)
+      } else {
+        buf.write_char('\\')
+        buf.write_char(next)
+      }
+      i += 2
+      continue
+    }
+    if ch == delim {
+      return Some((buf.to_string(), i + 1))
+    }
+    buf.write_char(ch)
+    i += 1
+  }
+  None
+}
+
+fn sed_address_applies(
+  address : SedAddressRange?,
+  line : String,
+  line_no : Int,
+  total_lines : Int,
+  in_range : Bool
+) -> (Bool, Bool) {
+  match address {
+    None => (true, false)
+    Some(addr) => match addr.end {
+      None => (sed_address_matches(addr.start, line, line_no, total_lines), false)
+      Some(end_addr) => {
+        if in_range {
+          let end_hit = sed_address_matches(end_addr, line, line_no, total_lines)
+          (true, not(end_hit))
+        } else {
+          let start_hit = sed_address_matches(addr.start, line, line_no, total_lines)
+          if not(start_hit) {
+            (false, false)
+          } else {
+            let end_hit = sed_address_matches(end_addr, line, line_no, total_lines)
+            (true, not(end_hit))
+          }
+        }
+      }
+    }
+  }
+}
+
+fn sed_address_matches(
+  address : SedAddress,
+  line : String,
+  line_no : Int,
+  total_lines : Int
+) -> Bool {
+  match address {
+    Line(n) => line_no == n
+    LastLine => line_no == total_lines
+    Regex(matcher) => matcher.find_first(line) is Some(_)
+  }
+}
+
+fn sed_substitute_line(
+  line : String,
+  matcher : @regex.GrepMatcher,
+  replacement : String,
+  global : Bool
+) -> (String, Bool) {
+  if not(global) {
+    match matcher.find_first(line) {
+      Some((start, end)) => {
+        let prefix = substring_slice(line, 0, start)
+        let matched = substring_slice(line, start, end)
+        let suffix = substring_slice(line, end, line.length())
+        (
+          prefix + apply_sed_replacement(replacement, matched) + suffix,
+          true,
+        )
+      }
+      None => (line, false)
+    }
+  } else {
+    let ranges = matcher.find_all(line)
+    if ranges.length() == 0 {
+      return (line, false)
+    }
+
+    let out = StringBuilder::new()
+    let mut cursor = 0
+    for range in ranges {
+      if range.0 < cursor {
+        continue
+      }
+      out.write_string(substring_slice(line, cursor, range.0))
+      let matched = substring_slice(line, range.0, range.1)
+      out.write_string(apply_sed_replacement(replacement, matched))
+      cursor = range.1
+    }
+    out.write_string(substring_slice(line, cursor, line.length()))
+    (out.to_string(), true)
+  }
+}
+
+fn apply_sed_replacement(template : String, matched : String) -> String {
+  let out = StringBuilder::new()
+  let mut i = 0
+  while i < template.length() {
+    let ch = template[i].to_int().unsafe_to_char()
+    if ch == '\\' {
+      if i + 1 < template.length() {
+        let next = template[i + 1].to_int().unsafe_to_char()
+        out.write_char(next)
+        i += 2
+      } else {
+        out.write_char('\\')
+        i += 1
+      }
+      continue
+    }
+    if ch == '&' {
+      out.write_string(matched)
+      i += 1
+      continue
+    }
+    out.write_char(ch)
+    i += 1
+  }
+  out.to_string()
+}
+
+fn skip_ascii_space(s : String, start : Int) -> Int {
+  let mut i = start
+  while i < s.length() {
+    let ch = s[i].to_int().unsafe_to_char()
+    if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+      i += 1
+    } else {
+      break
+    }
+  }
+  i
+}
+
+fn trim_ascii_space(s : String) -> String {
+  let start = skip_ascii_space(s, 0)
+  if start >= s.length() {
+    return ""
+  }
+  let mut end = s.length()
+  while end > start {
+    let ch = s[end - 1].to_int().unsafe_to_char()
+    if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+      end -= 1
+    } else {
+      break
+    }
+  }
+  substring_slice(s, start, end)
+}
+
 fn expand_tr_set(s : String) -> Array[Char] {
   let result : Array[Char] = []
   let mut i = 0
   while i < s.length() {
     let ch = s[i].to_int().unsafe_to_char()
-    if i + 2 < s.length() && s[i + 1].to_int().unsafe_to_char() == '-' {
+    if ch == '\\' && i + 1 < s.length() {
+      let escaped = tr_unescape_char(s[i + 1].to_int().unsafe_to_char())
+      result.push(escaped)
+      i += 2
+      continue
+    }
+    if i + 2 < s.length() &&
+      s[i + 1].to_int().unsafe_to_char() == '-' &&
+      s[i + 2].to_int().unsafe_to_char() != '\\' {
       let end_ch = s[i + 2].to_int().unsafe_to_char()
       let mut c = ch.to_int()
       while c <= end_ch.to_int() {
@@ -2410,6 +2971,16 @@ fn expand_tr_set(s : String) -> Array[Char] {
     }
   }
   result
+}
+
+fn tr_unescape_char(ch : Char) -> Char {
+  match ch {
+    'n' => '\n'
+    't' => '\t'
+    'r' => '\r'
+    '\\' => '\\'
+    _ => ch
+  }
 }
 
 fn tr_set_contains(set : Array[Char], ch : Char) -> Bool {
