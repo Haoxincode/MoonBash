@@ -247,7 +247,7 @@ import runpy
 import sys
 import traceback
 
-_request = json.loads(__moonbash_request_json)
+_request = json.loads(__moon_bash_request_json)
 _args = _request.get("args") or []
 _stdin = _request.get("stdin") or ""
 _cwd = _request.get("cwd") or "/"
@@ -322,15 +322,15 @@ json.dumps({
 
 declare global {
   // eslint-disable-next-line no-var
-  var __moonbash_fetch: MoonBashFetchBridge | undefined;
+  var __moon_bash_fetch: MoonBashFetchBridge | undefined;
   // eslint-disable-next-line no-var
-  var __moonbash_sleep: MoonBashSleepBridge | undefined;
+  var __moon_bash_sleep: MoonBashSleepBridge | undefined;
   // eslint-disable-next-line no-var
-  var __moonbash_now: MoonBashNowBridge | undefined;
+  var __moon_bash_now: MoonBashNowBridge | undefined;
   // eslint-disable-next-line no-var
-  var __moonbash_vm: MoonBashVmBridge | undefined;
+  var __moon_bash_vm: MoonBashVmBridge | undefined;
   // eslint-disable-next-line no-var
-  var __moonbash_custom: MoonBashCustomBridge | undefined;
+  var __moon_bash_custom: MoonBashCustomBridge | undefined;
 }
 
 function toErrorMessage(error: unknown): string {
@@ -350,7 +350,7 @@ function isPromiseLike<T>(value: unknown): value is PromiseLike<T> {
 function waitForPromise<T>(promise: Promise<T>): T {
   if (typeof SharedArrayBuffer === "undefined" || typeof Atomics === "undefined") {
     throw new Error(
-      "moonbash: async bridge requires SharedArrayBuffer and Atomics support",
+      "moon_bash: async bridge requires SharedArrayBuffer and Atomics support",
     );
   }
 
@@ -375,7 +375,7 @@ function waitForPromise<T>(promise: Promise<T>): T {
     try {
       Atomics.wait(signal, 0, 0, 100);
     } catch (_error) {
-      throw new Error("moonbash: Atomics.wait is not available in this runtime");
+      throw new Error("moon_bash: Atomics.wait is not available in this runtime");
     }
   }
 
@@ -863,12 +863,12 @@ export class Bash {
       return undefined;
     }
     const maybeSnapshot = fsLike as {
-      __moonbash_snapshot?: () => unknown;
+      __moon_bash_snapshot?: () => unknown;
     };
-    if (typeof maybeSnapshot.__moonbash_snapshot !== "function") {
+    if (typeof maybeSnapshot.__moon_bash_snapshot !== "function") {
       return undefined;
     }
-    const raw = maybeSnapshot.__moonbash_snapshot();
+    const raw = maybeSnapshot.__moon_bash_snapshot();
     if (!raw || typeof raw !== "object") {
       return undefined;
     }
@@ -1239,7 +1239,7 @@ export class Bash {
     const lines: string[] = [];
     for (const name of names) {
       // Custom command names are sourced from trusted host code.
-      lines.push(`${name}() { __moonbash_custom__ ${shellSingleQuote(name)} "$@"; }`);
+      lines.push(`${name}() { __moon_bash_custom__ ${shellSingleQuote(name)} "$@"; }`);
     }
     if (lines.length === 0) {
       return script;
@@ -1884,7 +1884,7 @@ export class Bash {
         mod = await this.invokeDynamicImport("pyodide");
       } catch (error) {
         throw new Error(
-          `moonbash: python3 wasm runtime requires Pyodide (module \"pyodide\"). ${toErrorMessage(error)}`,
+          `moon_bash: python3 wasm runtime requires Pyodide (module \"pyodide\"). ${toErrorMessage(error)}`,
         );
       }
       const maybeModule = mod as {
@@ -1899,7 +1899,7 @@ export class Bash {
         )?.loadPyodide ??
         maybeModule.default;
       if (typeof maybeFn !== "function") {
-        throw new Error("moonbash: unable to locate loadPyodide() in module \"pyodide\"");
+        throw new Error("moon_bash: unable to locate loadPyodide() in module \"pyodide\"");
       }
       loadPyodideFn = maybeFn as (options?: { indexURL?: string }) => Promise<unknown>;
     }
@@ -1917,7 +1917,7 @@ export class Bash {
 
     const runtime = await loadPyodideFn(indexURL ? { indexURL } : undefined);
     if (!runtime || typeof runtime !== "object") {
-      throw new Error("moonbash: invalid Pyodide runtime object");
+      throw new Error("moon_bash: invalid Pyodide runtime object");
     }
     const candidate = runtime as {
       FS?: unknown;
@@ -1929,7 +1929,7 @@ export class Bash {
       !candidate.globals ||
       typeof candidate.runPython !== "function"
     ) {
-      throw new Error("moonbash: Pyodide runtime is missing required APIs");
+      throw new Error("moon_bash: Pyodide runtime is missing required APIs");
     }
     return runtime as PyodideRuntimeLike;
   }
@@ -1947,7 +1947,7 @@ export class Bash {
       if (customLoader) {
         const loaded = await Promise.resolve(customLoader());
         if (!loaded || typeof loaded !== "object") {
-          throw new Error("moonbash: vm.wasm.python.loadRuntime() returned invalid runtime");
+          throw new Error("moon_bash: vm.wasm.python.loadRuntime() returned invalid runtime");
         }
         const candidate = loaded as {
           FS?: unknown;
@@ -1959,7 +1959,7 @@ export class Bash {
           !candidate.globals ||
           typeof candidate.runPython !== "function"
         ) {
-          throw new Error("moonbash: custom python runtime is missing required APIs");
+          throw new Error("moon_bash: custom python runtime is missing required APIs");
         }
         runtime = loaded as PyodideRuntimeLike;
       } else {
@@ -1982,7 +1982,7 @@ export class Bash {
       }
     }
     if (!parsed || typeof parsed !== "object") {
-      throw new Error("moonbash: python3 runtime returned invalid payload");
+      throw new Error("moon_bash: python3 runtime returned invalid payload");
     }
     const obj = parsed as {
       stdout?: unknown;
@@ -2002,7 +2002,7 @@ export class Bash {
 
   private runPythonWithPyodide(request: MoonBashVmRequest): MoonBashVmResponse {
     if (!this.pyodideRuntime) {
-      throw new Error("moonbash: python3 runtime is not initialized");
+      throw new Error("moon_bash: python3 runtime is not initialized");
     }
     const runtime = this.pyodideRuntime;
     const vmFiles = this.normalizeVmFiles(request.files);
@@ -2013,7 +2013,7 @@ export class Bash {
       cwd: this.normalizeVmCwd(request.cwd),
       env: request.env ?? {},
     };
-    runtime.globals.set("__moonbash_request_json", JSON.stringify(payload));
+    runtime.globals.set("__moon_bash_request_json", JSON.stringify(payload));
     const rawResult = runtime.runPython(PYODIDE_EXEC_SNIPPET);
     const response = this.parsePyodideExecResult(rawResult);
     response.files = this.resolvePyodideFilesSnapshot(
@@ -2056,7 +2056,7 @@ export class Bash {
         mod = await this.invokeDynamicImport("sql.js");
       } catch (error) {
         throw new Error(
-          `moonbash: sqlite3 wasm runtime requires sql.js (module \"sql.js\"). ${toErrorMessage(error)}`,
+          `moon_bash: sqlite3 wasm runtime requires sql.js (module \"sql.js\"). ${toErrorMessage(error)}`,
         );
       }
       const maybeModule = mod as {
@@ -2065,7 +2065,7 @@ export class Bash {
       };
       const maybeFn = maybeModule.default ?? maybeModule.initSqlJs;
       if (typeof maybeFn !== "function") {
-        throw new Error("moonbash: unable to locate sql.js initializer");
+        throw new Error("moon_bash: unable to locate sql.js initializer");
       }
       initSqlJs = maybeFn as SqlJsInitLike;
     }
@@ -2079,7 +2079,7 @@ export class Bash {
       : undefined;
     const runtime = await initSqlJs(locateFile ? { locateFile } : undefined);
     if (!runtime || typeof runtime !== "object" || typeof runtime.Database !== "function") {
-      throw new Error("moonbash: invalid sql.js runtime object");
+      throw new Error("moon_bash: invalid sql.js runtime object");
     }
     return runtime as SqlJsRuntimeLike;
   }
@@ -2099,7 +2099,7 @@ export class Bash {
       } else {
         const loaded = await Promise.resolve(customLoader());
         if (!loaded) {
-          throw new Error("moonbash: vm.wasm.sqlite.loadRuntime() returned empty value");
+          throw new Error("moon_bash: vm.wasm.sqlite.loadRuntime() returned empty value");
         }
         if (typeof loaded === "function") {
           const initSqlJs = loaded as SqlJsInitLike;
@@ -2109,7 +2109,7 @@ export class Bash {
             : undefined;
           const initialized = await initSqlJs(locateFile ? { locateFile } : undefined);
           if (!initialized || typeof initialized.Database !== "function") {
-            throw new Error("moonbash: custom sqlite init function returned invalid runtime");
+            throw new Error("moon_bash: custom sqlite init function returned invalid runtime");
           }
           runtime = initialized;
         } else {
@@ -2117,7 +2117,7 @@ export class Bash {
             typeof loaded !== "object" ||
             typeof (loaded as { Database?: unknown }).Database !== "function"
           ) {
-            throw new Error("moonbash: custom sqlite runtime is missing Database constructor");
+            throw new Error("moon_bash: custom sqlite runtime is missing Database constructor");
           }
           runtime = loaded as SqlJsRuntimeLike;
         }
@@ -2168,7 +2168,7 @@ export class Bash {
 
   private runSqliteWithSqlJs(request: MoonBashVmRequest): MoonBashVmResponse {
     if (!this.sqlJsRuntime) {
-      throw new Error("moonbash: sqlite3 runtime is not initialized");
+      throw new Error("moon_bash: sqlite3 runtime is not initialized");
     }
     const runtime = this.sqlJsRuntime;
     const files = this.normalizeVmFiles(request.files);
@@ -2342,9 +2342,9 @@ export class Bash {
     if (Array.isArray(this.options.commands)) {
       const allowed = [...this.options.commands];
       if (this.hasCustomCommands()) {
-        allowed.push("__moonbash_custom__");
+        allowed.push("__moon_bash_custom__");
       }
-      effectiveEnv.__MOONBASH_ALLOWED_COMMANDS = allowed.join(",");
+      effectiveEnv.__MOON_BASH_ALLOWED_COMMANDS = allowed.join(",");
     }
 
     const cwd = normalizePosixPath(execOptions.cwd ?? this.baseCwd);
@@ -2387,16 +2387,16 @@ export class Bash {
     const nowBridge = this.createNowBridge();
     const vmBridge = this.createVmBridge();
     const customBridge = this.createCustomBridge(limitsJson, layoutMode);
-    const previousFetchBridge = globalThis.__moonbash_fetch;
-    const previousSleepBridge = globalThis.__moonbash_sleep;
-    const previousNowBridge = globalThis.__moonbash_now;
-    const previousVmBridge = globalThis.__moonbash_vm;
-    const previousCustomBridge = globalThis.__moonbash_custom;
-    globalThis.__moonbash_fetch = fetchBridge;
-    globalThis.__moonbash_sleep = sleepBridge;
-    globalThis.__moonbash_now = nowBridge;
-    globalThis.__moonbash_vm = vmBridge;
-    globalThis.__moonbash_custom = customBridge;
+    const previousFetchBridge = globalThis.__moon_bash_fetch;
+    const previousSleepBridge = globalThis.__moon_bash_sleep;
+    const previousNowBridge = globalThis.__moon_bash_now;
+    const previousVmBridge = globalThis.__moon_bash_vm;
+    const previousCustomBridge = globalThis.__moon_bash_custom;
+    globalThis.__moon_bash_fetch = fetchBridge;
+    globalThis.__moon_bash_sleep = sleepBridge;
+    globalThis.__moon_bash_now = nowBridge;
+    globalThis.__moon_bash_vm = vmBridge;
+    globalThis.__moon_bash_custom = customBridge;
 
     try {
       const jsonResult = mbExecuteWithState(
@@ -2430,29 +2430,29 @@ export class Bash {
       return result;
     } finally {
       if (previousFetchBridge === undefined) {
-        delete globalThis.__moonbash_fetch;
+        delete globalThis.__moon_bash_fetch;
       } else {
-        globalThis.__moonbash_fetch = previousFetchBridge;
+        globalThis.__moon_bash_fetch = previousFetchBridge;
       }
       if (previousSleepBridge === undefined) {
-        delete globalThis.__moonbash_sleep;
+        delete globalThis.__moon_bash_sleep;
       } else {
-        globalThis.__moonbash_sleep = previousSleepBridge;
+        globalThis.__moon_bash_sleep = previousSleepBridge;
       }
       if (previousNowBridge === undefined) {
-        delete globalThis.__moonbash_now;
+        delete globalThis.__moon_bash_now;
       } else {
-        globalThis.__moonbash_now = previousNowBridge;
+        globalThis.__moon_bash_now = previousNowBridge;
       }
       if (previousVmBridge === undefined) {
-        delete globalThis.__moonbash_vm;
+        delete globalThis.__moon_bash_vm;
       } else {
-        globalThis.__moonbash_vm = previousVmBridge;
+        globalThis.__moon_bash_vm = previousVmBridge;
       }
       if (previousCustomBridge === undefined) {
-        delete globalThis.__moonbash_custom;
+        delete globalThis.__moon_bash_custom;
       } else {
-        globalThis.__moonbash_custom = previousCustomBridge;
+        globalThis.__moon_bash_custom = previousCustomBridge;
       }
     }
   }

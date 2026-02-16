@@ -1,4 +1,4 @@
-// MoonBash Interpreter - Shell Utility Builtins
+// moon_bash Interpreter - Shell Utility Builtins
 // whoami, hostname, help, clear, history, tac, od
 
 fn ExecContext::builtin_whoami(
@@ -16,7 +16,7 @@ fn ExecContext::builtin_hostname(
   _args : Array[String]
 ) -> Unit {
   self.stdout_buf.write_string(
-    self.env.get("HOSTNAME").unwrap_or("moonbash") + "\n",
+    self.env.get("HOSTNAME").unwrap_or("moon-bash") + "\n",
   )
   self.exit_code = 0
 }

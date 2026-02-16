@@ -64,7 +64,7 @@ pub fn set_fs_callbacks(callbacks : FsCallbacks) -> Unit {
 ```typescript
 // bridge.ts
 import * as fs from "node:fs/promises";
-import { setFsCallbacks } from "./moonbash-core.js";
+import { setFsCallbacks } from "./moon_bash-core.js";
 
 export function setupFsBridge(rootDir: string) {
   setFsCallbacks({
@@ -160,7 +160,7 @@ When MoonBit needs to call an async JS function (e.g., reading a file from disk)
 ```moonbit
 // MoonBit side: declare external async function
 extern "js" fn host_read_file_async(path : String) -> String =
-  "async (path) => await globalThis.__moonbash_fs.readFile(path)"
+  "async (path) => await globalThis.__moon_bash_fs.readFile(path)"
 ```
 
 ### JS Promise to MoonBit Async
@@ -195,7 +195,7 @@ struct FetchRequest {
 }
 
 extern "js" fn host_fetch(request_json : String) -> String =
-  "async (req) => JSON.stringify(await globalThis.__moonbash_network.fetch(JSON.parse(req)))"
+  "async (req) => JSON.stringify(await globalThis.__moon_bash_network.fetch(JSON.parse(req)))"
 
 pub async fn secure_fetch(request : FetchRequest) -> FetchResponse!NetworkError {
   let req_json = request.to_json().stringify()
@@ -208,7 +208,7 @@ pub async fn secure_fetch(request : FetchRequest) -> FetchResponse!NetworkError 
 
 ```typescript
 export function setupNetworkBridge(config: NetworkConfig) {
-  globalThis.__moonbash_network = {
+  globalThis.__moon_bash_network = {
     fetch: async (req: FetchRequest): Promise<FetchResponse> => {
       // 1. Validate URL against allowedUrlPrefixes
       validateUrl(req.url, config.allowedUrlPrefixes);
@@ -303,7 +303,7 @@ extern "js" fn host_sleep(ms : Int) -> Unit =
 ```moonbit
 /// Emit a trace event to the host
 extern "js" fn host_trace(event_json : String) -> Unit =
-  "(json) => { if (globalThis.__moonbash_trace) globalThis.__moonbash_trace(JSON.parse(json)); }"
+  "(json) => { if (globalThis.__moon_bash_trace) globalThis.__moon_bash_trace(JSON.parse(json)); }"
 
 pub fn emit_trace(category : String, name : String, duration_ms : Double) -> Unit {
   let event = TraceEvent { category, name, duration_ms }
@@ -343,10 +343,10 @@ For binary file content (`Bytes`):
 
 ```moonbit
 extern "js" fn host_read_binary(path : String) -> Bytes =
-  "async (path) => new Uint8Array(await globalThis.__moonbash_fs.readBinary(path))"
+  "async (path) => new Uint8Array(await globalThis.__moon_bash_fs.readBinary(path))"
 
 extern "js" fn host_write_binary(path : String, data : Bytes) -> Unit =
-  "async (path, data) => await globalThis.__moonbash_fs.writeBinary(path, data)"
+  "async (path, data) => await globalThis.__moon_bash_fs.writeBinary(path, data)"
 ```
 
 ## 10. Global Registration Pattern
@@ -356,28 +356,28 @@ All FFI callbacks use a global namespace pattern for clean registration:
 ```typescript
 // TypeScript host setup
 declare global {
-  var __moonbash_fs: FsBridge;
-  var __moonbash_network: NetworkBridge;
-  var __moonbash_trace: TraceCallback | undefined;
-  var __moonbash_sleep: (ms: number) => Promise<void>;
+  var __moon_bash_fs: FsBridge;
+  var __moon_bash_network: NetworkBridge;
+  var __moon_bash_trace: TraceCallback | undefined;
+  var __moon_bash_sleep: (ms: number) => Promise<void>;
 }
 
 export function initMoonBash(options: BashOptions) {
   // 1. Set up filesystem bridge
-  globalThis.__moonbash_fs = createFsBridge(options.fs);
+  globalThis.__moon_bash_fs = createFsBridge(options.fs);
 
   // 2. Set up network bridge (if enabled)
   if (options.network) {
-    globalThis.__moonbash_network = createNetworkBridge(options.network);
+    globalThis.__moon_bash_network = createNetworkBridge(options.network);
   }
 
   // 3. Set up tracing (if enabled)
   if (options.trace) {
-    globalThis.__moonbash_trace = options.trace;
+    globalThis.__moon_bash_trace = options.trace;
   }
 
   // 4. Set up sleep
-  globalThis.__moonbash_sleep = options.sleep ?? defaultSleep;
+  globalThis.__moon_bash_sleep = options.sleep ?? defaultSleep;
 
   // 5. Initialize MoonBit core
   return createBashInstance(options);

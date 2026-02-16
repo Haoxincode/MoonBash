@@ -1,4 +1,4 @@
-// MoonBash Interpreter - Search Builtins
+// moon_bash Interpreter - Search Builtins
 // Split from builtins_extra.mbt for maintainability.
 
 fn ExecContext::builtin_sed(

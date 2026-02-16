@@ -1,4 +1,4 @@
-// MoonBash regex helpers used by grep/sed-style commands.
+// moon_bash regex helpers used by grep/sed-style commands.
 
 pub(all) enum GrepMatcher {
   Fixed(String, Bool)

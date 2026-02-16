@@ -1,4 +1,4 @@
-// MoonBash Interpreter - Builtins (Alias and Execution)
+// moon_bash Interpreter - Builtins (Alias and Execution)
 // alias, unalias, bash, sh, time, sleep, timeout
 
 // Aliases are stored in env vars with "__ALIAS_" prefix.
@@ -157,7 +157,7 @@ fn ExecContext::builtin_alias(
           self.stdout_buf.write_string("alias \{arg}='\{v}'\n")
         None => {
           self.stderr_buf.write_string(
-            "moonbash: alias: \{arg}: not found\n",
+            "moon_bash: alias: \{arg}: not found\n",
           )
           self.exit_code = 1
           return
@@ -173,7 +173,7 @@ fn ExecContext::builtin_unalias(
   args : Array[String]
 ) -> Unit {
   if args.length() == 0 {
-    self.stderr_buf.write_string("moonbash: unalias: usage: unalias [-a] name ...\n")
+    self.stderr_buf.write_string("moon_bash: unalias: usage: unalias [-a] name ...\n")
     self.exit_code = 2
     return
   }
@@ -197,7 +197,7 @@ fn ExecContext::builtin_unalias(
       self.env.remove(key)
     } else {
       self.stderr_buf.write_string(
-        "moonbash: unalias: \{arg}: not found\n",
+        "moon_bash: unalias: \{arg}: not found\n",
       )
       self.exit_code = 1
       return
@@ -218,7 +218,7 @@ fn ExecContext::builtin_bash(
   if args[0] == "-c" {
     // bash -c 'script'
     if args.length() < 2 {
-      self.stderr_buf.write_string("moonbash: -c: option requires an argument\n")
+      self.stderr_buf.write_string("moon_bash: -c: option requires an argument\n")
       self.exit_code = 2
       return
     }
@@ -227,7 +227,7 @@ fn ExecContext::builtin_bash(
       @parser.parse(script)
     } catch {
       @ast.BashError(msg) => {
-        self.stderr_buf.write_string("moonbash: \{msg}\n")
+        self.stderr_buf.write_string("moon_bash: \{msg}\n")
         self.exit_code = 2
         return
       }
@@ -245,7 +245,7 @@ fn ExecContext::builtin_bash(
     self.fs.read_file(path)
   } catch {
     @fs.FsError(msg) => {
-      self.stderr_buf.write_string("moonbash: \{args[0]}: \{msg}\n")
+      self.stderr_buf.write_string("moon_bash: \{args[0]}: \{msg}\n")
       self.exit_code = 127
       return
     }
@@ -254,7 +254,7 @@ fn ExecContext::builtin_bash(
     @parser.parse(content)
   } catch {
     @ast.BashError(msg) => {
-      self.stderr_buf.write_string("moonbash: \{msg}\n")
+      self.stderr_buf.write_string("moon_bash: \{msg}\n")
       self.exit_code = 2
       return
     }
@@ -300,14 +300,14 @@ fn ExecContext::builtin_sleep(
   args : Array[String]
 ) -> Unit {
   if args.length() == 0 {
-    self.stderr_buf.write_string("moonbash: sleep: missing operand\n")
+    self.stderr_buf.write_string("moon_bash: sleep: missing operand\n")
     self.exit_code = 1
     return
   }
   let duration_ms = match shell_parse_total_duration_ms(args) {
     Ok(value) => value
     Err(msg) => {
-      self.stderr_buf.write_string("moonbash: sleep: \{msg}\n")
+      self.stderr_buf.write_string("moon_bash: sleep: \{msg}\n")
       self.exit_code = 1
       return
     }
@@ -315,7 +315,7 @@ fn ExecContext::builtin_sleep(
   let sleep_error = @ffi.sleep_sync(duration_ms)
   if sleep_error.length() > 0 {
     self.stderr_buf.write_string(
-      "moonbash: sleep: \{sleep_error}\n",
+      "moon_bash: sleep: \{sleep_error}\n",
     )
     self.exit_code = 1
     return
@@ -329,7 +329,7 @@ fn ExecContext::builtin_timeout(
 ) -> Unit {
   if args.length() < 2 {
     self.stderr_buf.write_string(
-      "moonbash: timeout: missing operand\n",
+      "moon_bash: timeout: missing operand\n",
     )
     self.exit_code = 1
     return
@@ -337,7 +337,7 @@ fn ExecContext::builtin_timeout(
   let duration_ms = match shell_parse_duration_ms(args[0]) {
     Ok(value) => value
     Err(msg) => {
-      self.stderr_buf.write_string("moonbash: timeout: \{msg}\n")
+      self.stderr_buf.write_string("moon_bash: timeout: \{msg}\n")
       self.exit_code = 1
       return
     }
@@ -353,7 +353,7 @@ fn ExecContext::builtin_timeout(
   let elapsed_ms = if end_ms >= start_ms { end_ms - start_ms } else { 0 }
   if elapsed_ms > duration_ms {
     self.stderr_buf.write_string(
-      "moonbash: timeout: command timed out after \{args[0]}\n",
+      "moon_bash: timeout: command timed out after \{args[0]}\n",
     )
     self.exit_code = 124
   }

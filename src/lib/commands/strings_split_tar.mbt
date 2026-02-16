@@ -1,4 +1,4 @@
-// MoonBash Commands - strings / split / tar
+// moon_bash Commands - strings / split / tar
 
 priv struct TarEntry {
   path : String

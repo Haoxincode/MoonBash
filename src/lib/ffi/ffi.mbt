@@ -1,13 +1,13 @@
-// MoonBash FFI Layer
+// moon_bash FFI Layer
 // Host bridges for side-effectful operations.
 
-/// JS bridge: delegate fetch requests to `globalThis.__moonbash_fetch`.
+/// JS bridge: delegate fetch requests to `globalThis.__moon_bash_fetch`.
 /// The bridge must return a JSON string.
 #cfg(target="js")
 extern "js" fn host_fetch_sync_js(request_json : String) -> String =
   #| function(requestJson) {
   #|   try {
-  #|     const bridge = globalThis.__moonbash_fetch;
+  #|     const bridge = globalThis.__moon_bash_fetch;
   #|     if (typeof bridge !== "function") {
   #|       return JSON.stringify({
   #|         ok: false,
@@ -66,13 +66,13 @@ pub fn fetch_sync(request_json : String) -> String {
   host_fetch_sync_js(request_json)
 }
 
-/// JS bridge: delegate sleep requests to `globalThis.__moonbash_sleep`.
+/// JS bridge: delegate sleep requests to `globalThis.__moon_bash_sleep`.
 /// The bridge returns an empty string on success or an error message.
 #cfg(target="js")
 extern "js" fn host_sleep_sync_js(duration_ms : Int) -> String =
   #| function(durationMs) {
   #|   try {
-  #|     const bridge = globalThis.__moonbash_sleep;
+  #|     const bridge = globalThis.__moon_bash_sleep;
   #|     if (typeof bridge !== "function") {
   #|       return "timer sleep bridge is not configured";
   #|     }
@@ -102,12 +102,12 @@ pub fn sleep_sync(duration_ms : Int) -> String {
   host_sleep_sync_js(duration_ms)
 }
 
-/// JS bridge: read monotonic milliseconds from `globalThis.__moonbash_now`.
+/// JS bridge: read monotonic milliseconds from `globalThis.__moon_bash_now`.
 #cfg(target="js")
 extern "js" fn host_now_ms_sync_js() -> Int =
   #| function() {
   #|   try {
-  #|     const bridge = globalThis.__moonbash_now;
+  #|     const bridge = globalThis.__moon_bash_now;
   #|     let value;
   #|     if (typeof bridge === "function") {
   #|       value = bridge();
@@ -140,13 +140,13 @@ pub fn now_ms_sync() -> Int {
   host_now_ms_sync_js()
 }
 
-/// JS bridge: delegate VM execution requests to `globalThis.__moonbash_vm`.
+/// JS bridge: delegate VM execution requests to `globalThis.__moon_bash_vm`.
 /// The bridge must return a JSON string.
 #cfg(target="js")
 extern "js" fn host_vm_sync_js(request_json : String) -> String =
   #| function(requestJson) {
   #|   try {
-  #|     const bridge = globalThis.__moonbash_vm;
+  #|     const bridge = globalThis.__moon_bash_vm;
   #|     if (typeof bridge !== "function") {
   #|       return JSON.stringify({
   #|         stdout: "",
@@ -197,13 +197,13 @@ pub fn vm_sync(request_json : String) -> String {
   host_vm_sync_js(request_json)
 }
 
-/// JS bridge: delegate custom command execution to `globalThis.__moonbash_custom`.
+/// JS bridge: delegate custom command execution to `globalThis.__moon_bash_custom`.
 /// The bridge must return a JSON string.
 #cfg(target="js")
 extern "js" fn host_custom_command_sync_js(request_json : String) -> String =
   #| function(requestJson) {
   #|   try {
-  #|     const bridge = globalThis.__moonbash_custom;
+  #|     const bridge = globalThis.__moon_bash_custom;
   #|     if (typeof bridge !== "function") {
   #|       return JSON.stringify({
   #|         handled: false,

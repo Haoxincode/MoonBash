@@ -604,7 +604,7 @@ MoonBit Source (.mbt)
 moon build --target js
        │
        ▼
-Pure JavaScript (moonbash-core.js)
+Pure JavaScript (moon_bash-core.js)
        │
        ▼
 TypeScript Wrapper (src/wrapper/*.ts)

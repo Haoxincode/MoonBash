@@ -1,4 +1,4 @@
-// MoonBash Commands - Shell builtins
+// moon_bash Commands - Shell builtins
 // echo, true, false, cd, pwd
 
 /// echo: print arguments to stdout

@@ -1,4 +1,4 @@
-// MoonBash Commands - Compression
+// moon_bash Commands - Compression
 // gzip, gunzip, zcat
 //
 // Simplified sandbox implementation: "compressed" content is the original

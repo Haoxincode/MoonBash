@@ -1,10 +1,10 @@
 {
   "import": [
-    "moonbash/lib/ast",
-    "moonbash/lib/parser",
-    "moonbash/lib/fs",
-    "moonbash/lib/commands",
-    "moonbash/lib/regex",
-    "moonbash/lib/ffi"
+    "moon_bash/lib/ast",
+    "moon_bash/lib/parser",
+    "moon_bash/lib/fs",
+    "moon_bash/lib/commands",
+    "moon_bash/lib/regex",
+    "moon_bash/lib/ffi"
   ]
 }

@@ -1,4 +1,4 @@
-// MoonBash Commands - Custom command bridge
+// moon_bash Commands - Custom command bridge
 // Executes wrapper-provided custom commands through JS FFI.
 
 priv struct CustomExecResponse {
@@ -302,7 +302,7 @@ fn cmd_custom_bridge(ctx : CommandContext) -> @ast.ExecResult {
   if ctx.args.length() == 0 {
     return {
       stdout: "",
-      stderr: "__moonbash_custom__: command name argument required\n",
+      stderr: "__moon_bash_custom__: command name argument required\n",
       exit_code: 2,
     }
   }
@@ -320,7 +320,7 @@ fn cmd_custom_bridge(ctx : CommandContext) -> @ast.ExecResult {
     Err(msg) => {
       return {
         stdout: "",
-        stderr: "__moonbash_custom__: \{msg}\n",
+        stderr: "__moon_bash_custom__: \{msg}\n",
         exit_code: 1,
       }
     }
@@ -329,7 +329,7 @@ fn cmd_custom_bridge(ctx : CommandContext) -> @ast.ExecResult {
   if not(response.handled) {
     return {
       stdout: "",
-      stderr: "moonbash: \{command_name}: command not found\n",
+      stderr: "moon_bash: \{command_name}: command not found\n",
       exit_code: 127,
     }
   }

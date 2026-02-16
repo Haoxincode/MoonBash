@@ -1,4 +1,4 @@
-// MoonBash InMemoryFs - HashMap-based Virtual Filesystem
+// moon_bash InMemoryFs - HashMap-based Virtual Filesystem
 
 pub(all) struct InMemoryFs {
   entries : Map[String, FsEntry]

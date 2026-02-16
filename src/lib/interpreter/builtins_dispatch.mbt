@@ -1,4 +1,4 @@
-// MoonBash Interpreter - Builtin Dispatch
+// moon_bash Interpreter - Builtin Dispatch
 // Split from builtins_core.mbt for maintainability.
 
 fn ExecContext::run_builtin(

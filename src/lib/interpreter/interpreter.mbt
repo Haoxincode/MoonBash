@@ -1,4 +1,4 @@
-// MoonBash Interpreter
+// moon_bash Interpreter
 // Tree-walking interpreter that executes parsed AST.
 
 // ============================================================================

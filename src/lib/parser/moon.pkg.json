@@ -1,6 +1,6 @@
 {
   "import": [
-    "moonbash/lib/ast",
-    "moonbash/lib/lexer"
+    "moon_bash/lib/ast",
+    "moon_bash/lib/lexer"
   ]
 }

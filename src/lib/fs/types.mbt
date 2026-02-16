@@ -1,4 +1,4 @@
-// MoonBash Filesystem Types
+// moon_bash Filesystem Types
 
 pub(all) enum FsEntry {
   File(FileData)

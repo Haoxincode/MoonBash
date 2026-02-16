@@ -1,4 +1,4 @@
-// MoonBash Filesystem Path Utilities
+// moon_bash Filesystem Path Utilities
 
 /// Check for null bytes in path
 fn validate_path(path : String) -> Unit raise FsError {

@@ -1,4 +1,4 @@
-// MoonBash Interpreter - Builtins (State and Flow)
+// moon_bash Interpreter - Builtins (State and Flow)
 // Split from builtins_core.mbt for maintainability.
 
 fn ExecContext::builtin_export(self : ExecContext, args : Array[String]) -> Unit {
@@ -88,7 +88,7 @@ fn ExecContext::builtin_shift(
     None => 0
   }
   if n > count {
-    self.stderr_buf.write_string("moonbash: shift: count exceeds positional parameters\n")
+    self.stderr_buf.write_string("moon_bash: shift: count exceeds positional parameters\n")
     self.exit_code = 1
     return
   }
@@ -238,15 +238,15 @@ fn ExecContext::restore_local_bindings(self : ExecContext, depth : Int) -> Unit 
 }
 
 fn local_scope_names_key(depth : Int) -> String {
-  "__MOONBASH_LOCAL_NAMES__" + depth.to_string()
+  "__MOON_BASH_LOCAL_NAMES__" + depth.to_string()
 }
 
 fn local_scope_saved_set_key(depth : Int, name : String) -> String {
-  "__MOONBASH_LOCAL_SET__" + depth.to_string() + "__" + name
+  "__MOON_BASH_LOCAL_SET__" + depth.to_string() + "__" + name
 }
 
 fn local_scope_saved_value_key(depth : Int, name : String) -> String {
-  "__MOONBASH_LOCAL_VAL__" + depth.to_string() + "__" + name
+  "__MOON_BASH_LOCAL_VAL__" + depth.to_string() + "__" + name
 }
 
 fn split_local_scope_names(spec : String) -> Array[String] {

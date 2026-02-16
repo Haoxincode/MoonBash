@@ -1,4 +1,4 @@
-// MoonBash Interpreter - Search Helpers
+// moon_bash Interpreter - Search Helpers
 // Split from helpers.mbt for maintainability.
 
 priv struct GrepTarget {

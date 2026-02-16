@@ -1,4 +1,4 @@
-// MoonBash Interpreter - Path and Environment Builtins
+// moon_bash Interpreter - Path and Environment Builtins
 // Split from builtins_extra.mbt for maintainability.
 
 fn ExecContext::builtin_basename(

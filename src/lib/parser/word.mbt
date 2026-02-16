@@ -1,4 +1,4 @@
-// MoonBash Parser - Word/Expansion Parsing
+// moon_bash Parser - Word/Expansion Parsing
 // Handles parsing of word content into WordPart arrays.
 // Recognizes $VAR, ${VAR}, ${VAR:-default}, $(cmd), $((expr)), etc.
 

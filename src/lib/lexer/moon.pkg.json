@@ -1,5 +1,5 @@
 {
   "import": [
-    "moonbash/lib/ast"
+    "moon_bash/lib/ast"
   ]
 }

@@ -1,4 +1,4 @@
-// MoonBash Interpreter - Text Helpers
+// moon_bash Interpreter - Text Helpers
 // Split from helpers.mbt for maintainability.
 
 fn format_nl_number(number : Int, width : Int, number_format : String) -> String {

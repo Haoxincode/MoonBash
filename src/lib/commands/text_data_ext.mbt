@@ -1,4 +1,4 @@
-// MoonBash Commands - Text/Data Processing Extensions
+// moon_bash Commands - Text/Data Processing Extensions
 // diff, cmp, comm, base64, expr
 
 // ============================================================================

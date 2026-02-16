@@ -1,4 +1,4 @@
-// MoonBash Commands - awk / jq (comparison-focused subset)
+// moon_bash Commands - awk / jq (comparison-focused subset)
 
 // ============================================================================
 // Shared Helpers

@@ -1,4 +1,4 @@
-// MoonBash Lexer Tests
+// moon_bash Lexer Tests
 
 // ============================================================================
 // Simple Commands

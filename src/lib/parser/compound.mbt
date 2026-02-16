@@ -1,4 +1,4 @@
-// MoonBash Parser - Compound Command Parsing
+// moon_bash Parser - Compound Command Parsing
 // Handles if, for, while, until, case statements.
 
 // ============================================================================

@@ -1,4 +1,4 @@
-// MoonBash Commands - Data Processors
+// moon_bash Commands - Data Processors
 // yq (YAML processor), xan/csvlook (CSV processors)
 
 /// Convert a Yaml value to a JSON string

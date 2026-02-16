@@ -1,4 +1,4 @@
-// MoonBash Interpreter - Control Flow
+// moon_bash Interpreter - Control Flow
 // Handles if/for/while/until/case/subshell/group compound commands.
 
 // ============================================================================

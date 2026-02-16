@@ -1,4 +1,4 @@
-// MoonBash Commands - Text Processing
+// moon_bash Commands - Text Processing
 // head, tail, wc
 
 /// Safely extract substring from start index to end of string.

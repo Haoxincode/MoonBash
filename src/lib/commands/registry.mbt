@@ -1,4 +1,4 @@
-// MoonBash Command Registry
+// moon_bash Command Registry
 // Maps command names to their implementation functions.
 
 pub(all) struct CommandContext {
@@ -68,7 +68,7 @@ pub fn find_command(
     "python3" => Some(cmd_python3)
     "sqlite3" => Some(cmd_sqlite3)
     // Wrapper custom command bridge (custom_bridge.mbt)
-    "__moonbash_custom__" => Some(cmd_custom_bridge)
+    "__moon_bash_custom__" => Some(cmd_custom_bridge)
     _ => None
   }
 }

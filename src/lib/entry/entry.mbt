@@ -1,4 +1,4 @@
-// MoonBash Entry Point - Exported functions for JS consumption
+// moon_bash Entry Point - Exported functions for JS consumption
 
 /// Execute a bash script with default settings.
 /// Returns a JSON string: {"stdout":"...","stderr":"...","exitCode":N}

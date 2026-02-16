@@ -1,4 +1,4 @@
-// MoonBash Lexer
+// moon_bash Lexer
 // Character-by-character scanner that tokenizes shell scripts.
 
 // ============================================================================

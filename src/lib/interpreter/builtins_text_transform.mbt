@@ -1,4 +1,4 @@
-// MoonBash Interpreter - Text Builtins (Transform and Streams)
+// moon_bash Interpreter - Text Builtins (Transform and Streams)
 // Split from builtins_text.mbt for maintainability.
 
 fn ExecContext::builtin_tr(

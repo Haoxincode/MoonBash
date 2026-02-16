@@ -1,4 +1,4 @@
-// MoonBash Interpreter - Builtins (I/O and Meta)
+// moon_bash Interpreter - Builtins (I/O and Meta)
 // Split from builtins_core.mbt for maintainability.
 
 fn ExecContext::builtin_read(
@@ -174,7 +174,7 @@ fn mapfile_starts_with(s : String, prefix : String) -> Bool {
 }
 
 fn array_count_storage_key(name : String) -> String {
-  "__MOONBASH_ARRAY_COUNT__" + name
+  "__MOON_BASH_ARRAY_COUNT__" + name
 }
 
 fn ExecContext::builtin_test(
@@ -247,7 +247,7 @@ fn ExecContext::builtin_eval(
     @parser.parse(script)
   } catch {
     @ast.BashError(msg) => {
-      self.stderr_buf.write_string("moonbash: eval: \{msg}\n")
+      self.stderr_buf.write_string("moon_bash: eval: \{msg}\n")
       self.exit_code = 2
       return
     }
@@ -276,7 +276,7 @@ fn ExecContext::builtin_source(
   args : Array[String]
 ) -> Unit {
   if args.length() == 0 {
-    self.stderr_buf.write_string("moonbash: source: filename argument required\n")
+    self.stderr_buf.write_string("moon_bash: source: filename argument required\n")
     self.exit_code = 2
     return
   }
@@ -289,7 +289,7 @@ fn ExecContext::builtin_source(
     self.fs.read_file(path)
   } catch {
     @fs.FsError(msg) => {
-      self.stderr_buf.write_string("moonbash: source: \{msg}\n")
+      self.stderr_buf.write_string("moon_bash: source: \{msg}\n")
       self.exit_code = 1
       return
     }
@@ -298,7 +298,7 @@ fn ExecContext::builtin_source(
     @parser.parse(content)
   } catch {
     @ast.BashError(msg) => {
-      self.stderr_buf.write_string("moonbash: source: \{msg}\n")
+      self.stderr_buf.write_string("moon_bash: source: \{msg}\n")
       self.exit_code = 2
       return
     }
@@ -320,7 +320,7 @@ fn ExecContext::builtin_type(
         Some(_) => self.stdout_buf.write_string("\{arg} is /usr/bin/\{arg}\n")
         None =>
           self.stderr_buf.write_string(
-            "moonbash: type: \{arg}: not found\n",
+            "moon_bash: type: \{arg}: not found\n",
           )
       }
     }
@@ -369,7 +369,7 @@ fn ExecContext::builtin_command(
       self.exit_code = result.exit_code
     }
     None => {
-      self.stderr_buf.write_string("moonbash: \{cmd_name}: command not found\n")
+      self.stderr_buf.write_string("moon_bash: \{cmd_name}: command not found\n")
       self.exit_code = 127
     }
   }

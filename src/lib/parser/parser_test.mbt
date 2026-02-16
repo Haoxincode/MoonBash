@@ -1,4 +1,4 @@
-// MoonBash Parser Tests
+// moon_bash Parser Tests
 
 // ============================================================================
 // Simple Commands

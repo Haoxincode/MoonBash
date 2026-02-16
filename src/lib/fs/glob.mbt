@@ -1,4 +1,4 @@
-// MoonBash Filesystem Glob Pattern Matching
+// moon_bash Filesystem Glob Pattern Matching
 // Delegates to justjavac/glob first, with a small compatibility fallback
 // for bracket character classes that are not implemented upstream yet.
 

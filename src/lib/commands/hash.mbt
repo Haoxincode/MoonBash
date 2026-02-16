@@ -1,4 +1,4 @@
-// MoonBash Commands - Hash commands (md5sum, sha1sum, sha256sum)
+// moon_bash Commands - Hash commands (md5sum, sha1sum, sha256sum)
 // Uses community packages: gmlewis/md5, gmlewis/sha1, shu-kitamura/sha256
 
 /// Convert a string to an array of bytes (treating each char as a byte).

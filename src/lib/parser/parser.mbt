@@ -1,4 +1,4 @@
-// MoonBash Parser
+// moon_bash Parser
 // Recursive descent parser that converts token stream into AST.
 
 let max_depth : Int = 100

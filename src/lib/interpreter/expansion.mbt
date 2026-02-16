@@ -1,4 +1,4 @@
-// MoonBash Interpreter - Word Expansion
+// moon_bash Interpreter - Word Expansion
 // Handles variable expansion, command substitution, word splitting, etc.
 
 // ============================================================================
@@ -267,7 +267,7 @@ fn ExecContext::expand_param(
           Some(w) => self.expand_word_to_string(w)
           None => "parameter null or not set"
         }
-        self.stderr_buf.write_string("moonbash: \{name}: \{msg}\n")
+        self.stderr_buf.write_string("moon_bash: \{name}: \{msg}\n")
         self.exit_code = 1
         ""
       } else {
@@ -1925,7 +1925,7 @@ fn ExecContext::glob_expand_segments(
 
 fn ExecContext::fail_execution_limit(self : ExecContext, message : String) -> Unit {
   if self.exit_code != 126 {
-    self.stderr_buf.write_string("moonbash: \{message}\n")
+    self.stderr_buf.write_string("moon_bash: \{message}\n")
   }
   self.exit_code = 126
   self.should_exit = true
@@ -1941,7 +1941,7 @@ fn ExecContext::consume_glob_operation(self : ExecContext) -> Bool {
 }
 
 fn expansion_array_count_storage_key(name : String) -> String {
-  "__MOONBASH_ARRAY_COUNT__" + name
+  "__MOON_BASH_ARRAY_COUNT__" + name
 }
 
 fn array_count_var_name(name : String) -> String? {

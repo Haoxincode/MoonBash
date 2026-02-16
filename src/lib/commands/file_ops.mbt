@@ -1,4 +1,4 @@
-// MoonBash Commands - File Operations
+// moon_bash Commands - File Operations
 // cat, cp, ls, mkdir, mv, rm, touch
 
 /// cat: concatenate and display file contents

@@ -35,7 +35,7 @@ export class InMemoryFs {
     return this.files.has(normalizePath(path));
   }
 
-  __moonbash_snapshot() {
+  __moon_bash_snapshot() {
     const out = {};
     for (const [path, content] of this.files.entries()) {
       out[path] = content;

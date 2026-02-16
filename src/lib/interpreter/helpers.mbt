@@ -1,4 +1,4 @@
-// MoonBash Interpreter - Common Helpers
+// moon_bash Interpreter - Common Helpers
 // Shared utilities used across interpreter modules.
 
 fn is_shell_builtin(name : String) -> Bool {

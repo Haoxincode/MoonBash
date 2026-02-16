@@ -1,4 +1,4 @@
-// MoonBash Interpreter - Text Builtins
+// moon_bash Interpreter - Text Builtins
 // Split from builtins_extra.mbt for maintainability.
 
 fn ExecContext::builtin_rev(

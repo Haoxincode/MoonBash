@@ -1,4 +1,4 @@
-// MoonBash Commands - VM Bridge
+// moon_bash Commands - VM Bridge
 // python3, sqlite3
 
 priv struct VmExecResponse {

@@ -1,8 +1,8 @@
 {
   "import": [
-    "moonbash/lib/ast",
-    "moonbash/lib/fs",
-    "moonbash/lib/interpreter"
+    "moon_bash/lib/ast",
+    "moon_bash/lib/fs",
+    "moon_bash/lib/interpreter"
   ],
   "link": {
     "js": {

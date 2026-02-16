@@ -1,4 +1,4 @@
-// MoonBash Commands - Network
+// moon_bash Commands - Network
 // curl, html-to-markdown
 
 priv struct NetFetchResponse {

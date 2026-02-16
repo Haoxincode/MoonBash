@@ -1,4 +1,4 @@
-// MoonBash Interpreter - Execution Flow
+// moon_bash Interpreter - Execution Flow
 // Split from interpreter.mbt for maintainability.
 
 fn ExecContext::execute_script(self : ExecContext, script : @ast.Script) -> Unit {
@@ -190,7 +190,7 @@ fn ExecContext::execute_command(self : ExecContext, cmd : @ast.Command) -> Unit 
             }
           } catch {
             @fs.FsError(msg) =>
-              self.stderr_buf.write_string("moonbash: \{msg}\n")
+              self.stderr_buf.write_string("moon_bash: \{msg}\n")
           }
           self.stdout_buf = saved_stdout
         }
@@ -403,7 +403,7 @@ fn ExecContext::execute_simple(
           self.fs.read_file(resolved)
         } catch {
           @fs.FsError(msg) => {
-            self.stderr_buf.write_string("moonbash: \{msg}\n")
+            self.stderr_buf.write_string("moon_bash: \{msg}\n")
             self.exit_code = 1
             return
           }
@@ -466,7 +466,7 @@ fn ExecContext::execute_simple(
         }
       } catch {
         @fs.FsError(msg) =>
-          self.stderr_buf.write_string("moonbash: \{msg}\n")
+          self.stderr_buf.write_string("moon_bash: \{msg}\n")
       }
       self.stdout_buf = saved_stdout
     }
@@ -596,7 +596,7 @@ fn ExecContext::store_array_assignment(
   name : String,
   values : Array[String]
 ) -> Unit {
-  let count_key = "__MOONBASH_ARRAY_COUNT__" + name
+  let count_key = "__MOON_BASH_ARRAY_COUNT__" + name
   let index_prefix = name + "["
   let keys_to_remove : Array[String] = []
   for key, _value in self.env {
@@ -643,7 +643,7 @@ fn ExecContext::store_array_element_assignment(
 
 fn ExecContext::refresh_array_metadata(self : ExecContext, name : String) -> Unit {
   let prefix = name + "["
-  let count_key = "__MOONBASH_ARRAY_COUNT__" + name
+  let count_key = "__MOON_BASH_ARRAY_COUNT__" + name
   let keys : Array[String] = []
 
   for key, _value in self.env {
@@ -832,12 +832,12 @@ fn ExecContext::run_command(
       Some(@fs.FsEntry::File(_)) | Some(@fs.FsEntry::Symlink(_)) =>
         dispatch_name = @fs.basename(resolved_path)
       Some(@fs.FsEntry::Directory(_)) => {
-        self.stderr_buf.write_string("moonbash: \{original_name}: Is a directory\n")
+        self.stderr_buf.write_string("moon_bash: \{original_name}: Is a directory\n")
         self.exit_code = 126
         return
       }
       None => {
-        self.stderr_buf.write_string("moonbash: \{original_name}: command not found\n")
+        self.stderr_buf.write_string("moon_bash: \{original_name}: command not found\n")
         self.exit_code = 127
         return
       }
@@ -882,7 +882,7 @@ fn ExecContext::run_command(
 
   // 2. Optional command allowlist
   if not(self.command_allowed(dispatch_name)) {
-    self.stderr_buf.write_string("moonbash: \{original_name}: command not found\n")
+    self.stderr_buf.write_string("moon_bash: \{original_name}: command not found\n")
     self.exit_code = 127
     return
   }
@@ -950,7 +950,7 @@ fn ExecContext::run_command(
   }
 
   // 5. Command not found
-  self.stderr_buf.write_string("moonbash: \{original_name}: command not found\n")
+  self.stderr_buf.write_string("moon_bash: \{original_name}: command not found\n")
   self.exit_code = 127
 }
 
@@ -986,7 +986,7 @@ fn ExecContext::apply_errexit_after_pipeline(
 }
 
 fn ExecContext::command_allowed(self : ExecContext, name : String) -> Bool {
-  match self.env.get("__MOONBASH_ALLOWED_COMMANDS") {
+  match self.env.get("__MOON_BASH_ALLOWED_COMMANDS") {
     None => true
     Some(spec) => {
       if spec.length() == 0 {

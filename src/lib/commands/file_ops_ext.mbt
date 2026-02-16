@@ -1,4 +1,4 @@
-// MoonBash Commands - Extended File Operations
+// moon_bash Commands - Extended File Operations
 // rmdir, stat, file, tree, du, chmod, ln, readlink
 
 /// rmdir: remove empty directories

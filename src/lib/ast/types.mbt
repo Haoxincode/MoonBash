@@ -1,4 +1,4 @@
-// MoonBash AST Type Definitions
+// moon_bash AST Type Definitions
 // All types needed for lexing, parsing, and interpreting bash scripts.
 
 // ============================================================================
