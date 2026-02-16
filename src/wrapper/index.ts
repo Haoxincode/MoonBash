@@ -186,6 +186,7 @@ export class Bash {
       stderr: response.stderr ?? "",
       exitCode: Number.isFinite(response.exitCode) ? Math.floor(response.exitCode) : 1,
       error: response.error,
+      files: response.files && typeof response.files === "object" ? response.files : undefined,
     };
   }
 

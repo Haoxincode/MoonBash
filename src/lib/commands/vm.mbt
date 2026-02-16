@@ -6,6 +6,8 @@ priv struct VmExecResponse {
   stderr : String
   exit_code : Int
   error : String
+  has_files : Bool
+  files : Array[(String, String)]
 }
 
 fn vm_hex_digit(n : Int) -> Char {
@@ -86,6 +88,42 @@ fn vm_env_to_json(env : Map[String, String]) -> String {
   out.to_string()
 }
 
+fn vm_files_to_json(fs : @fs.InMemoryFs) -> String {
+  let keys : Array[String] = []
+  for path, entry in fs.entries {
+    match entry {
+      @fs.FsEntry::File(_) => keys.push(path)
+      _ => ()
+    }
+  }
+  keys.sort_by(fn(a, b) {
+    if a < b {
+      -1
+    } else if a > b {
+      1
+    } else {
+      0
+    }
+  })
+  let out = StringBuilder::new()
+  out.write_char('{')
+  for i = 0; i < keys.length(); i = i + 1 {
+    if i > 0 {
+      out.write_char(',')
+    }
+    let key = keys[i]
+    let content = match fs.entries.get(key) {
+      Some(@fs.FsEntry::File(data)) => data.content
+      _ => ""
+    }
+    out.write_string(vm_json_escape_string(key))
+    out.write_char(':')
+    out.write_string(vm_json_escape_string(content))
+  }
+  out.write_char('}')
+  out.to_string()
+}
+
 fn vm_build_request_json(
   runtime_name : String,
   ctx : CommandContext
@@ -102,6 +140,8 @@ fn vm_build_request_json(
   out.write_string(vm_json_escape_string(ctx.cwd))
   out.write_string(",\"env\":")
   out.write_string(vm_env_to_json(ctx.env))
+  out.write_string(",\"files\":")
+  out.write_string(vm_files_to_json(ctx.fs))
   out.write_char('}')
   out.to_string()
 }
@@ -133,6 +173,52 @@ fn vm_json_get_int(
   }
 }
 
+fn vm_json_get_files(
+  obj : Map[String, Json]
+) -> (Bool, Array[(String, String)]) {
+  match obj.get("files") {
+    Some(Json::Object(files_obj)) => {
+      let files : Array[(String, String)] = []
+      for path, value in files_obj {
+        let content = match value {
+          Json::String(s) => s
+          Json::Number(n, ..) => n.to_int().to_string()
+          Json::True => "true"
+          Json::False => "false"
+          Json::Null => ""
+          _ => value.stringify(indent=0)
+        }
+        files.push((path, content))
+      }
+      files.sort_by(fn(a, b) {
+        if a.0 < b.0 {
+          -1
+        } else if a.0 > b.0 {
+          1
+        } else {
+          0
+        }
+      })
+      (true, files)
+    }
+    _ => (false, [])
+  }
+}
+
+fn vm_apply_file_updates(
+  fs : @fs.InMemoryFs,
+  files : Array[(String, String)]
+) -> Unit {
+  for i = 0; i < files.length(); i = i + 1 {
+    let (path, content) = files[i]
+    try {
+      fs.write_file(path, content)
+    } catch {
+      _ => ()
+    }
+  }
+}
+
 fn vm_parse_response(json_str : String) -> Result[VmExecResponse, String] {
   let parsed = try {
     @json.parse(json_str[:])
@@ -146,11 +232,14 @@ fn vm_parse_response(json_str : String) -> Result[VmExecResponse, String] {
         "exitCode",
         vm_json_get_int(obj, "exit_code", 1),
       )
+      let (has_files, files) = vm_json_get_files(obj)
       Ok({
         stdout: vm_json_get_string(obj, "stdout", ""),
         stderr: vm_json_get_string(obj, "stderr", ""),
         exit_code,
         error: vm_json_get_string(obj, "error", ""),
+        has_files,
+        files,
       })
     }
     _ => Err("vm bridge returned a non-object payload")
@@ -193,6 +282,9 @@ fn vm_run(runtime_name : String, ctx : CommandContext) -> @ast.ExecResult {
       stderr: err.to_string(),
       exit_code: if response.exit_code == 0 { 1 } else { response.exit_code },
     }
+  }
+  if response.has_files {
+    vm_apply_file_updates(ctx.fs, response.files)
   }
   {
     stdout: response.stdout,

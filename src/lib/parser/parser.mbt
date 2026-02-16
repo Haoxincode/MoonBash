@@ -105,6 +105,23 @@ fn Parser::is_word(self : Parser) -> Bool {
     @ast.Token::Word(_) => true
     @ast.Token::Number(_) => true
     @ast.Token::AssignmentWord(_, _) => true
+    @ast.Token::If
+    | @ast.Token::Then
+    | @ast.Token::Elif
+    | @ast.Token::Else
+    | @ast.Token::Fi
+    | @ast.Token::For
+    | @ast.Token::While
+    | @ast.Token::Until
+    | @ast.Token::Do
+    | @ast.Token::Done
+    | @ast.Token::Case
+    | @ast.Token::Esac
+    | @ast.Token::In
+    | @ast.Token::Function
+    | @ast.Token::Select
+    | @ast.Token::Bang
+    | @ast.Token::Time => true
     _ => false
   }
 }
@@ -114,6 +131,30 @@ fn token_to_string(tok : @ast.Token) -> String {
   match tok {
     @ast.Token::Word(s) => s
     @ast.Token::Number(n) => n.to_string()
+    @ast.Token::AssignmentWord(name, value) => {
+      if value.length() == 0 {
+        name + "="
+      } else {
+        name + "=" + value
+      }
+    }
+    @ast.Token::If => "if"
+    @ast.Token::Then => "then"
+    @ast.Token::Elif => "elif"
+    @ast.Token::Else => "else"
+    @ast.Token::Fi => "fi"
+    @ast.Token::For => "for"
+    @ast.Token::While => "while"
+    @ast.Token::Until => "until"
+    @ast.Token::Do => "do"
+    @ast.Token::Done => "done"
+    @ast.Token::Case => "case"
+    @ast.Token::Esac => "esac"
+    @ast.Token::In => "in"
+    @ast.Token::Function => "function"
+    @ast.Token::Select => "select"
+    @ast.Token::Bang => "!"
+    @ast.Token::Time => "time"
     _ => ""
   }
 }
@@ -331,6 +372,7 @@ fn Parser::parse_simple_command(self : Parser) -> @ast.SimpleCommand raise @ast.
   let assignments : Array[@ast.Assignment] = []
   let words : Array[@ast.Word] = []
   let redirections : Array[@ast.Redirection] = []
+  let start_pos = self.pos
 
   // Parse leading assignments
   while true {
@@ -356,17 +398,16 @@ fn Parser::parse_simple_command(self : Parser) -> @ast.SimpleCommand raise @ast.
       continue
     }
 
-    match self.peek() {
-      @ast.Token::Word(s) => {
-        self.advance() |> ignore
-        words.push(parse_word_content(s))
-      }
-      @ast.Token::Number(n) => {
-        self.advance() |> ignore
-        words.push(make_literal_word(n.to_string()))
-      }
-      _ => break
+    if self.is_word() {
+      let tok = self.advance()
+      words.push(parse_word_content(token_to_string(tok)))
+      continue
     }
+    break
+  }
+
+  if self.pos == start_pos {
+    raise @ast.BashError("expected command, got \{self.peek()}")
   }
 
   self.consume_heredoc_bodies(redirections)

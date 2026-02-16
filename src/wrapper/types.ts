@@ -43,6 +43,7 @@ export interface MoonBashVmRequest {
   stdin?: string;
   cwd?: string;
   env?: Record<string, string>;
+  files?: Record<string, string>;
 }
 
 export interface MoonBashVmResponse {
@@ -50,6 +51,7 @@ export interface MoonBashVmResponse {
   stderr: string;
   exitCode: number;
   error?: string;
+  files?: Record<string, string>;
 }
 
 export interface VmOptions {
