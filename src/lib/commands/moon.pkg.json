@@ -9,6 +9,7 @@
     "shu-kitamura/sha256",
     "moonbit-community/yaml",
     "moonbash/lib/nyacsv",
+    "moonbash/lib/ffi",
     "gmlewis/base64",
     "moonbit-community/piediff/line_diff",
     "moonbit-community/piediff/edit"

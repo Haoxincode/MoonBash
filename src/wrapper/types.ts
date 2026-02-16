@@ -9,6 +9,32 @@ export interface ExecResult {
   exitCode: number;
 }
 
+export interface MoonBashFetchRequest {
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  body?: string;
+}
+
+export interface MoonBashFetchResponse {
+  ok: boolean;
+  status: number;
+  statusText?: string;
+  headers?: Record<string, string>;
+  body: string;
+  error?: string;
+}
+
+export interface NetworkOptions {
+  /**
+   * Optional host fetch bridge.
+   * Can be synchronous or Promise-based.
+   */
+  fetch?: (
+    request: MoonBashFetchRequest
+  ) => MoonBashFetchResponse | Promise<MoonBashFetchResponse>;
+}
+
 export interface BashOptions {
   /** Initial environment variables */
   env?: Record<string, string>;
@@ -20,6 +46,8 @@ export interface BashOptions {
   limits?: Partial<ExecutionLimits>;
   /** Enable debug tracing */
   trace?: boolean;
+  /** Network bridge options used by curl/html-to-markdown */
+  network?: NetworkOptions;
 }
 
 export interface ExecutionLimits {

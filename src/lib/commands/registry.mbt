@@ -61,6 +61,9 @@ pub fn find_command(
     "gzip" => Some(cmd_gzip)
     "gunzip" => Some(cmd_gunzip)
     "zcat" => Some(cmd_zcat)
+    // Network commands (network.mbt)
+    "curl" => Some(cmd_curl)
+    "html-to-markdown" => Some(cmd_html_to_markdown)
     _ => None
   }
 }

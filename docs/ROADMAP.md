@@ -420,12 +420,12 @@ Phase 5: Multi-Platform Expansion            ⬜ NOT STARTED
 
 ### 4.3 Network
 
-- [ ] `curl` command implementation
+- [x] `curl` command implementation
 - [ ] URL prefix allowlist enforcement
 - [ ] HTTP method restriction
 - [ ] Redirect following with validation
 - [ ] Timeout and response size limits
-- [ ] `html-to-markdown` command
+- [x] `html-to-markdown` command
 
 ### 4.4 Defense-in-Depth
 
