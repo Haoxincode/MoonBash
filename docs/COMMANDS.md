@@ -63,7 +63,7 @@ MoonBash targets 87 Unix commands (matching vercel-labs/just-bash 100% API compa
 | Command | Description | Complexity |
 |---|---|---|
 | `jq` | JSON processor | **Very High** |
-| `python3` | Python runtime bridge (optional, host VM) | N/A |
+| `python3` | Python runtime bridge (optional, WASM via Pyodide) | N/A |
 | `yq` | YAML/XML/TOML/CSV processor | High |
 | `xan` | CSV processor | High |
 | `sqlite3` | SQL database (optional, WASM) | N/A |

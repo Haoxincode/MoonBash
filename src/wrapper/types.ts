@@ -54,6 +54,29 @@ export interface MoonBashVmResponse {
   files?: Record<string, string>;
 }
 
+export interface VmWasmPythonOptions {
+  /** Enable built-in Pyodide runtime for python3. */
+  enabled?: boolean;
+  /** Optional custom loader for Pyodide runtime. */
+  loadRuntime?: () => unknown | Promise<unknown>;
+  /** Optional Pyodide index URL passed to loadPyodide. */
+  indexURL?: string;
+}
+
+export interface VmWasmSqliteOptions {
+  /** Enable built-in sql.js runtime for sqlite3. */
+  enabled?: boolean;
+  /** Optional custom loader for sql.js runtime. */
+  loadRuntime?: () => unknown | Promise<unknown>;
+  /** Optional wasm file URL passed through locateFile. */
+  wasmUrl?: string;
+}
+
+export interface VmWasmOptions {
+  python?: VmWasmPythonOptions;
+  sqlite?: VmWasmSqliteOptions;
+}
+
 export interface VmOptions {
   /**
    * Optional host VM bridge used by python3/sqlite3 commands.
@@ -62,6 +85,8 @@ export interface VmOptions {
   run?: (
     request: MoonBashVmRequest
   ) => MoonBashVmResponse | Promise<MoonBashVmResponse>;
+  /** Optional built-in WASM runtime settings for python3/sqlite3. */
+  wasm?: VmWasmOptions;
 }
 
 export interface TimerOptions {
@@ -85,6 +110,10 @@ export interface BashOptions {
   cwd?: string;
   /** Initial filesystem contents: path -> content mapping */
   files?: Record<string, string>;
+  /** Enable built-in Python runtime (defaults to WASM bridge). */
+  python?: boolean;
+  /** Enable built-in SQLite runtime (defaults to WASM bridge). */
+  sqlite?: boolean;
   /** Execution limits */
   limits?: Partial<ExecutionLimits>;
   /** Enable debug tracing */

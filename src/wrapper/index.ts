@@ -43,6 +43,131 @@ type MoonBashSleepBridge = (durationMs: number) => string;
 type MoonBashNowBridge = () => number;
 type MoonBashVmBridge = (requestJson: string) => string;
 
+interface PyodideFsLike {
+  analyzePath(path: string): { exists: boolean };
+  mkdir(path: string): void;
+  readdir(path: string): string[];
+  stat(path: string): { mode: number };
+  isDir(mode: number): boolean;
+  readFile(path: string, options?: { encoding: "utf8" }): string;
+  writeFile(path: string, data: string): void;
+  unlink(path: string): void;
+}
+
+interface PyodideRuntimeLike {
+  FS: PyodideFsLike;
+  globals: {
+    set(name: string, value: unknown): void;
+  };
+  runPython(code: string): unknown;
+}
+
+interface SqlJsResultLike {
+  values: unknown[][];
+}
+
+interface SqlJsDatabaseLike {
+  exec(sql: string): SqlJsResultLike[];
+  run(sql: string): void;
+  export(): Uint8Array;
+  close(): void;
+}
+
+interface SqlJsRuntimeLike {
+  Database: new (data?: Uint8Array) => SqlJsDatabaseLike;
+}
+
+interface SqlJsInitOptions {
+  locateFile?: (file: string) => string;
+}
+
+type SqlJsInitLike = (options?: SqlJsInitOptions) => Promise<SqlJsRuntimeLike>;
+type VmBridgeImpl = (
+  request: MoonBashVmRequest,
+) => MoonBashVmResponse | Promise<MoonBashVmResponse>;
+
+const PYODIDE_EXEC_SNIPPET = `
+import contextlib
+import io
+import json
+import os
+import runpy
+import sys
+import traceback
+
+_request = json.loads(__moonbash_request_json)
+_args = _request.get("args") or []
+_stdin = _request.get("stdin") or ""
+_cwd = _request.get("cwd") or "/"
+_env = _request.get("env") or {}
+
+_stdout_io = io.StringIO()
+_stderr_io = io.StringIO()
+_exit_code = 0
+
+_old_stdin = sys.stdin
+_old_argv = list(sys.argv)
+_old_cwd = os.getcwd()
+_old_env = os.environ.copy()
+
+try:
+    sys.stdin = io.StringIO(_stdin)
+    sys.argv = ["python3"] + list(_args)
+    os.environ.clear()
+    for _k, _v in _env.items():
+        os.environ[str(_k)] = str(_v)
+
+    if _cwd:
+        os.makedirs(_cwd, exist_ok=True)
+        os.chdir(_cwd)
+
+    with contextlib.redirect_stdout(_stdout_io), contextlib.redirect_stderr(_stderr_io):
+        if len(_args) == 0:
+            _exit_code = 0
+        elif _args[0] == "-c":
+            _code = _args[1] if len(_args) > 1 else ""
+            sys.argv = ["-c"] + _args[2:]
+            exec(compile(_code, "<string>", "exec"), {"__name__": "__main__"})
+        elif _args[0] == "-m":
+            if len(_args) < 2:
+                raise SystemExit(2)
+            _mod = _args[1]
+            sys.argv = [_mod] + _args[2:]
+            runpy.run_module(_mod, run_name="__main__", alter_sys=True)
+        else:
+            _script = _args[0]
+            sys.argv = [_script] + _args[1:]
+            runpy.run_path(_script, run_name="__main__")
+except SystemExit as _e:
+    _code = _e.code
+    if isinstance(_code, int):
+        _exit_code = _code
+    elif _code is None:
+        _exit_code = 0
+    else:
+        _exit_code = 1
+        _text = str(_code)
+        if _text:
+            _stderr_io.write(_text)
+            if not _text.endswith("\\n"):
+                _stderr_io.write("\\n")
+except BaseException:
+    _exit_code = 1
+    _stderr_io.write(traceback.format_exc())
+finally:
+    sys.stdin = _old_stdin
+    sys.argv = _old_argv
+    os.chdir(_old_cwd)
+    os.environ.clear()
+    os.environ.update(_old_env)
+
+json.dumps({
+    "stdout": _stdout_io.getvalue(),
+    "stderr": _stderr_io.getvalue(),
+    "exitCode": int(_exit_code),
+})
+`.trim();
+
 declare global {
   // eslint-disable-next-line no-var
   var __moonbash_fetch: MoonBashFetchBridge | undefined;
@@ -121,12 +246,22 @@ export class Bash {
   private files: Record<string, string>;
   private dirs: Record<string, string>;
   private links: Record<string, string>;
+  private pyodideRuntime: PyodideRuntimeLike | null;
+  private pyodideRuntimePromise: Promise<PyodideRuntimeLike> | null;
+  private sqlJsRuntime: SqlJsRuntimeLike | null;
+  private sqlJsRuntimePromise: Promise<SqlJsRuntimeLike> | null;
+  private pyodideTrackedFiles: Set<string>;
 
   constructor(options: BashOptions = {}) {
     this.options = options;
     this.files = { ...(options.files || {}) };
     this.dirs = {};
     this.links = {};
+    this.pyodideRuntime = null;
+    this.pyodideRuntimePromise = null;
+    this.sqlJsRuntime = null;
+    this.sqlJsRuntimePromise = null;
+    this.pyodideTrackedFiles = new Set();
     for (const filePath of Object.keys(this.files)) {
       this.addParentDirs(filePath);
     }
@@ -333,8 +468,745 @@ export class Bash {
     };
   }
 
+  private invokeDynamicImport(specifier: string): Promise<unknown> {
+    return import(/* @vite-ignore */ specifier);
+  }
+
+  private isNodeRuntime(): boolean {
+    const maybeProcess = globalThis as {
+      process?: {
+        versions?: {
+          node?: string;
+        };
+      };
+    };
+    return typeof maybeProcess.process?.versions?.node === "string";
+  }
+
+  private async resolveNodeModulePath(specifier: string): Promise<string | undefined> {
+    if (!this.isNodeRuntime()) {
+      return undefined;
+    }
+    try {
+      const nodeModule = await this.invokeDynamicImport("node:module") as {
+        createRequire?: unknown;
+        default?: {
+          createRequire?: unknown;
+        };
+      };
+      const createRequire = nodeModule.createRequire ?? nodeModule.default?.createRequire;
+      if (typeof createRequire !== "function") {
+        return undefined;
+      }
+      const requireFn = createRequire(import.meta.url) as {
+        resolve?: (moduleName: string) => string;
+      };
+      if (typeof requireFn.resolve !== "function") {
+        return undefined;
+      }
+      return requireFn.resolve(specifier);
+    } catch (_error) {
+      return undefined;
+    }
+  }
+
+  private async resolveNodeDirname(pathValue: string): Promise<string | undefined> {
+    if (!this.isNodeRuntime()) {
+      return undefined;
+    }
+    try {
+      const nodePath = await this.invokeDynamicImport("node:path") as {
+        dirname?: unknown;
+        default?: {
+          dirname?: unknown;
+        };
+      };
+      const dirname = nodePath.dirname ?? nodePath.default?.dirname;
+      if (typeof dirname !== "function") {
+        return undefined;
+      }
+      return dirname(pathValue);
+    } catch (_error) {
+      return undefined;
+    }
+  }
+
+  private ensureTrailingSlash(pathValue: string): string {
+    if (pathValue.endsWith("/") || pathValue.endsWith("\\")) {
+      return pathValue;
+    }
+    return `${pathValue}/`;
+  }
+
+  private shouldEnablePythonWasm(): boolean {
+    return this.options.python === true || this.options.vm?.wasm?.python?.enabled === true;
+  }
+
+  private shouldEnableSqliteWasm(): boolean {
+    return this.options.sqlite === true || this.options.vm?.wasm?.sqlite?.enabled === true;
+  }
+
+  private normalizeVmPath(inputPath: string): string {
+    if (!inputPath || inputPath.length === 0) {
+      return "/";
+    }
+    const normalizedSlashes = inputPath.replace(/\\/g, "/");
+    const absolute = normalizedSlashes.startsWith("/") ? normalizedSlashes : `/${normalizedSlashes}`;
+    const out: string[] = [];
+    for (const part of absolute.split("/")) {
+      if (!part || part === ".") {
+        continue;
+      }
+      if (part === "..") {
+        if (out.length > 0) {
+          out.pop();
+        }
+        continue;
+      }
+      out.push(part);
+    }
+    if (out.length === 0) {
+      return "/";
+    }
+    return `/${out.join("/")}`;
+  }
+
+  private normalizeVmCwd(cwd?: string): string {
+    if (!cwd || cwd.length === 0) {
+      return "/";
+    }
+    return this.normalizeVmPath(cwd);
+  }
+
+  private normalizeVmFiles(files?: Record<string, string>): Record<string, string> {
+    const normalized: Record<string, string> = {};
+    if (!files || typeof files !== "object") {
+      return normalized;
+    }
+    for (const [rawPath, rawContent] of Object.entries(files)) {
+      const path = this.normalizeVmPath(rawPath);
+      if (path === "/") {
+        continue;
+      }
+      normalized[path] = rawContent ?? "";
+    }
+    return normalized;
+  }
+
+  private getVmTopRoot(path: string): string {
+    const normalized = this.normalizeVmPath(path);
+    const parts = normalized.split("/").filter(Boolean);
+    if (parts.length === 0) {
+      return "/";
+    }
+    return `/${parts[0]}`;
+  }
+
+  private ensurePyodideDir(runtime: PyodideRuntimeLike, dirPath: string): void {
+    const normalized = this.normalizeVmPath(dirPath);
+    if (normalized === "/") {
+      return;
+    }
+    const parts = normalized.split("/").filter(Boolean);
+    let current = "";
+    for (const part of parts) {
+      current += `/${part}`;
+      try {
+        if (!runtime.FS.analyzePath(current).exists) {
+          runtime.FS.mkdir(current);
+        }
+      } catch (_error) {
+        // Ignore race/invalid path errors; write step will surface real failure.
+      }
+    }
+  }
+
+  private writePyodideFile(runtime: PyodideRuntimeLike, path: string, content: string): void {
+    const normalized = this.normalizeVmPath(path);
+    if (normalized === "/") {
+      return;
+    }
+    const slash = normalized.lastIndexOf("/");
+    const parentDir = slash <= 0 ? "/" : normalized.slice(0, slash);
+    this.ensurePyodideDir(runtime, parentDir);
+    runtime.FS.writeFile(normalized, content ?? "");
+  }
+
+  private deletePyodideFile(runtime: PyodideRuntimeLike, path: string): void {
+    const normalized = this.normalizeVmPath(path);
+    if (normalized === "/") {
+      return;
+    }
+    try {
+      if (runtime.FS.analyzePath(normalized).exists) {
+        runtime.FS.unlink(normalized);
+      }
+    } catch (_error) {
+      // Ignore missing/unlink failures for non-tracked files.
+    }
+  }
+
+  private readPyodideFile(runtime: PyodideRuntimeLike, path: string): string | undefined {
+    const normalized = this.normalizeVmPath(path);
+    if (normalized === "/") {
+      return undefined;
+    }
+    try {
+      if (!runtime.FS.analyzePath(normalized).exists) {
+        return undefined;
+      }
+      return runtime.FS.readFile(normalized, { encoding: "utf8" });
+    } catch (_error) {
+      return undefined;
+    }
+  }
+
+  private syncPyodideFiles(
+    runtime: PyodideRuntimeLike,
+    files: Record<string, string>,
+  ): void {
+    const nextPaths = new Set(Object.keys(files).map((path) => this.normalizeVmPath(path)));
+    for (const trackedPath of this.pyodideTrackedFiles) {
+      if (!nextPaths.has(trackedPath)) {
+        this.deletePyodideFile(runtime, trackedPath);
+      }
+    }
+    for (const [path, content] of Object.entries(files)) {
+      this.writePyodideFile(runtime, path, content);
+    }
+    this.pyodideTrackedFiles = nextPaths;
+  }
+
+  private collectPyodideFilesFromRoots(
+    runtime: PyodideRuntimeLike,
+    roots: Set<string>,
+    outFiles: Record<string, string>,
+  ): void {
+    const visitedDirs = new Set<string>();
+    const maxDepth = 24;
+    const maxFiles = 20000;
+    let fileCount = 0;
+
+    const walk = (dir: string, depth: number): void => {
+      if (depth > maxDepth || fileCount >= maxFiles) {
+        return;
+      }
+      const normalizedDir = this.normalizeVmPath(dir);
+      if (visitedDirs.has(normalizedDir)) {
+        return;
+      }
+      visitedDirs.add(normalizedDir);
+
+      let entries: string[];
+      try {
+        entries = runtime.FS.readdir(normalizedDir);
+      } catch (_error) {
+        return;
+      }
+
+      for (const name of entries) {
+        if (name === "." || name === "..") {
+          continue;
+        }
+        const child = normalizedDir === "/" ? `/${name}` : `${normalizedDir}/${name}`;
+        let stat: { mode: number };
+        try {
+          stat = runtime.FS.stat(child);
+        } catch (_error) {
+          continue;
+        }
+
+        if (runtime.FS.isDir(stat.mode)) {
+          walk(child, depth + 1);
+          continue;
+        }
+
+        const content = this.readPyodideFile(runtime, child);
+        if (content !== undefined) {
+          outFiles[this.normalizeVmPath(child)] = content;
+        }
+        fileCount += 1;
+        if (fileCount >= maxFiles) {
+          return;
+        }
+      }
+    };
+
+    for (const root of roots) {
+      walk(root, 0);
+    }
+  }
+
+  private resolvePyodideFilesSnapshot(
+    runtime: PyodideRuntimeLike,
+    request: MoonBashVmRequest,
+    baseFiles: Record<string, string>,
+  ): Record<string, string> {
+    const snapshot: Record<string, string> = {};
+    for (const path of this.pyodideTrackedFiles) {
+      const content = this.readPyodideFile(runtime, path);
+      if (content !== undefined) {
+        snapshot[path] = content;
+      }
+    }
+
+    const roots = new Set<string>();
+    for (const path of Object.keys(baseFiles)) {
+      const root = this.getVmTopRoot(path);
+      if (root !== "/") {
+        roots.add(root);
+      }
+    }
+
+    if (request.cwd && request.cwd.startsWith("/")) {
+      const cwdRoot = this.getVmTopRoot(request.cwd);
+      if (cwdRoot !== "/") {
+        roots.add(cwdRoot);
+      }
+    }
+
+    if (Array.isArray(request.args) && request.args.length > 0) {
+      const scriptPath = request.args[0];
+      if (typeof scriptPath === "string" && scriptPath.startsWith("/")) {
+        const scriptRoot = this.getVmTopRoot(scriptPath);
+        if (scriptRoot !== "/") {
+          roots.add(scriptRoot);
+        }
+      }
+    }
+
+    if (roots.size > 0) {
+      this.collectPyodideFilesFromRoots(runtime, roots, snapshot);
+    }
+
+    this.pyodideTrackedFiles = new Set(Object.keys(snapshot));
+    return snapshot;
+  }
+
+  private async loadDefaultPyodideRuntime(): Promise<PyodideRuntimeLike> {
+    const pythonOptions = this.options.vm?.wasm?.python;
+    let loadPyodideFn: ((options?: { indexURL?: string }) => Promise<unknown>) | null = null;
+    const globalLoader = (globalThis as { loadPyodide?: unknown }).loadPyodide;
+    if (typeof globalLoader === "function") {
+      loadPyodideFn = globalLoader as (options?: { indexURL?: string }) => Promise<unknown>;
+    }
+
+    if (!loadPyodideFn) {
+      let mod: unknown;
+      try {
+        mod = await this.invokeDynamicImport("pyodide");
+      } catch (error) {
+        throw new Error(
+          `moonbash: python3 wasm runtime requires Pyodide (module \"pyodide\"). ${toErrorMessage(error)}`,
+        );
+      }
+      const maybeModule = mod as {
+        loadPyodide?: unknown;
+        default?: unknown;
+      };
+      const maybeFn = maybeModule.loadPyodide ??
+        (
+          maybeModule.default as {
+            loadPyodide?: unknown;
+          } | undefined
+        )?.loadPyodide ??
+        maybeModule.default;
+      if (typeof maybeFn !== "function") {
+        throw new Error("moonbash: unable to locate loadPyodide() in module \"pyodide\"");
+      }
+      loadPyodideFn = maybeFn as (options?: { indexURL?: string }) => Promise<unknown>;
+    }
+
+    let indexURL = pythonOptions?.indexURL;
+    if (!indexURL) {
+      const pyodideAsmPath = await this.resolveNodeModulePath("pyodide/pyodide.asm.js");
+      if (pyodideAsmPath) {
+        const pyodideDir = await this.resolveNodeDirname(pyodideAsmPath);
+        if (pyodideDir) {
+          indexURL = this.ensureTrailingSlash(pyodideDir);
+        }
+      }
+    }
+
+    const runtime = await loadPyodideFn(indexURL ? { indexURL } : undefined);
+    if (!runtime || typeof runtime !== "object") {
+      throw new Error("moonbash: invalid Pyodide runtime object");
+    }
+    const candidate = runtime as {
+      FS?: unknown;
+      globals?: unknown;
+      runPython?: unknown;
+    };
+    if (
+      !candidate.FS ||
+      !candidate.globals ||
+      typeof candidate.runPython !== "function"
+    ) {
+      throw new Error("moonbash: Pyodide runtime is missing required APIs");
+    }
+    return runtime as PyodideRuntimeLike;
+  }
+
+  private getPyodideRuntime(): Promise<PyodideRuntimeLike> {
+    if (this.pyodideRuntime) {
+      return Promise.resolve(this.pyodideRuntime);
+    }
+    if (this.pyodideRuntimePromise) {
+      return this.pyodideRuntimePromise;
+    }
+    const customLoader = this.options.vm?.wasm?.python?.loadRuntime;
+    this.pyodideRuntimePromise = (async () => {
+      let runtime: PyodideRuntimeLike;
+      if (customLoader) {
+        const loaded = await Promise.resolve(customLoader());
+        if (!loaded || typeof loaded !== "object") {
+          throw new Error("moonbash: vm.wasm.python.loadRuntime() returned invalid runtime");
+        }
+        const candidate = loaded as {
+          FS?: unknown;
+          globals?: unknown;
+          runPython?: unknown;
+        };
+        if (
+          !candidate.FS ||
+          !candidate.globals ||
+          typeof candidate.runPython !== "function"
+        ) {
+          throw new Error("moonbash: custom python runtime is missing required APIs");
+        }
+        runtime = loaded as PyodideRuntimeLike;
+      } else {
+        runtime = await this.loadDefaultPyodideRuntime();
+      }
+      this.pyodideRuntime = runtime;
+      return runtime;
+    })();
+    return this.pyodideRuntimePromise;
+  }
+
+  private parsePyodideExecResult(raw: unknown): MoonBashVmResponse {
+    let parsed: unknown = raw;
+    if (typeof raw === "string") {
+      parsed = JSON.parse(raw);
+    } else if (raw && typeof raw === "object" && "toString" in raw) {
+      const asString = String(raw);
+      if (asString.startsWith("{") && asString.endsWith("}")) {
+        parsed = JSON.parse(asString);
+      }
+    }
+    if (!parsed || typeof parsed !== "object") {
+      throw new Error("moonbash: python3 runtime returned invalid payload");
+    }
+    const obj = parsed as {
+      stdout?: unknown;
+      stderr?: unknown;
+      exitCode?: unknown;
+      error?: unknown;
+    };
+    return {
+      stdout: typeof obj.stdout === "string" ? obj.stdout : "",
+      stderr: typeof obj.stderr === "string" ? obj.stderr : "",
+      exitCode: typeof obj.exitCode === "number" && Number.isFinite(obj.exitCode)
+        ? Math.floor(obj.exitCode)
+        : 1,
+      error: typeof obj.error === "string" ? obj.error : undefined,
+    };
+  }
+
+  private runPythonWithPyodide(request: MoonBashVmRequest): MoonBashVmResponse {
+    if (!this.pyodideRuntime) {
+      throw new Error("moonbash: python3 runtime is not initialized");
+    }
+    const runtime = this.pyodideRuntime;
+    const vmFiles = this.normalizeVmFiles(request.files);
+    this.syncPyodideFiles(runtime, vmFiles);
+    const payload = {
+      args: Array.isArray(request.args) ? request.args : [],
+      stdin: request.stdin ?? "",
+      cwd: this.normalizeVmCwd(request.cwd),
+      env: request.env ?? {},
+    };
+    runtime.globals.set("__moonbash_request_json", JSON.stringify(payload));
+    const rawResult = runtime.runPython(PYODIDE_EXEC_SNIPPET);
+    const response = this.parsePyodideExecResult(rawResult);
+    response.files = this.resolvePyodideFilesSnapshot(
+      runtime,
+      { ...request, cwd: payload.cwd, files: vmFiles },
+      vmFiles,
+    );
+    return response;
+  }
+
+  private bytesToBinaryString(bytes: Uint8Array): string {
+    let out = "";
+    const chunk = 0x8000;
+    for (let offset = 0; offset < bytes.length; offset += chunk) {
+      const part = bytes.subarray(offset, Math.min(offset + chunk, bytes.length));
+      out += String.fromCharCode(...part);
+    }
+    return out;
+  }
+
+  private binaryStringToBytes(content: string): Uint8Array {
+    const bytes = new Uint8Array(content.length);
+    for (let i = 0; i < content.length; i += 1) {
+      bytes[i] = content.charCodeAt(i) & 0xff;
+    }
+    return bytes;
+  }
+
+  private async loadDefaultSqlJsRuntime(): Promise<SqlJsRuntimeLike> {
+    const sqliteOptions = this.options.vm?.wasm?.sqlite;
+    let initSqlJs: SqlJsInitLike | null = null;
+    const globalInit = (globalThis as { initSqlJs?: unknown }).initSqlJs;
+    if (typeof globalInit === "function") {
+      initSqlJs = globalInit as SqlJsInitLike;
+    }
+
+    if (!initSqlJs) {
+      let mod: unknown;
+      try {
+        mod = await this.invokeDynamicImport("sql.js");
+      } catch (error) {
+        throw new Error(
+          `moonbash: sqlite3 wasm runtime requires sql.js (module \"sql.js\"). ${toErrorMessage(error)}`,
+        );
+      }
+      const maybeModule = mod as {
+        default?: unknown;
+        initSqlJs?: unknown;
+      };
+      const maybeFn = maybeModule.default ?? maybeModule.initSqlJs;
+      if (typeof maybeFn !== "function") {
+        throw new Error("moonbash: unable to locate sql.js initializer");
+      }
+      initSqlJs = maybeFn as SqlJsInitLike;
+    }
+
+    let resolvedWasmUrl = sqliteOptions?.wasmUrl;
+    if (!resolvedWasmUrl) {
+      resolvedWasmUrl = await this.resolveNodeModulePath("sql.js/dist/sql-wasm.wasm");
+    }
+    const locateFile = resolvedWasmUrl
+      ? (_file: string) => resolvedWasmUrl as string
+      : undefined;
+    const runtime = await initSqlJs(locateFile ? { locateFile } : undefined);
+    if (!runtime || typeof runtime !== "object" || typeof runtime.Database !== "function") {
+      throw new Error("moonbash: invalid sql.js runtime object");
+    }
+    return runtime as SqlJsRuntimeLike;
+  }
+
+  private getSqlJsRuntime(): Promise<SqlJsRuntimeLike> {
+    if (this.sqlJsRuntime) {
+      return Promise.resolve(this.sqlJsRuntime);
+    }
+    if (this.sqlJsRuntimePromise) {
+      return this.sqlJsRuntimePromise;
+    }
+    const customLoader = this.options.vm?.wasm?.sqlite?.loadRuntime;
+    this.sqlJsRuntimePromise = (async () => {
+      let runtime: SqlJsRuntimeLike;
+      if (!customLoader) {
+        runtime = await this.loadDefaultSqlJsRuntime();
+      } else {
+        const loaded = await Promise.resolve(customLoader());
+        if (!loaded) {
+          throw new Error("moonbash: vm.wasm.sqlite.loadRuntime() returned empty value");
+        }
+        if (typeof loaded === "function") {
+          const initSqlJs = loaded as SqlJsInitLike;
+          const sqliteOptions = this.options.vm?.wasm?.sqlite;
+          const locateFile = sqliteOptions?.wasmUrl
+            ? (_file: string) => sqliteOptions.wasmUrl as string
+            : undefined;
+          const initialized = await initSqlJs(locateFile ? { locateFile } : undefined);
+          if (!initialized || typeof initialized.Database !== "function") {
+            throw new Error("moonbash: custom sqlite init function returned invalid runtime");
+          }
+          runtime = initialized;
+        } else {
+          if (
+            typeof loaded !== "object" ||
+            typeof (loaded as { Database?: unknown }).Database !== "function"
+          ) {
+            throw new Error("moonbash: custom sqlite runtime is missing Database constructor");
+          }
+          runtime = loaded as SqlJsRuntimeLike;
+        }
+      }
+      this.sqlJsRuntime = runtime;
+      return runtime;
+    })();
+    return this.sqlJsRuntimePromise;
+  }
+
+  private parseSqliteArgs(args: string[]): {
+    databasePath: string | null;
+    sqlFromArgs: string;
+  } {
+    let databasePath: string | null = null;
+    const sqlParts: string[] = [];
+    for (let i = 0; i < args.length; i += 1) {
+      const arg = args[i];
+      if (arg === "-cmd" && i + 1 < args.length) {
+        sqlParts.push(args[i + 1]);
+        i += 1;
+        continue;
+      }
+      if (arg.startsWith("-")) {
+        continue;
+      }
+      if (databasePath === null) {
+        databasePath = arg === ":memory:" ? ":memory:" : this.normalizeVmPath(arg);
+        continue;
+      }
+      sqlParts.push(arg);
+    }
+    return {
+      databasePath,
+      sqlFromArgs: sqlParts.join("\n"),
+    };
+  }
+
+  private formatSqliteCell(value: unknown): string {
+    if (value === null || value === undefined) {
+      return "";
+    }
+    if (value instanceof Uint8Array) {
+      return this.bytesToBinaryString(value);
+    }
+    return String(value);
+  }
+
+  private runSqliteWithSqlJs(request: MoonBashVmRequest): MoonBashVmResponse {
+    if (!this.sqlJsRuntime) {
+      throw new Error("moonbash: sqlite3 runtime is not initialized");
+    }
+    const runtime = this.sqlJsRuntime;
+    const files = this.normalizeVmFiles(request.files);
+    const args = Array.isArray(request.args) ? request.args : [];
+    const parsedArgs = this.parseSqliteArgs(args);
+    const dbPath = parsedArgs.databasePath && parsedArgs.databasePath !== ":memory:"
+      ? parsedArgs.databasePath
+      : null;
+
+    let db: SqlJsDatabaseLike;
+    if (dbPath && Object.prototype.hasOwnProperty.call(files, dbPath)) {
+      const fileContent = files[dbPath];
+      try {
+        db = new runtime.Database(this.binaryStringToBytes(fileContent));
+      } catch (_error) {
+        db = new runtime.Database();
+        if (fileContent.trim().length > 0) {
+          try {
+            db.run(fileContent);
+          } catch {
+            // Ignore bootstrap SQL parsing errors; runtime SQL execution still returns an error.
+          }
+        }
+      }
+    } else {
+      db = new runtime.Database();
+    }
+
+    const sqlText = [parsedArgs.sqlFromArgs, request.stdin ?? ""]
+      .filter((part) => part.trim().length > 0)
+      .join("\n");
+
+    try {
+      const lines: string[] = [];
+      if (sqlText.trim().length > 0) {
+        const resultSets = db.exec(sqlText);
+        for (const resultSet of resultSets) {
+          for (const row of resultSet.values) {
+            lines.push(row.map((value) => this.formatSqliteCell(value)).join("|"));
+          }
+        }
+      }
+
+      const nextFiles: Record<string, string> = { ...files };
+      if (dbPath) {
+        nextFiles[dbPath] = this.bytesToBinaryString(db.export());
+      }
+      db.close();
+      return {
+        stdout: lines.length > 0 ? `${lines.join("\n")}\n` : "",
+        stderr: "",
+        exitCode: 0,
+        files: nextFiles,
+      };
+    } catch (error) {
+      try {
+        db.close();
+      } catch {
+        // Ignore close failure after runtime error.
+      }
+      return {
+        stdout: "",
+        stderr: `${toErrorMessage(error)}\n`,
+        exitCode: 1,
+        files,
+      };
+    }
+  }
+
+  private createDefaultWasmVmImpl(): VmBridgeImpl | undefined {
+    const enablePython = this.shouldEnablePythonWasm();
+    const enableSqlite = this.shouldEnableSqliteWasm();
+    if (!enablePython && !enableSqlite) {
+      return undefined;
+    }
+
+    return (request: MoonBashVmRequest): MoonBashVmResponse => {
+      if (request.runtime === "python3") {
+        if (!enablePython) {
+          return {
+            stdout: "",
+            stderr: "",
+            exitCode: 1,
+            error: "python3 runtime is disabled",
+            files: this.normalizeVmFiles(request.files),
+          };
+        }
+        return this.runPythonWithPyodide(request);
+      }
+      if (request.runtime === "sqlite3") {
+        if (!enableSqlite) {
+          return {
+            stdout: "",
+            stderr: "",
+            exitCode: 1,
+            error: "sqlite3 runtime is disabled",
+            files: this.normalizeVmFiles(request.files),
+          };
+        }
+        return this.runSqliteWithSqlJs(request);
+      }
+      return {
+        stdout: "",
+        stderr: "",
+        exitCode: 1,
+        error: `unsupported vm runtime: ${String(request.runtime)}`,
+        files: this.normalizeVmFiles(request.files),
+      };
+    };
+  }
+
+  private async ensureDefaultVmRuntimesReady(): Promise<void> {
+    if (this.options.vm?.run) {
+      return;
+    }
+    if (this.shouldEnablePythonWasm()) {
+      await this.getPyodideRuntime();
+    }
+    if (this.shouldEnableSqliteWasm()) {
+      await this.getSqlJsRuntime();
+    }
+  }
+
   private createVmBridge(): MoonBashVmBridge | undefined {
-    const vmImpl = this.options.vm?.run;
+    const vmImpl = this.options.vm?.run ?? this.createDefaultWasmVmImpl();
     if (!vmImpl) {
       return undefined;
     }
@@ -343,9 +1215,15 @@ export class Bash {
       try {
         const request = JSON.parse(requestJson) as MoonBashVmRequest;
         const maybeResponse = vmImpl(request);
-        const response = isPromiseLike<MoonBashVmResponse>(maybeResponse)
-          ? waitForPromise(Promise.resolve(maybeResponse))
-          : maybeResponse;
+        if (isPromiseLike<MoonBashVmResponse>(maybeResponse)) {
+          return JSON.stringify({
+            stdout: "",
+            stderr: "",
+            exitCode: 1,
+            error: "async vm bridge is not supported by sync runtime",
+          } satisfies MoonBashVmResponse);
+        }
+        const response = maybeResponse;
         return JSON.stringify(this.normalizeVmResponse(response));
       } catch (error) {
         return JSON.stringify({
@@ -363,6 +1241,7 @@ export class Bash {
    * Returns stdout, stderr, and exit code.
    */
   async exec(script: string): Promise<ExecResult> {
+    await this.ensureDefaultVmRuntimesReady();
     const envJson = JSON.stringify(this.options.env || {});
     const filesJson = JSON.stringify(this.files);
     const dirsJson = JSON.stringify(this.dirs);
