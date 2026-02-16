@@ -1,5 +1,5 @@
 // MoonBash Commands - Text/Data Processing Extensions
-// diff, comm, base64, expr
+// diff, cmp, comm, base64, expr
 
 // ============================================================================
 // diff - Compare files line by line
@@ -106,6 +106,114 @@ fn cmd_diff(ctx : CommandContext) -> @ast.ExecResult {
   let out = StringBuilder::new()
   cmd_diff_unified_piediff(out, content1, content2, file1, file2)
   @ast.ExecResult::new(stdout=out.to_string(), exit_code=1)
+}
+
+// ============================================================================
+// cmp - Compare files byte by byte
+// ============================================================================
+
+/// Find first differing byte and line (both 1-based).
+/// Returns (byte_pos, line_no, differs_in_common_prefix).
+fn cmd_cmp_first_difference(
+  content1 : String,
+  content2 : String
+) -> (Int, Int, Bool) {
+  let max_common = if content1.length() < content2.length() {
+    content1.length()
+  } else {
+    content2.length()
+  }
+  let mut byte_pos = 1
+  let mut line_no = 1
+  for i = 0; i < max_common; i = i + 1 {
+    if content1[i] != content2[i] {
+      return (byte_pos, line_no, true)
+    }
+    if content1[i].to_int().unsafe_to_char() == '\n' {
+      line_no += 1
+    }
+    byte_pos += 1
+  }
+  (byte_pos, line_no, false)
+}
+
+/// cmp: compare two files byte by byte.
+/// Supports: -s / --silent / -q
+fn cmd_cmp(ctx : CommandContext) -> @ast.ExecResult {
+  let mut silent = false
+  let mut parsing_options = true
+  let files : Array[String] = []
+
+  for arg in ctx.args {
+    if parsing_options && arg == "--" {
+      parsing_options = false
+      continue
+    }
+    if parsing_options && (arg == "-s" || arg == "--silent" || arg == "-q") {
+      silent = true
+      continue
+    }
+    if parsing_options && arg.length() > 1 && arg[0] == '-' {
+      return @ast.ExecResult::new(
+        stderr="cmp: invalid option -- '\{arg}'\n",
+        exit_code=2,
+      )
+    }
+    files.push(arg)
+  }
+
+  if files.length() < 2 {
+    return @ast.ExecResult::new(
+      stderr="cmp: missing operand\n",
+      exit_code=2,
+    )
+  }
+
+  let file1 = files[0]
+  let file2 = files[1]
+
+  let (content1, err1) = cmd_read_input(ctx, file1, "cmp")
+  if err1.length() > 0 {
+    return @ast.ExecResult::new(stderr=err1, exit_code=2)
+  }
+  let (content2, err2) = cmd_read_input(ctx, file2, "cmp")
+  if err2.length() > 0 {
+    return @ast.ExecResult::new(stderr=err2, exit_code=2)
+  }
+
+  // Use piediff as the canonical equality check for cmp, same as diff.
+  let hunks = @line_diff.line_diff(old=content1[:], new=content2[:])
+  if hunks.length() == 0 {
+    return @ast.ExecResult::new(exit_code=0)
+  }
+
+  if silent {
+    return @ast.ExecResult::new(exit_code=1)
+  }
+
+  let (byte_pos, line_no, differs_in_common_prefix) = cmd_cmp_first_difference(
+    content1,
+    content2,
+  )
+
+  if differs_in_common_prefix {
+    return @ast.ExecResult::new(
+      stdout="\{file1} \{file2} differ: byte \{byte_pos}, line \{line_no}\n",
+      exit_code=1,
+    )
+  }
+
+  if content1.length() < content2.length() {
+    @ast.ExecResult::new(
+      stdout="cmp: EOF on \{file1} after byte \{byte_pos}, in line \{line_no}\n",
+      exit_code=1,
+    )
+  } else {
+    @ast.ExecResult::new(
+      stdout="cmp: EOF on \{file2} after byte \{byte_pos}, in line \{line_no}\n",
+      exit_code=1,
+    )
+  }
 }
 
 // ============================================================================

@@ -1,5 +1,5 @@
 // MoonBash Commands - Data Processors
-// yq (YAML processor), xan (CSV processor)
+// yq (YAML processor), xan/csvlook (CSV processors)
 
 /// Convert a Yaml value to a JSON string
 fn yaml_to_json_string(y : @yaml.Yaml) -> String {
@@ -245,6 +245,36 @@ fn cmd_xan(ctx : CommandContext) -> @ast.ExecResult {
       @ast.ExecResult::ok(xan_view(csv))
     }
   }
+}
+
+/// csvlook: pretty-print CSV as a table (xan view-compatible).
+fn cmd_csvlook(ctx : CommandContext) -> @ast.ExecResult {
+  let content = if ctx.args.length() > 0 {
+    let path = ctx.args[0]
+    if path == "-" {
+      ctx.stdin_content
+    } else {
+      let resolved = try {
+        @fs.resolve_path(ctx.cwd, path)
+      } catch {
+        @fs.FsError(msg) => return @ast.ExecResult::err("csvlook: \{msg}\n")
+      }
+      try {
+        ctx.fs.read_file(resolved)
+      } catch {
+        @fs.FsError(msg) => return @ast.ExecResult::err("csvlook: \{msg}\n")
+      }
+    }
+  } else {
+    ctx.stdin_content
+  }
+
+  if content.length() == 0 {
+    return @ast.ExecResult::err("csvlook: missing input\n")
+  }
+
+  let csv = @nyacsv.CSV::parse_string(content)
+  @ast.ExecResult::ok(xan_view(csv))
 }
 
 /// xan headers: list column names one per line
