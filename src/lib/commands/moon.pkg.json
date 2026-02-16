@@ -6,6 +6,9 @@
     "gmlewis/md5",
     "gmlewis/sha1",
     "gmlewis/io",
-    "shu-kitamura/sha256"
+    "shu-kitamura/sha256",
+    "gmlewis/base64",
+    "moonbit-community/piediff/line_diff",
+    "moonbit-community/piediff/edit"
   ]
 }

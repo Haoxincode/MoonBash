@@ -27,167 +27,36 @@ fn cmd_read_input(
   (content, "")
 }
 
-/// Compute LCS table for two arrays of lines.
-fn cmd_diff_lcs_table(
-  a : Array[String],
-  b : Array[String]
-) -> Array[Array[Int]] {
-  let m = a.length()
-  let n = b.length()
-  let dp : Array[Array[Int]] = Array::new(capacity=m + 1)
-  for i = 0; i <= m; i = i + 1 {
-    let row : Array[Int] = Array::new(capacity=n + 1)
-    for j = 0; j <= n; j = j + 1 {
-      row.push(0)
-    }
-    dp.push(row)
-  }
-  for i = 1; i <= m; i = i + 1 {
-    for j = 1; j <= n; j = j + 1 {
-      if a[i - 1] == b[j - 1] {
-        dp[i][j] = dp[i - 1][j - 1] + 1
-      } else if dp[i - 1][j] >= dp[i][j - 1] {
-        dp[i][j] = dp[i - 1][j]
-      } else {
-        dp[i][j] = dp[i][j - 1]
-      }
-    }
-  }
-  dp
-}
-
-/// Tag each line: ' ' = common, '-' = only in a, '+' = only in b.
-fn cmd_diff_backtrack(
-  dp : Array[Array[Int]],
-  a : Array[String],
-  b : Array[String]
-) -> Array[(Char, String)] {
-  let result : Array[(Char, String)] = []
-  let mut i = a.length()
-  let mut j = b.length()
-  while i > 0 || j > 0 {
-    if i > 0 && j > 0 && a[i - 1] == b[j - 1] {
-      result.push((' ', a[i - 1]))
-      i -= 1
-      j -= 1
-    } else if j > 0 && (i == 0 || dp[i][j - 1] >= dp[i - 1][j]) {
-      result.push(('+', b[j - 1]))
-      j -= 1
-    } else {
-      result.push(('-', a[i - 1]))
-      i -= 1
-    }
-  }
-  // Reverse in place
-  let mut lo = 0
-  let mut hi = result.length() - 1
-  while lo < hi {
-    let tmp = result[lo]
-    result[lo] = result[hi]
-    result[hi] = tmp
-    lo += 1
-    hi -= 1
-  }
-  result
-}
-
-/// Generate unified diff hunks from tagged lines.
-fn cmd_diff_unified(
+/// Generate unified diff output using piediff community package.
+fn cmd_diff_unified_piediff(
   out : StringBuilder,
-  tagged : Array[(Char, String)],
+  content1 : String,
+  content2 : String,
   file1 : String,
   file2 : String
 ) -> Unit {
-  let context = 3
-  let len = tagged.length()
-
-  // Find ranges of changed lines
-  let change_starts : Array[Int] = []
-  let change_ends : Array[Int] = []
-  let mut k = 0
-  while k < len {
-    let (tag, _) = tagged[k]
-    if tag != ' ' {
-      let start = k
-      while k < len {
-        let (t, _) = tagged[k]
-        if t == ' ' {
-          break
-        }
-        k += 1
-      }
-      change_starts.push(start)
-      change_ends.push(k)
-    } else {
-      k += 1
-    }
-  }
-
-  if change_starts.length() == 0 {
+  let hunks = @line_diff.line_diff(old=content1[:], new=content2[:])
+  if hunks.length() == 0 {
     return
   }
-
   out.write_string("--- a/\{file1}\n")
   out.write_string("+++ b/\{file2}\n")
-
-  // Group changes into hunks
-  let mut ci = 0
-  while ci < change_starts.length() {
-    let hunk_start = {
-      let s = change_starts[ci] - context
-      if s < 0 { 0 } else { s }
-    }
-    let mut hunk_end = {
-      let e = change_ends[ci] + context
-      if e > len { len } else { e }
-    }
-    let mut ci_end = ci
-    while ci_end + 1 < change_starts.length() {
-      let next_start = change_starts[ci_end + 1] - context
-      if next_start <= hunk_end {
-        ci_end += 1
-        let e = change_ends[ci_end] + context
-        hunk_end = if e > len { len } else { e }
-      } else {
-        break
+  for hunk in hunks {
+    let header = hunk.0
+    let edits = hunk.1
+    out.write_string(header.to_string())
+    out.write_char('\n')
+    for edit in edits {
+      let tag = edit.0
+      let text = edit.1
+      match tag {
+        Eql => out.write_char(' ')
+        Del => out.write_char('-')
+        Ins => out.write_char('+')
       }
-    }
-
-    let mut a_start = 0
-    let mut b_start = 0
-    for t = 0; t < hunk_start; t = t + 1 {
-      let (tag, _) = tagged[t]
-      if tag == ' ' || tag == '-' {
-        a_start += 1
-      }
-      if tag == ' ' || tag == '+' {
-        b_start += 1
-      }
-    }
-    let mut a_count = 0
-    let mut b_count = 0
-    for t = hunk_start; t < hunk_end; t = t + 1 {
-      let (tag, _) = tagged[t]
-      if tag == ' ' || tag == '-' {
-        a_count += 1
-      }
-      if tag == ' ' || tag == '+' {
-        b_count += 1
-      }
-    }
-
-    out.write_string(
-      "@@ -\{a_start + 1},\{a_count} +\{b_start + 1},\{b_count} @@\n",
-    )
-
-    for t = hunk_start; t < hunk_end; t = t + 1 {
-      let (tag, line) = tagged[t]
-      out.write_char(tag)
-      out.write_string(line)
+      out.write_stringview(text)
       out.write_char('\n')
     }
-
-    ci = ci_end + 1
   }
 }
 
@@ -234,13 +103,8 @@ fn cmd_diff(ctx : CommandContext) -> @ast.ExecResult {
     )
   }
 
-  let lines1 = cmd_split_lines(content1)
-  let lines2 = cmd_split_lines(content2)
-  let dp = cmd_diff_lcs_table(lines1, lines2)
-  let tagged = cmd_diff_backtrack(dp, lines1, lines2)
-
   let out = StringBuilder::new()
-  cmd_diff_unified(out, tagged, file1, file2)
+  cmd_diff_unified_piediff(out, content1, content2, file1, file2)
   @ast.ExecResult::new(stdout=out.to_string(), exit_code=1)
 }
 
@@ -357,116 +221,52 @@ fn cmd_comm(ctx : CommandContext) -> @ast.ExecResult {
 // base64 - Encode/decode base64
 // ============================================================================
 
-let base64_chars : String = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-
-/// Get base64 character index (decode table).
-fn base64_decode_char(ch : Char) -> Int {
-  if ch >= 'A' && ch <= 'Z' {
-    ch.to_int() - 65
-  } else if ch >= 'a' && ch <= 'z' {
-    ch.to_int() - 97 + 26
-  } else if ch >= '0' && ch <= '9' {
-    ch.to_int() - 48 + 52
-  } else if ch == '+' {
-    62
-  } else if ch == '/' {
-    63
-  } else {
-    -1
-  }
-}
-
-/// Encode string to base64.
+/// Encode string to base64 using gmlewis/base64 community package.
 fn base64_encode(input : String, wrap_col : Int) -> String {
-  let out = StringBuilder::new()
-  let len = input.length()
-  let mut i = 0
-  let mut col = 0
-
-  while i < len {
-    let b0 = input[i].to_int() & 0xFF
-    let b1 = if i + 1 < len { input[i + 1].to_int() & 0xFF } else { 0 }
-    let b2 = if i + 2 < len { input[i + 2].to_int() & 0xFF } else { 0 }
-    let remaining = len - i
-
-    let c0 = (b0 >> 2) & 0x3F
-    let c1 = ((b0 & 0x03) << 4) | ((b1 >> 4) & 0x0F)
-    let c2 = ((b1 & 0x0F) << 2) | ((b2 >> 6) & 0x03)
-    let c3 = b2 & 0x3F
-
-    out.write_char(base64_chars[c0].to_int().unsafe_to_char())
-    out.write_char(base64_chars[c1].to_int().unsafe_to_char())
-    if remaining > 1 {
-      out.write_char(base64_chars[c2].to_int().unsafe_to_char())
-    } else {
-      out.write_char('=')
+  let bytes = @base64.str2array(input)
+  let fixed : FixedArray[Byte] = FixedArray::make(bytes.length(), b'\x00')
+  for i = 0; i < bytes.length(); i = i + 1 {
+    fixed[i] = bytes[i]
+  }
+  let encoded = @base64.std_encode2str(fixed)
+  if wrap_col > 0 {
+    // Wrap at specified column width
+    let out = StringBuilder::new()
+    let mut col = 0
+    for i = 0; i < encoded.length(); i = i + 1 {
+      out.write_char(encoded[i].to_int().unsafe_to_char())
+      col += 1
+      if col >= wrap_col {
+        out.write_char('\n')
+        col = 0
+      }
     }
-    if remaining > 2 {
-      out.write_char(base64_chars[c3].to_int().unsafe_to_char())
-    } else {
-      out.write_char('=')
-    }
-
-    col += 4
-    if wrap_col > 0 && col >= wrap_col {
+    if col > 0 {
       out.write_char('\n')
-      col = 0
     }
-
-    i += 3
+    out.to_string()
+  } else {
+    encoded + "\n"
   }
-
-  if wrap_col > 0 && col > 0 {
-    out.write_char('\n')
-  } else if wrap_col == 0 {
-    out.write_char('\n')
-  }
-
-  out.to_string()
 }
 
-/// Decode base64 string. Returns (result, error_msg).
+/// Decode base64 string using gmlewis/base64 community package.
+/// Returns (result, error_msg).
 fn base64_decode(input : String) -> (String, String) {
-  let chars : Array[Int] = []
+  // Strip whitespace before decoding
+  let cleaned = StringBuilder::new()
   for i = 0; i < input.length(); i = i + 1 {
     let ch = input[i].to_int().unsafe_to_char()
-    if ch == '=' {
-      break
-    }
-    let val = base64_decode_char(ch)
-    if val >= 0 {
-      chars.push(val)
-    } else if ch != '\n' && ch != '\r' && ch != ' ' && ch != '\t' {
-      return ("", "base64: invalid input\n")
+    if ch != '\n' && ch != '\r' && ch != ' ' && ch != '\t' {
+      cleaned.write_char(ch)
     }
   }
-
-  let out = StringBuilder::new()
-  let len = chars.length()
-  let mut i = 0
-  while i < len {
-    let c0 = chars[i]
-    let c1 = if i + 1 < len { chars[i + 1] } else { 0 }
-    let c2 = if i + 2 < len { chars[i + 2] } else { 0 }
-    let c3 = if i + 3 < len { chars[i + 3] } else { 0 }
-
-    let b0 = (c0 << 2) | ((c1 >> 4) & 0x03)
-    out.write_char((b0 & 0xFF).unsafe_to_char())
-
-    if i + 2 < len {
-      let b1 = ((c1 & 0x0F) << 4) | ((c2 >> 2) & 0x0F)
-      out.write_char((b1 & 0xFF).unsafe_to_char())
-    }
-
-    if i + 3 < len {
-      let b2 = ((c2 & 0x03) << 6) | c3
-      out.write_char((b2 & 0xFF).unsafe_to_char())
-    }
-
-    i += 4
+  let result = try {
+    @base64.std_decode2str(cleaned.to_string())
+  } catch {
+    _ => return ("", "base64: invalid input\n")
   }
-
-  (out.to_string(), "")
+  (result, "")
 }
 
 /// base64: encode or decode base64 data.
