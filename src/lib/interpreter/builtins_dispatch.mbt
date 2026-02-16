@@ -199,6 +199,64 @@ fn ExecContext::run_builtin(
       self.builtin_which(args)
       true
     }
+    // Shell utilities (builtins_shell_utils.mbt)
+    "whoami" => {
+      self.builtin_whoami(args)
+      true
+    }
+    "hostname" => {
+      self.builtin_hostname(args)
+      true
+    }
+    "help" => {
+      self.builtin_help(args)
+      true
+    }
+    "clear" => {
+      self.builtin_clear(args)
+      true
+    }
+    "history" => {
+      self.builtin_history(args)
+      true
+    }
+    "tac" => {
+      self.builtin_tac(args)
+      true
+    }
+    "od" => {
+      self.builtin_od(args)
+      true
+    }
+    // Alias and execution (builtins_alias_exec.mbt)
+    "alias" => {
+      self.builtin_alias(args)
+      true
+    }
+    "unalias" => {
+      self.builtin_unalias(args)
+      true
+    }
+    "bash" => {
+      self.builtin_bash(args)
+      true
+    }
+    "sh" => {
+      self.builtin_sh(args)
+      true
+    }
+    "time" => {
+      self.builtin_time(args)
+      true
+    }
+    "sleep" => {
+      self.builtin_sleep(args)
+      true
+    }
+    "timeout" => {
+      self.builtin_timeout(args)
+      true
+    }
     _ => false
   }
 }

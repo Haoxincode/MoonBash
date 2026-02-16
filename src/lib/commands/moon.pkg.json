@@ -2,6 +2,10 @@
   "import": [
     "moonbash/lib/ast",
     "moonbash/lib/fs",
-    "moonbitlang/core/json"
+    "moonbitlang/core/json",
+    "gmlewis/md5",
+    "gmlewis/sha1",
+    "gmlewis/io",
+    "shu-kitamura/sha256"
   ]
 }

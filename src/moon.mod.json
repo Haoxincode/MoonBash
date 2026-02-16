@@ -2,7 +2,11 @@
   "name": "moonbash",
   "version": "0.1.0",
   "deps": {
-    "moonbitlang/regexp": "0.3.5"
+    "moonbitlang/regexp": "0.3.5",
+    "gmlewis/md5": "0.19.25",
+    "shu-kitamura/sha256": "0.1.1",
+    "gmlewis/sha1": "0.12.2",
+    "gmlewis/io": "0.23.2"
   },
   "readme": "../README.md",
   "repository": "",
