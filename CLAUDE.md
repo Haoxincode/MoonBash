@@ -117,3 +117,17 @@ All in `docs/`:
 - **Expansion order:** Brace → Tilde → Parameter → Command substitution → Arithmetic → Word splitting → Pathname → Quote removal.
 - **Command lookup order:** Aliases → Functions → Builtins → Registered commands.
 - Module layout: MoonBit source in `src/lib/` with subpackages: `ast/`, `lexer/`, `parser/`, `interpreter/`, `commands/`, `fs/`, `regex/`, `ffi/`, `entry/`.
+
+## MoonBit Language Skills（必读）
+
+> ⚠️ **编写或修改任何 MoonBit (`.mbt`) 代码前，必须先阅读以下 skill 文档。** 这些是 MoonBit 官方提供的 agent 编码指南，包含语言惯用法、工具链用法、重构规范等关键约束。
+
+- **[`moonbit-agent-guide`](.agents/skills/moonbit-agent-guide/SKILL.md)** — MoonBit 项目编写、测试、`moon` 工具链使用的完整工作流指南。涵盖模块/包组织、`moon check`/`moon test`/`moon ide` 命令、文件布局约定等。**编写新代码或修改现有 MoonBit 代码时必须遵循。**
+- **[`moonbit-refactoring`](.agents/skills/moonbit-refactoring/SKILL.md)** — MoonBit 代码惯用重构指南。涵盖 API 最小化、函数转方法、模式匹配与 view 类型、循环不变量、测试覆盖等。**重构 MoonBit 代码时必须遵循。**
+
+### 使用要求
+
+1. **编写/修改 `.mbt` 文件前**，先阅读 `moonbit-agent-guide` skill 了解语言基础和工具链用法。
+2. **重构 MoonBit 代码时**，先阅读 `moonbit-refactoring` skill 了解惯用模式和重构工作流。
+3. 使用 `moon check` 而非直接 `moon build` 做快速验证；使用 `moon test --filter` 做针对性测试。
+4. 使用 `moon ide doc`、`moon ide rename`、`moon ide find-references` 等语义化工具辅助开发。
