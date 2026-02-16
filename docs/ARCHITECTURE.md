@@ -19,44 +19,44 @@ MoonBash follows an ecosystem-first implementation policy: reuse official MoonBi
 
 This keeps parser/interpreter code small and auditable while preserving performance and security properties (notably regex safety and bounded execution). Full mapping and package guidance live in `docs/ECOSYSTEM_COMMAND_MAPPING.md`.
 
-## 2. Three-Layer Architecture
+## 2. "巨核与薄壳" Architecture (Fat Kernel & Thin Shell)
 
-MoonBash uses a three-layer architecture to separate concerns between the MoonBit core engine, the JS interop boundary, and the TypeScript-facing API.
+所有与"物理 I/O"无关的纯计算、纯解析任务，100% 收敛回 MoonBit 内部。FFI 边界压缩到 4 个系统原语。
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ Layer 3: TypeScript API Facade                              │
+│ Layer 3: TypeScript API Facade  (<100 lines glue)           │
 │                                                             │
 │  class Bash { exec(), getFs(), ... }                        │
 │  class Sandbox { ... }                                      │
-│  Type definitions (.d.ts)                                   │
 │                                                             │
 │  Purpose: 100% API compatibility with just-bash             │
 ├─────────────────────────────────────────────────────────────┤
-│ Layer 2: FFI Boundary (extern "js")                         │
+│ Layer 2: FFI Thin Shell  (4 system primitives only)         │
 │                                                             │
-│  FS callbacks:  read_file, write_file, stat, ...            │
-│  Network:       fetch_url                                   │
-│  Async bridge:  MoonBit async <-> JS Promise                │
-│  Regex bridge:  (fallback to JS RegExp if needed)           │
+│  Network:     globalThis.fetch       (curl)                 │
+│  Timers:      setTimeout/Date.now()  (sleep/timeout)        │
+│  Heavy VMs:   Pyodide/sql.js         (python3/sqlite3)      │
+│  Disk I/O:    node:fs                (OverlayFs)            │
 │                                                             │
-│  Purpose: Side-effect isolation, async bridging             │
+│  Purpose: Minimal side-effect bridge, zero business logic   │
 ├─────────────────────────────────────────────────────────────┤
-│ Layer 1: MoonBit Core Engine (Pure Logic)                   │
+│ Layer 1: MoonBit Fat Kernel  (all pure computation)         │
 │                                                             │
 │  ┌──────────┐  ┌──────────┐  ┌────────────────────┐        │
 │  │  Lexer   │→ │  Parser  │→ │    Interpreter     │        │
 │  └──────────┘  └──────────┘  └────────────────────┘        │
 │  ┌──────────┐  ┌──────────┐  ┌────────────────────┐        │
 │  │   AST    │  │ Expansion│  │   Command Registry │        │
-│  │  Types   │  │  Engine  │  │   (87 commands)   │        │
+│  │  Types   │  │  Engine  │  │   (87 commands)    │        │
 │  └──────────┘  └──────────┘  └────────────────────┘        │
 │  ┌──────────┐  ┌──────────┐  ┌────────────────────┐        │
-│  │ Builtins │  │  Regex   │  │   InMemoryFs       │        │
-│  │ (cd,set) │  │  Engine  │  │   (pure MoonBit)   │        │
+│  │awk/sed/jq│  │ tar/diff │  │   InMemoryFs       │        │
+│  │Micro VMs │  │ gzip/b64 │  │   (pure MoonBit)   │        │
 │  └──────────┘  └──────────┘  └────────────────────┘        │
 │                                                             │
-│  Purpose: All parsing, evaluation, command execution        │
+│  Purpose: Parsing, evaluation, commands, algorithms, VFS    │
+│  Compiled: <200 KB single JS file, zero npm dependencies   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
