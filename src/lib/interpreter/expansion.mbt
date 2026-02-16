@@ -24,8 +24,11 @@ fn ExecContext::expand_word_internal(
   word : @ast.Word,
   allow_glob : Bool
 ) -> Array[String] {
-  let expanded = self.expand_word_parts(word.parts)
-  if expanded.length() == 0 {
+  let expanded_candidates = self.expand_word_parts_with_brace(word.parts)
+  if expanded_candidates.length() == 0 {
+    return [""]
+  }
+  if self.should_exit {
     return [""]
   }
   // Word splitting only applies after expansions. Pure literal words
@@ -45,10 +48,21 @@ fn ExecContext::expand_word_internal(
     }
   }
 
-  let parts = if not(has_splittable_expansion) {
-    [expanded]
+  let parts : Array[String] = []
+  if not(has_splittable_expansion) {
+    for candidate in expanded_candidates {
+      parts.push(candidate)
+    }
   } else {
-    self.word_split(expanded)
+    for candidate in expanded_candidates {
+      let split_parts = self.word_split(candidate)
+      for split_part in split_parts {
+        parts.push(split_part)
+      }
+    }
+  }
+  if parts.length() == 0 {
+    return [""]
   }
   if allow_glob && word_should_apply_glob(word.parts) {
     self.pathname_expand(parts)
@@ -67,6 +81,33 @@ fn ExecContext::expand_word_parts(
     buf.write_string(self.expand_word_part(part))
   }
   buf.to_string()
+}
+
+fn ExecContext::expand_word_parts_with_brace(
+  self : ExecContext,
+  parts : Array[@ast.WordPart]
+) -> Array[String] {
+  let mut expanded : Array[String] = [""]
+  for part in parts {
+    let part_options : Array[String] = match part {
+      @ast.WordPart::Literal(s) => expand_brace_literal(s)
+      _ => [self.expand_word_part(part)]
+    }
+
+    let next_expanded : Array[String] = []
+    for prefix in expanded {
+      for option in part_options {
+        let combined = prefix + option
+        if combined.length() > self.limits.max_string_length {
+          self.fail_execution_limit("string length limit exceeded")
+          return [""]
+        }
+        next_expanded.push(combined)
+      }
+    }
+    expanded = next_expanded
+  }
+  expanded
 }
 
 /// Expand a Word to a single string (convenience method).
@@ -122,8 +163,50 @@ fn ExecContext::expand_variable(self : ExecContext, name : String) -> String {
       if self.options.xtrace { buf.write_char('x') }
       buf.to_string()
     }
-    _ => self.env.get(name).unwrap_or("")
+    _ => self.expand_named_variable(name)
   }
+}
+
+fn ExecContext::expand_named_variable(self : ExecContext, name : String) -> String {
+  match parse_array_reference_name(name) {
+    Some((base, index_expr)) => self.expand_array_element_reference(base, index_expr)
+    None => self.env.get(name).unwrap_or("")
+  }
+}
+
+fn ExecContext::expand_array_element_reference(
+  self : ExecContext,
+  base : String,
+  index_expr : String
+) -> String {
+  if index_expr == "@" || index_expr == "*" {
+    return self.env.get("\{base}[\{index_expr}]").unwrap_or("")
+  }
+
+  let trimmed = trim_ascii_space_simple(index_expr)
+  let literal_key = strip_wrapping_quotes(trimmed)
+  let literal_lookup = "\{base}[\{literal_key}]"
+  if self.env.contains(literal_lookup) {
+    return self.env.get(literal_lookup).unwrap_or("")
+  }
+
+  match self.env.get(literal_key) {
+    Some(indirect_key) => {
+      let lookup = "\{base}[\{indirect_key}]"
+      if self.env.contains(lookup) {
+        return self.env.get(lookup).unwrap_or("")
+      }
+    }
+    None => ()
+  }
+
+  let numeric_index = self.eval_arith(@ast.ArithExpr::Raw(trimmed))
+  let numeric_lookup = "\{base}[\{numeric_index.to_string()}]"
+  if self.env.contains(numeric_lookup) {
+    return self.env.get(numeric_lookup).unwrap_or("")
+  }
+
+  ""
 }
 
 // ============================================================================
@@ -268,8 +351,18 @@ fn ExecContext::expand_param(
       }
     }
     @ast.ParamExpansion::Indirection(name) => {
-      let indirect_name = self.expand_variable(name)
-      self.expand_variable(indirect_name)
+      match indirection_array_keys_name(name) {
+        Some(base) => self.expand_array_keys(base)
+        None => {
+          match indirection_prefix_name(name) {
+            Some(prefix) => self.expand_variables_with_prefix(prefix)
+            None => {
+              let indirect_name = self.expand_variable(name)
+              self.expand_variable(indirect_name)
+            }
+          }
+        }
+      }
     }
   }
 }
@@ -291,6 +384,9 @@ fn ExecContext::expand_command_sub(
   // Save current I/O state
   let saved_stdout = self.stdout_buf
   let saved_stdin = self.stdin_buf
+  let saved_env = self.env
+  let saved_exported = self.exported
+  let saved_functions = self.functions
 
   // Execute in a sub-context
   self.stdout_buf = StringBuilder::new()
@@ -302,6 +398,9 @@ fn ExecContext::expand_command_sub(
       self.substitution_depth -= 1
       self.stdout_buf = saved_stdout
       self.stdin_buf = saved_stdin
+      self.env = saved_env
+      self.exported = saved_exported
+      self.functions = saved_functions
       return ""
     }
   }
@@ -312,6 +411,9 @@ fn ExecContext::expand_command_sub(
   // Restore I/O
   self.stdout_buf = saved_stdout
   self.stdin_buf = saved_stdin
+  self.env = saved_env
+  self.exported = saved_exported
+  self.functions = saved_functions
   self.substitution_depth -= 1
 
   // Strip trailing newlines (bash behavior)
@@ -1259,8 +1361,59 @@ fn ExecContext::arith_parse_comma(
   result
 }
 
+fn arith_is_special_var_char(ch : Char) -> Bool {
+  ch == '?' ||
+  ch == '!' ||
+  ch == '$' ||
+  ch == '#' ||
+  ch == '@' ||
+  ch == '*' ||
+  ch == '-'
+}
+
+fn ExecContext::arith_expand_dollar_refs(self : ExecContext, raw : String) -> String {
+  let out = StringBuilder::new()
+  let mut i = 0
+  while i < raw.length() {
+    let ch = raw[i].to_int().unsafe_to_char()
+    if ch == '$' && i + 1 < raw.length() {
+      let next = raw[i + 1].to_int().unsafe_to_char()
+      if arith_is_ident_start(next) {
+        let mut j = i + 2
+        while j < raw.length() && arith_is_ident_char(raw[j].to_int().unsafe_to_char()) {
+          j += 1
+        }
+        let name = raw.substring(start=i + 1, end=j)
+        out.write_string(self.expand_variable(name))
+        i = j
+        continue
+      }
+      if arith_is_digit(next) {
+        let mut j = i + 2
+        while j < raw.length() && arith_is_digit(raw[j].to_int().unsafe_to_char()) {
+          j += 1
+        }
+        let name = raw.substring(start=i + 1, end=j)
+        out.write_string(self.expand_variable(name))
+        i = j
+        continue
+      }
+      if arith_is_special_var_char(next) {
+        let name = raw.substring(start=i + 1, end=i + 2)
+        out.write_string(self.expand_variable(name))
+        i += 2
+        continue
+      }
+    }
+    out.write_char(ch)
+    i += 1
+  }
+  out.to_string()
+}
+
 fn ExecContext::eval_arith_raw(self : ExecContext, raw : String) -> Int {
-  let tokens = arith_tokenize(raw)
+  let expanded = self.arith_expand_dollar_refs(raw)
+  let tokens = arith_tokenize(expanded)
   if tokens.length() == 0 {
     return 0
   }
@@ -1371,6 +1524,237 @@ fn is_ifs_char(ch : Char, ifs : String) -> Bool {
     }
   }
   false
+}
+
+// ============================================================================
+// Brace Expansion
+// ============================================================================
+
+let brace_expansion_result_limit : Int = 10_000
+
+fn expand_brace_literal(s : String) -> Array[String] {
+  let out : Array[String] = []
+  brace_expand_collect(s, out)
+  if out.length() == 0 {
+    [s]
+  } else {
+    out
+  }
+}
+
+fn brace_expand_collect(input : String, out : Array[String]) -> Unit {
+  if out.length() >= brace_expansion_result_limit {
+    return
+  }
+  match find_first_brace_pair(input) {
+    None => out.push(input)
+    Some((start, end_)) => {
+      let content = input.substring(start=start + 1, end=end_)
+      let options = parse_brace_options(content)
+      if options.length() == 0 {
+        out.push(input)
+        return
+      }
+      let prefix = input.substring(start=0, end=start)
+      let suffix = input.substring(start=end_ + 1)
+      for option in options {
+        if out.length() >= brace_expansion_result_limit {
+          return
+        }
+        brace_expand_collect(prefix + option + suffix, out)
+      }
+    }
+  }
+}
+
+fn find_first_brace_pair(s : String) -> (Int, Int)? {
+  let mut i = 0
+  while i < s.length() {
+    if s[i] == '{' {
+      let mut depth = 1
+      let mut j = i + 1
+      while j < s.length() {
+        if s[j] == '{' {
+          depth += 1
+        } else if s[j] == '}' {
+          depth -= 1
+          if depth == 0 {
+            return Some((i, j))
+          }
+        }
+        j += 1
+      }
+      return None
+    }
+    i += 1
+  }
+  None
+}
+
+fn parse_brace_options(content : String) -> Array[String] {
+  let (comma_options, has_comma) = split_brace_top_level_commas(content)
+  if has_comma {
+    return comma_options
+  }
+
+  let range_options = parse_brace_range(content)
+  if range_options.length() > 0 {
+    return range_options
+  }
+  []
+}
+
+fn split_brace_top_level_commas(content : String) -> (Array[String], Bool) {
+  let parts : Array[String] = []
+  let mut depth = 0
+  let mut start = 0
+  let mut has_comma = false
+
+  for i = 0; i < content.length(); i = i + 1 {
+    if content[i] == '{' {
+      depth += 1
+    } else if content[i] == '}' {
+      if depth > 0 {
+        depth -= 1
+      }
+    } else if content[i] == ',' && depth == 0 {
+      parts.push(content.substring(start=start, end=i))
+      start = i + 1
+      has_comma = true
+    }
+  }
+
+  if has_comma {
+    parts.push(content.substring(start=start, end=content.length()))
+  }
+  (parts, has_comma)
+}
+
+fn parse_brace_range(content : String) -> Array[String] {
+  let parts = split_by_double_dot(content)
+  if parts.length() != 2 && parts.length() != 3 {
+    return []
+  }
+
+  let step_opt = if parts.length() == 3 {
+    parse_signed_int(parts[2])
+  } else {
+    None
+  }
+  match (parse_signed_int(parts[0]), parse_signed_int(parts[1])) {
+    (Some(start_num), Some(end_num)) => {
+      let step = match step_opt {
+        Some(v) => v
+        None => if end_num >= start_num { 1 } else { -1 }
+      }
+      if step == 0 {
+        return []
+      }
+      return generate_numeric_range(start_num, end_num, step)
+    }
+    _ => ()
+  }
+
+  if parts[0].length() == 1 && parts[1].length() == 1 {
+    let start_ch = parts[0][0].to_int()
+    let end_ch = parts[1][0].to_int()
+    let step = match step_opt {
+      Some(v) => v
+      None => if end_ch >= start_ch { 1 } else { -1 }
+    }
+    if step == 0 {
+      return []
+    }
+    return generate_char_range(start_ch, end_ch, step)
+  }
+
+  []
+}
+
+fn split_by_double_dot(content : String) -> Array[String] {
+  let parts : Array[String] = []
+  let mut start = 0
+  let mut i = 0
+  while i + 1 < content.length() {
+    if content[i] == '.' && content[i + 1] == '.' {
+      parts.push(content.substring(start=start, end=i))
+      start = i + 2
+      i += 2
+      continue
+    }
+    i += 1
+  }
+  parts.push(content.substring(start=start, end=content.length()))
+  parts
+}
+
+fn parse_signed_int(text : String) -> Int? {
+  if text.length() == 0 {
+    return None
+  }
+  let mut sign = 1
+  let mut i = 0
+  if text[0] == '-' {
+    sign = -1
+    i = 1
+  } else if text[0] == '+' {
+    i = 1
+  }
+  if i >= text.length() {
+    return None
+  }
+  let mut value = 0
+  while i < text.length() {
+    let ch = text[i].to_int().unsafe_to_char()
+    if ch < '0' || ch > '9' {
+      return None
+    }
+    value = value * 10 + (ch.to_int() - '0'.to_int())
+    i += 1
+  }
+  Some(value * sign)
+}
+
+fn generate_numeric_range(start_num : Int, end_num : Int, step : Int) -> Array[String] {
+  let out : Array[String] = []
+  let mut current = start_num
+  while true {
+    if out.length() >= brace_expansion_result_limit {
+      break
+    }
+    if step > 0 {
+      if current > end_num {
+        break
+      }
+    } else if current < end_num {
+      break
+    }
+    out.push(current.to_string())
+    current += step
+  }
+  out
+}
+
+fn generate_char_range(start_ch : Int, end_ch : Int, step : Int) -> Array[String] {
+  let out : Array[String] = []
+  let mut current = start_ch
+  while true {
+    if out.length() >= brace_expansion_result_limit {
+      break
+    }
+    if step > 0 {
+      if current > end_ch {
+        break
+      }
+    } else if current < end_ch {
+      break
+    }
+    let buf = StringBuilder::new()
+    buf.write_char(current.unsafe_to_char())
+    out.push(buf.to_string())
+    current += step
+  }
+  out
 }
 
 // ============================================================================
@@ -1569,6 +1953,222 @@ fn array_count_var_name(name : String) -> String? {
     }
   }
   None
+}
+
+fn indirection_array_keys_name(name : String) -> String? {
+  if name.length() >= 3 {
+    let suffix = name.substring(start=name.length() - 3, end=name.length())
+    if suffix == "[@]" || suffix == "[*]" {
+      let base = name.substring(start=0, end=name.length() - 3)
+      if base.length() > 0 {
+        return Some(base)
+      }
+    }
+  }
+  None
+}
+
+fn indirection_prefix_name(name : String) -> String? {
+  if name.length() <= 1 {
+    return None
+  }
+  let last = name[name.length() - 1].to_int().unsafe_to_char()
+  if last == '*' || last == '@' {
+    let prefix = name.substring(start=0, end=name.length() - 1)
+    if prefix.length() > 0 {
+      return Some(prefix)
+    }
+  }
+  None
+}
+
+fn ExecContext::expand_variables_with_prefix(
+  self : ExecContext,
+  prefix : String
+) -> String {
+  let names : Array[String] = []
+  for key, _value in self.env {
+    if starts_with(key, prefix) {
+      names.push(key)
+    }
+  }
+  sort_strings(names)
+  names.iter().fold(
+    init="",
+    fn(acc, name) { if acc.length() == 0 { name } else { acc + " " + name } },
+  )
+}
+
+fn parse_array_reference_name(name : String) -> (String, String)? {
+  if name.length() < 4 || name[name.length() - 1] != ']' {
+    return None
+  }
+
+  let mut bracket = -1
+  for i = 0; i < name.length(); i = i + 1 {
+    if name[i] == '[' {
+      bracket = i
+      break
+    }
+  }
+  if bracket <= 0 {
+    return None
+  }
+
+  let base = name.substring(start=0, end=bracket)
+  if not(is_expand_var_base_name(base)) {
+    return None
+  }
+
+  let index = name.substring(start=bracket + 1, end=name.length() - 1)
+  if index.length() == 0 {
+    return None
+  }
+
+  Some((base, index))
+}
+
+fn is_expand_var_base_name(name : String) -> Bool {
+  if name.length() == 0 {
+    return false
+  }
+  let first = name[0].to_int().unsafe_to_char()
+  if not(
+    (first >= 'a' && first <= 'z') ||
+    (first >= 'A' && first <= 'Z') ||
+    first == '_'
+  ) {
+    return false
+  }
+
+  for i = 1; i < name.length(); i = i + 1 {
+    let ch = name[i].to_int().unsafe_to_char()
+    if not(
+      (ch >= 'a' && ch <= 'z') ||
+      (ch >= 'A' && ch <= 'Z') ||
+      (ch >= '0' && ch <= '9') ||
+      ch == '_'
+    ) {
+      return false
+    }
+  }
+  true
+}
+
+fn trim_ascii_space_simple(s : String) -> String {
+  let mut start = 0
+  let mut end_ = s.length()
+
+  while start < end_ {
+    let ch = s[start].to_int().unsafe_to_char()
+    if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+      start += 1
+    } else {
+      break
+    }
+  }
+
+  while end_ > start {
+    let ch = s[end_ - 1].to_int().unsafe_to_char()
+    if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+      end_ -= 1
+    } else {
+      break
+    }
+  }
+
+  s.substring(start=start, end=end_)
+}
+
+fn strip_wrapping_quotes(text : String) -> String {
+  if text.length() >= 2 {
+    let first = text[0].to_int().unsafe_to_char()
+    let last = text[text.length() - 1].to_int().unsafe_to_char()
+    if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
+      return text.substring(start=1, end=text.length() - 1)
+    }
+  }
+  text
+}
+
+fn ExecContext::expand_array_keys(self : ExecContext, base : String) -> String {
+  let keys = self.collect_array_keys(base)
+  keys.iter().fold(
+    init="",
+    fn(acc, key) { if acc.length() == 0 { key } else { acc + " " + key } },
+  )
+}
+
+fn ExecContext::collect_array_keys(
+  self : ExecContext,
+  base : String
+) -> Array[String] {
+  let keys : Array[String] = []
+  let prefix = base + "["
+  for env_key, _value in self.env {
+    if starts_with(env_key, prefix) && env_key.length() > prefix.length() &&
+      env_key[env_key.length() - 1] == ']' {
+      let key = env_key.substring(start=prefix.length(), end=env_key.length() - 1)
+      if key != "@" && key != "*" {
+        keys.push(key)
+      }
+    }
+  }
+  sort_array_key_names(keys)
+  keys
+}
+
+fn sort_array_key_names(keys : Array[String]) -> Unit {
+  keys.sort_by(fn(a, b) {
+    match (parse_non_negative_array_key(a), parse_non_negative_array_key(b)) {
+      (Some(ai), Some(bi)) => {
+        if ai < bi {
+          -1
+        } else if ai > bi {
+          1
+        } else {
+          0
+        }
+      }
+      (Some(_), None) => -1
+      (None, Some(_)) => 1
+      (None, None) => compare_array_key_text(a, b)
+    }
+  })
+}
+
+fn parse_non_negative_array_key(text : String) -> Int? {
+  if text.length() == 0 {
+    return None
+  }
+  let mut value = 0
+  for i = 0; i < text.length(); i = i + 1 {
+    let ch = text[i].to_int().unsafe_to_char()
+    if ch < '0' || ch > '9' {
+      return None
+    }
+    value = value * 10 + (ch.to_int() - '0'.to_int())
+  }
+  Some(value)
+}
+
+fn compare_array_key_text(a : String, b : String) -> Int {
+  let min_len = if a.length() < b.length() { a.length() } else { b.length() }
+  for i = 0; i < min_len; i = i + 1 {
+    if a[i] < b[i] {
+      return -1
+    }
+    if a[i] > b[i] {
+      return 1
+    }
+  }
+  if a.length() < b.length() {
+    -1
+  } else if a.length() > b.length() {
+    1
+  } else {
+    0
+  }
 }
 
 fn split_path_segments(path : String) -> Array[String] {

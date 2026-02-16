@@ -94,6 +94,22 @@ fn ExecContext::execute_for(self : ExecContext, clause : @ast.ForClause) -> Unit
       self.break_count -= 1
       break
     }
+
+    iter_count += 1
+    if iter_count > self.limits.max_loop_iterations {
+      self.fail_execution_limit("for loop: too many iterations")
+      break
+    }
+
+    self.env[clause.var_name] = word
+    self.execute_script(clause.body)
+    if self.should_exit || self.return_requested {
+      break
+    }
+    if self.break_count > 0 {
+      self.break_count -= 1
+      break
+    }
     if self.continue_count > 0 {
       self.continue_count -= 1
       if self.continue_count > 0 {
@@ -101,16 +117,6 @@ fn ExecContext::execute_for(self : ExecContext, clause : @ast.ForClause) -> Unit
       }
       continue
     }
-
-    iter_count += 1
-    if iter_count > self.limits.max_loop_iterations {
-      self.stderr_buf.write_string("moonbash: for loop iteration limit exceeded\n")
-      self.exit_code = 1
-      break
-    }
-
-    self.env[clause.var_name] = word
-    self.execute_script(clause.body)
   }
 
   self.loop_depth -= 1
@@ -137,12 +143,6 @@ fn ExecContext::execute_while(
       self.break_count -= 1
       break
     }
-    if self.continue_count > 0 {
-      self.continue_count -= 1
-      if self.continue_count > 0 {
-        break
-      }
-    }
 
     // Evaluate condition
     self.execute_script(clause.condition)
@@ -153,8 +153,7 @@ fn ExecContext::execute_while(
 
     iter_count += 1
     if iter_count > self.limits.max_loop_iterations {
-      self.stderr_buf.write_string("moonbash: while loop iteration limit exceeded\n")
-      self.exit_code = 1
+      self.fail_execution_limit("while loop: too many iterations")
       break
     }
 
@@ -162,6 +161,20 @@ fn ExecContext::execute_while(
     self.execute_script(clause.body)
     has_body_run = true
     last_body_status = self.exit_code
+    if self.should_exit || self.return_requested {
+      break
+    }
+    if self.break_count > 0 {
+      self.break_count -= 1
+      break
+    }
+    if self.continue_count > 0 {
+      self.continue_count -= 1
+      if self.continue_count > 0 {
+        break
+      }
+      continue
+    }
   }
 
   self.loop_depth -= 1
@@ -188,12 +201,6 @@ fn ExecContext::execute_until(
       self.break_count -= 1
       break
     }
-    if self.continue_count > 0 {
-      self.continue_count -= 1
-      if self.continue_count > 0 {
-        break
-      }
-    }
 
     // Evaluate condition
     self.execute_script(clause.condition)
@@ -204,8 +211,7 @@ fn ExecContext::execute_until(
 
     iter_count += 1
     if iter_count > self.limits.max_loop_iterations {
-      self.stderr_buf.write_string("moonbash: until loop iteration limit exceeded\n")
-      self.exit_code = 1
+      self.fail_execution_limit("until loop: too many iterations")
       break
     }
 
@@ -213,6 +219,20 @@ fn ExecContext::execute_until(
     self.execute_script(clause.body)
     has_body_run = true
     last_body_status = self.exit_code
+    if self.should_exit || self.return_requested {
+      break
+    }
+    if self.break_count > 0 {
+      self.break_count -= 1
+      break
+    }
+    if self.continue_count > 0 {
+      self.continue_count -= 1
+      if self.continue_count > 0 {
+        break
+      }
+      continue
+    }
   }
 
   self.loop_depth -= 1
@@ -293,31 +313,46 @@ fn ExecContext::execute_cstyle_for(
       self.break_count -= 1
       break
     }
-    if self.continue_count > 0 {
-      self.continue_count -= 1
-      if self.continue_count > 0 {
-        break
-      }
-    }
 
     iter_count += 1
     if iter_count > self.limits.max_loop_iterations {
-      self.stderr_buf.write_string("moonbash: for loop iteration limit exceeded\n")
-      self.exit_code = 1
+      self.fail_execution_limit("for loop: too many iterations")
       break
     }
 
     // Check condition
-    let cond = self.eval_arith(clause.condition)
+    let cond = if cstyle_condition_omitted(clause.condition) {
+      1
+    } else {
+      self.eval_arith(clause.condition)
+    }
     if cond == 0 {
       break
     }
 
     // Execute body
     self.execute_script(clause.body)
+    if self.should_exit || self.return_requested {
+      break
+    }
+    if self.break_count > 0 {
+      self.break_count -= 1
+      break
+    }
+    let mut continue_requested = false
+    if self.continue_count > 0 {
+      self.continue_count -= 1
+      if self.continue_count > 0 {
+        break
+      }
+      continue_requested = true
+    }
 
     // Update
     self.eval_arith(clause.update) |> ignore
+    if continue_requested {
+      continue
+    }
   }
 
   self.loop_depth -= 1
@@ -417,8 +452,50 @@ fn ExecContext::eval_cond(self : ExecContext, cond : @ast.CondExpr) -> Bool {
     @ast.CondExpr::Regex(left_word, right_word) => {
       let left = self.expand_word_to_string(left_word)
       let right = self.expand_word_to_string(right_word)
-      // Simple: check if right is a substring of left
-      contains_substring(left, right)
+      regex_cond_match(left, right)
     }
   }
+}
+
+fn regex_cond_match(text : String, pattern : String) -> Bool {
+  let matcher = try {
+    @regex.compile_grep_matcher(
+      pattern,
+      extended=true,
+      fixed=false,
+      ignore_case=false,
+    )
+  } catch {
+    _ => return false
+  }
+  matcher.find_first(text) is Some(_)
+}
+
+fn cstyle_condition_omitted(expr : @ast.ArithExpr) -> Bool {
+  match expr {
+    @ast.ArithExpr::Raw(raw) => trim_cstyle_expr(raw).length() == 0
+    _ => false
+  }
+}
+
+fn trim_cstyle_expr(s : String) -> String {
+  let mut start = 0
+  let mut end_ = s.length()
+  while start < end_ {
+    let ch = s[start].to_int().unsafe_to_char()
+    if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+      start += 1
+    } else {
+      break
+    }
+  }
+  while end_ > start {
+    let ch = s[end_ - 1].to_int().unsafe_to_char()
+    if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+      end_ -= 1
+    } else {
+      break
+    }
+  }
+  s.substring(start=start, end=end_)
 }

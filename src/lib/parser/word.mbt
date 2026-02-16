@@ -18,9 +18,32 @@ pub fn parse_word_parts(s : String) -> Array[@ast.WordPart] {
     let ch = wchar_at(s, i)
 
     if ch == '\u0001' && i + 1 < len {
-      // Literal marker emitted by lexer for single-quoted content.
-      buf.write_char(wchar_at(s, i + 1))
-      i += 2
+      // Marker emitted by lexer for single-quoted content.
+      // Preserve quote semantics as dedicated SingleQuoted parts.
+      let lit = buf.to_string()
+      let ansi_c_quote = lit.length() > 0 && wchar_at(lit, lit.length() - 1) == '$'
+      if lit.length() > 0 {
+        if ansi_c_quote {
+          let prefix = wsubstr(lit, 0, lit.length() - 1)
+          if prefix.length() > 0 {
+            parts.push(@ast.WordPart::Literal(prefix))
+          }
+        } else {
+          parts.push(@ast.WordPart::Literal(lit))
+        }
+        buf.reset()
+      }
+      let quoted = StringBuilder::new()
+      while i + 1 < len && wchar_at(s, i) == '\u0001' {
+        quoted.write_char(wchar_at(s, i + 1))
+        i += 2
+      }
+      let quoted_text = quoted.to_string()
+      if ansi_c_quote {
+        parts.push(@ast.WordPart::Literal(decode_ansi_c_escapes(quoted_text)))
+      } else {
+        parts.push(@ast.WordPart::SingleQuoted(quoted_text))
+      }
       continue
     } else if ch == '$' && i + 1 < len {
       // Flush literal buffer
@@ -125,6 +148,73 @@ fn is_special_var(ch : Char) -> Bool {
   (ch >= '0' && ch <= '9')
 }
 
+fn decode_ansi_c_escapes(s : String) -> String {
+  let out = StringBuilder::new()
+  let mut i = 0
+  while i < s.length() {
+    let ch = wchar_at(s, i)
+    if ch != '\\' || i + 1 >= s.length() {
+      out.write_char(ch)
+      i += 1
+      continue
+    }
+
+    let next = wchar_at(s, i + 1)
+    match next {
+      'n' => out.write_char('\n')
+      't' => out.write_char('\t')
+      'r' => out.write_char('\r')
+      'a' => out.write_char('\u0007')
+      'b' => out.write_char('\u0008')
+      'f' => out.write_char('\u000c')
+      'v' => out.write_char('\u000b')
+      '\\' => out.write_char('\\')
+      '\'' => out.write_char('\'')
+      '"' => out.write_char('"')
+      _ => out.write_char(next)
+    }
+    i += 2
+  }
+  out.to_string()
+}
+
+/// Parse parameter name end, allowing optional array subscripts: name[...].
+fn parse_param_name_end(content : String) -> Int {
+  let len = content.length()
+  if len == 0 {
+    return 0
+  }
+  if not(is_var_start(wchar_at(content, 0))) {
+    return 0
+  }
+
+  let mut i = 1
+  while i < len && is_var_char(wchar_at(content, i)) {
+    i += 1
+  }
+
+  while i < len && wchar_at(content, i) == '[' {
+    let bracket_start = i
+    i += 1
+    let mut depth = 1
+    while i < len && depth > 0 {
+      let ch = wchar_at(content, i)
+      if ch == '[' {
+        depth += 1
+      } else if ch == ']' {
+        depth -= 1
+      }
+      i += 1
+    }
+    // Malformed or empty subscript, fallback to base name only.
+    if depth > 0 || i <= bracket_start + 2 {
+      return bracket_start
+    }
+  }
+
+  i
+}
+
 // ============================================================================
 // Simple Variable: $VAR
 // ============================================================================
@@ -195,11 +285,8 @@ fn parse_param_expansion_content(content : String) -> @ast.WordPart {
     return @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Indirection(name))
   }
 
-  // Find the variable name and the operator
-  let mut name_end = 0
-  while name_end < len && is_var_char(wchar_at(content, name_end)) {
-    name_end += 1
-  }
+  // Find the variable name (supports optional array-style subscripts).
+  let name_end = parse_param_name_end(content)
 
   if name_end == 0 {
     // Special variable like ${?}, ${!}, etc.

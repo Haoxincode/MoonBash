@@ -19,10 +19,14 @@ fn ExecContext::builtin_read(
   // Parse flags
   let var_names : Array[String] = []
   let mut prompt = ""
+  let mut array_name : String? = None
   let mut i = 0
   while i < args.length() {
     if args[i] == "-p" && i + 1 < args.length() {
       prompt = args[i + 1]
+      i += 2
+    } else if args[i] == "-a" && i + 1 < args.length() {
+      array_name = Some(args[i + 1])
       i += 2
     } else if args[i] == "-r" {
       i += 1
@@ -39,26 +43,31 @@ fn ExecContext::builtin_read(
     var_names.push("REPLY")
   }
 
-  // Split line by IFS and assign to variables
-  let words = split_by_whitespace(line)
-  for j = 0; j < var_names.length(); j = j + 1 {
-    if j < var_names.length() - 1 {
-      // Not the last variable - assign one word
-      let value = if j < words.length() { words[j] } else { "" }
-      self.env[var_names[j]] = value
-    } else {
-      // Last variable - assign rest of line
-      if j < words.length() {
-        let buf = StringBuilder::new()
-        for k = j; k < words.length(); k = k + 1 {
-          if k > j {
-            buf.write_string(" ")
+  // Split line by current IFS and assign.
+  let words = self.word_split(line)
+  match array_name {
+    Some(name) => self.store_array_assignment(name, words)
+    None => {
+      for j = 0; j < var_names.length(); j = j + 1 {
+        if j < var_names.length() - 1 {
+          // Not the last variable - assign one word
+          let value = if j < words.length() { words[j] } else { "" }
+          self.env[var_names[j]] = value
+        } else {
+          // Last variable - assign rest of line
+          if j < words.length() {
+            let buf = StringBuilder::new()
+            for k = j; k < words.length(); k = k + 1 {
+              if k > j {
+                buf.write_string(" ")
+              }
+              buf.write_string(words[k])
+            }
+            self.env[var_names[j]] = buf.to_string()
+          } else {
+            self.env[var_names[j]] = ""
           }
-          buf.write_string(words[k])
         }
-        self.env[var_names[j]] = buf.to_string()
-      } else {
-        self.env[var_names[j]] = ""
       }
     }
   }

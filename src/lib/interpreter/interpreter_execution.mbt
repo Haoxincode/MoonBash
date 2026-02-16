@@ -122,6 +122,7 @@ fn ExecContext::execute_pipeline(
     saved_stdout.write_string(pipe_input)
     self.stdout_buf = saved_stdout
     self.stdin_buf = saved_stdin
+    self.enforce_output_size_limit()
   }
 
   // Handle negation
@@ -138,9 +139,7 @@ fn ExecContext::execute_command(self : ExecContext, cmd : @ast.Command) -> Unit 
   // Check command count limit
   self.command_count += 1
   if self.command_count > self.limits.max_command_count {
-    self.stderr_buf.write_string("moonbash: command limit exceeded\n")
-    self.exit_code = 1
-    self.should_exit = true
+    self.fail_execution_limit("too many commands executed")
     return
   }
 
@@ -217,18 +216,44 @@ fn ExecContext::execute_simple(
   // Process variable assignments
   if cmd.assignments.length() > 0 {
     for assign in cmd.assignments {
-      let value = match assign.value {
-        Some(word) => self.expand_word_to_string(word)
-        None => ""
-      }
-      if self.should_exit {
-        return
-      }
-      if assign.append {
-        let existing = self.env.get(assign.name).unwrap_or("")
-        self.env[assign.name] = existing + value
-      } else {
-        self.env[assign.name] = value
+      match assign.value {
+        Some(word) => {
+          let value = self.expand_word_to_string(word)
+          if self.should_exit {
+            return
+          }
+          if self.try_store_array_assignment(assign.name, value) {
+            continue
+          }
+          match parse_array_element_assignment_name(assign.name) {
+            Some((base, index)) => {
+              self.store_array_element_assignment(base, index, value, assign.append)
+              continue
+            }
+            None => ()
+          }
+          if assign.append {
+            let existing = self.env.get(assign.name).unwrap_or("")
+            self.env[assign.name] = existing + value
+          } else {
+            self.env[assign.name] = value
+          }
+        }
+        None => {
+          match parse_array_element_assignment_name(assign.name) {
+            Some((base, index)) => {
+              self.store_array_element_assignment(base, index, "", assign.append)
+              continue
+            }
+            None => ()
+          }
+          if assign.append {
+            let existing = self.env.get(assign.name).unwrap_or("")
+            self.env[assign.name] = existing
+          } else {
+            self.env[assign.name] = ""
+          }
+        }
       }
     }
     // If no words follow, we're done (assignment-only command)
@@ -459,6 +484,7 @@ fn ExecContext::execute_simple(
   if input_from_file {
     self.stdin_buf = saved_stdin
   }
+  self.enforce_output_size_limit()
 }
 
 fn is_grep_like_command(cmd_name : String) -> Bool {
@@ -466,6 +492,321 @@ fn is_grep_like_command(cmd_name : String) -> Bool {
   cmd_name == "egrep" ||
   cmd_name == "fgrep" ||
   cmd_name == "rg"
+}
+
+fn ExecContext::try_store_array_assignment(
+  self : ExecContext,
+  name : String,
+  raw_value : String
+) -> Bool {
+  if raw_value.length() < 2 ||
+    raw_value[0] != '(' ||
+    raw_value[raw_value.length() - 1] != ')' {
+    return false
+  }
+
+  let inner = raw_value.substring(start=1, end=raw_value.length() - 1)
+  let values : Array[String] = []
+  let tokens = split_array_assignment_words(inner)
+  for token in tokens {
+    let expanded = self.expand_word(@parser.parse_word_content(token))
+    for item in expanded {
+      values.push(item)
+      if values.length() > self.limits.max_array_elements {
+        self.fail_execution_limit("array element limit exceeded")
+        return true
+      }
+    }
+  }
+  self.store_array_assignment(name, values)
+  true
+}
+
+fn split_array_assignment_words(inner : String) -> Array[String] {
+  let words : Array[String] = []
+  let buf = StringBuilder::new()
+  let mut in_single = false
+  let mut in_double = false
+  let mut escaped = false
+
+  for i = 0; i < inner.length(); i = i + 1 {
+    let ch = inner[i].to_int().unsafe_to_char()
+    if escaped {
+      buf.write_char(ch)
+      escaped = false
+      continue
+    }
+
+    if in_single {
+      if ch == '\'' {
+        in_single = false
+      } else {
+        buf.write_char(ch)
+      }
+      continue
+    }
+
+    if in_double {
+      if ch == '"' {
+        in_double = false
+      } else if ch == '\\' {
+        escaped = true
+      } else {
+        buf.write_char(ch)
+      }
+      continue
+    }
+
+    if ch == '\'' {
+      in_single = true
+      continue
+    }
+
+    if ch == '"' {
+      in_double = true
+      continue
+    }
+
+    if ch == '\\' {
+      escaped = true
+      continue
+    }
+
+    if ch == ' ' || ch == '\t' || ch == '\n' {
+      let token = buf.to_string()
+      if token.length() > 0 {
+        words.push(token)
+        buf.reset()
+      }
+      continue
+    }
+
+    buf.write_char(ch)
+  }
+
+  let last = buf.to_string()
+  if last.length() > 0 {
+    words.push(last)
+  }
+  words
+}
+
+fn ExecContext::store_array_assignment(
+  self : ExecContext,
+  name : String,
+  values : Array[String]
+) -> Unit {
+  let count_key = "__MOONBASH_ARRAY_COUNT__" + name
+  let index_prefix = name + "["
+  let keys_to_remove : Array[String] = []
+  for key, _value in self.env {
+    if key == count_key ||
+      key == name + "[@]" ||
+      key == name + "[*]" ||
+      string_has_prefix(key, index_prefix) {
+      keys_to_remove.push(key)
+    }
+  }
+  for key in keys_to_remove {
+    self.env.remove(key)
+  }
+
+  let joined = values.iter().fold(
+    init="",
+    fn(acc, value) { if acc.length() == 0 { value } else { acc + " " + value } },
+  )
+  self.env[name] = if values.length() > 0 { values[0] } else { "" }
+  self.env[name + "[@]"] = joined
+  self.env[name + "[*]"] = joined
+  self.env[count_key] = values.length().to_string()
+  for i = 0; i < values.length(); i = i + 1 {
+    self.env["\{name}[\{i.to_string()}]"] = values[i]
+  }
+}
+
+fn ExecContext::store_array_element_assignment(
+  self : ExecContext,
+  base : String,
+  index : String,
+  value : String,
+  append : Bool
+) -> Unit {
+  let key = "\{base}[\{index}]"
+  if append {
+    let existing = self.env.get(key).unwrap_or("")
+    self.env[key] = existing + value
+  } else {
+    self.env[key] = value
+  }
+  self.refresh_array_metadata(base)
+}
+
+fn ExecContext::refresh_array_metadata(self : ExecContext, name : String) -> Unit {
+  let prefix = name + "["
+  let count_key = "__MOONBASH_ARRAY_COUNT__" + name
+  let keys : Array[String] = []
+
+  for key, _value in self.env {
+    if key == name + "[@]" || key == name + "[*]" {
+      continue
+    }
+    if string_has_prefix(key, prefix) && key.length() > prefix.length() &&
+      key[key.length() - 1] == ']' {
+      let inner = key.substring(start=prefix.length(), end=key.length() - 1)
+      if inner != "@" && inner != "*" {
+        keys.push(inner)
+      }
+    }
+  }
+
+  sort_array_keys(keys)
+
+  let values : Array[String] = []
+  for inner in keys {
+    let key = "\{name}[\{inner}]"
+    values.push(self.env.get(key).unwrap_or(""))
+  }
+
+  let joined = values.iter().fold(
+    init="",
+    fn(acc, v) { if acc.length() == 0 { v } else { acc + " " + v } },
+  )
+  self.env[name + "[@]"] = joined
+  self.env[name + "[*]"] = joined
+  self.env[count_key] = values.length().to_string()
+  self.env[name] = self.env.get(name + "[0]").unwrap_or("")
+}
+
+fn string_has_prefix(s : String, prefix : String) -> Bool {
+  if prefix.length() > s.length() {
+    return false
+  }
+  for i = 0; i < prefix.length(); i = i + 1 {
+    if s[i] != prefix[i] {
+      return false
+    }
+  }
+  true
+}
+
+fn parse_array_element_assignment_name(name : String) -> (String, String)? {
+  if name.length() < 4 || name[name.length() - 1] != ']' {
+    return None
+  }
+
+  let mut bracket = -1
+  for i = 0; i < name.length(); i = i + 1 {
+    if name[i] == '[' {
+      bracket = i
+      break
+    }
+  }
+  if bracket <= 0 {
+    return None
+  }
+
+  let base = name.substring(start=0, end=bracket)
+  if not(is_valid_shell_name(base)) {
+    return None
+  }
+
+  let index = name.substring(start=bracket + 1, end=name.length() - 1)
+  if index.length() == 0 {
+    return None
+  }
+
+  Some((base, index))
+}
+
+fn is_valid_shell_name(name : String) -> Bool {
+  if name.length() == 0 {
+    return false
+  }
+
+  let first = name[0].to_int().unsafe_to_char()
+  if not(
+    (first >= 'a' && first <= 'z') ||
+    (first >= 'A' && first <= 'Z') ||
+    first == '_'
+  ) {
+    return false
+  }
+
+  for i = 1; i < name.length(); i = i + 1 {
+    let ch = name[i].to_int().unsafe_to_char()
+    if not(
+      (ch >= 'a' && ch <= 'z') ||
+      (ch >= 'A' && ch <= 'Z') ||
+      (ch >= '0' && ch <= '9') ||
+      ch == '_'
+    ) {
+      return false
+    }
+  }
+  true
+}
+
+fn parse_non_negative_int_for_sort(text : String) -> Int? {
+  if text.length() == 0 {
+    return None
+  }
+  let mut value = 0
+  for i = 0; i < text.length(); i = i + 1 {
+    let ch = text[i].to_int().unsafe_to_char()
+    if ch < '0' || ch > '9' {
+      return None
+    }
+    value = value * 10 + (ch.to_int() - '0'.to_int())
+  }
+  Some(value)
+}
+
+fn compare_text(a : String, b : String) -> Int {
+  let min_len = if a.length() < b.length() { a.length() } else { b.length() }
+  for i = 0; i < min_len; i = i + 1 {
+    if a[i] < b[i] {
+      return -1
+    }
+    if a[i] > b[i] {
+      return 1
+    }
+  }
+  if a.length() < b.length() {
+    -1
+  } else if a.length() > b.length() {
+    1
+  } else {
+    0
+  }
+}
+
+fn sort_array_keys(keys : Array[String]) -> Unit {
+  keys.sort_by(fn(a, b) {
+    match (parse_non_negative_int_for_sort(a), parse_non_negative_int_for_sort(b)) {
+      (Some(ai), Some(bi)) => {
+        if ai < bi {
+          -1
+        } else if ai > bi {
+          1
+        } else {
+          0
+        }
+      }
+      (Some(_), None) => -1
+      (None, Some(_)) => 1
+      (None, None) => compare_text(a, b)
+    }
+  })
+}
+
+fn ExecContext::enforce_output_size_limit(self : ExecContext) -> Unit {
+  if self.should_exit {
+    return
+  }
+  let output = self.stdout_buf.to_string()
+  if output.length() > self.limits.max_string_length {
+    self.fail_execution_limit("output limit exceeded")
+  }
 }
 
 // ============================================================================
@@ -508,15 +849,13 @@ fn ExecContext::run_command(
     Some(fndef) => {
       self.call_depth += 1
       if self.call_depth > self.limits.max_call_depth {
-        self.stderr_buf.write_string(
-          "moonbash: maximum call depth exceeded\n",
-        )
-        self.exit_code = 1
+        self.fail_execution_limit("maximum recursion depth exceeded")
         self.call_depth -= 1
         return
       }
       // Save positional params
       let saved_args = self.env.get("@").unwrap_or("")
+      let saved_argc = self.env.get("#").unwrap_or("")
       self.env["@"] = args.iter().fold(
         init="",
         fn(acc, a) { if acc.length() == 0 { a } else { acc + " " + a } },
@@ -531,8 +870,10 @@ fn ExecContext::run_command(
         other => self.execute_compound(other)
       }
       self.return_requested = false
+      self.restore_local_bindings(self.call_depth)
       // Restore
       self.env["@"] = saved_args
+      self.env["#"] = saved_argc
       self.call_depth -= 1
       return
     }

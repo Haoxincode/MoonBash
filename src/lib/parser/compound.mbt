@@ -43,8 +43,37 @@ fn Parser::parse_if(self : Parser) -> @ast.IfClause raise @ast.BashError {
 // ============================================================================
 
 /// Parse: for var [in words]; do body; done
-fn Parser::parse_for(self : Parser) -> @ast.ForClause raise @ast.BashError {
+///   or: for (( init; cond; update )); do body; done
+fn Parser::parse_for(self : Parser) -> @ast.CompoundCommand raise @ast.BashError {
   self.expect(@ast.Token::For)
+
+  if self.check(@ast.Token::LeftParen) &&
+    self.peek_at_offset(1) == @ast.Token::LeftParen {
+    self.advance() |> ignore
+    self.advance() |> ignore
+    let raw = self.parse_arithmetic_raw()
+    let pieces = split_cstyle_for_expressions(raw)
+    if pieces.length() != 3 {
+      raise @ast.BashError("invalid C-style for expression")
+    }
+
+    while self.match_token(@ast.Token::Semi) || self.match_token(@ast.Token::Newline) {
+      // skip separators
+    }
+    self.expect(@ast.Token::Do)
+    self.skip_newlines()
+    let body = self.parse_script()
+    self.skip_newlines()
+    self.expect(@ast.Token::Done)
+
+    return @ast.CompoundCommand::CStyleFor({
+      init: @ast.ArithExpr::Raw(pieces[0]),
+      condition: @ast.ArithExpr::Raw(pieces[1]),
+      update: @ast.ArithExpr::Raw(pieces[2]),
+      body,
+    })
+  }
+
   let var_name = match self.advance() {
     @ast.Token::Word(s) => s
     tok => raise @ast.BashError("expected variable name after 'for', got \{tok}")
@@ -82,7 +111,59 @@ fn Parser::parse_for(self : Parser) -> @ast.ForClause raise @ast.BashError {
   let body = self.parse_script()
   self.skip_newlines()
   self.expect(@ast.Token::Done)
-  { var_name, words, body }
+  @ast.CompoundCommand::For({ var_name, words, body })
+}
+
+fn split_cstyle_for_expressions(raw : String) -> Array[String] {
+  let parts : Array[String] = []
+  let buf = StringBuilder::new()
+  let mut paren_depth = 0
+
+  for i = 0; i < raw.length(); i = i + 1 {
+    let ch = raw[i].to_int().unsafe_to_char()
+    if ch == '(' {
+      paren_depth += 1
+      buf.write_char(ch)
+      continue
+    }
+    if ch == ')' {
+      if paren_depth > 0 {
+        paren_depth -= 1
+      }
+      buf.write_char(ch)
+      continue
+    }
+    if ch == ';' && paren_depth == 0 {
+      parts.push(trim_cstyle_expr(buf.to_string()))
+      buf.reset()
+      continue
+    }
+    buf.write_char(ch)
+  }
+  parts.push(trim_cstyle_expr(buf.to_string()))
+  parts
+}
+
+fn trim_cstyle_expr(s : String) -> String {
+  let mut start = 0
+  let mut end_ = s.length()
+  while start < end_ {
+    let ch = s[start].to_int().unsafe_to_char()
+    if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+      start += 1
+    } else {
+      break
+    }
+  }
+  while end_ > start {
+    let ch = s[end_ - 1].to_int().unsafe_to_char()
+    if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+      end_ -= 1
+    } else {
+      break
+    }
+  }
+  s.substring(start=start, end=end_)
 }
 
 // ============================================================================

@@ -101,6 +101,20 @@ fn is_metachar(ch : Char) -> Bool {
   ch == '\t'
 }
 
+fn is_brace_boundary_char(ch : Char) -> Bool {
+  ch == '\u0000' ||
+  ch == ' ' ||
+  ch == '\t' ||
+  ch == '\n' ||
+  ch == ';' ||
+  ch == '|' ||
+  ch == '&' ||
+  ch == '(' ||
+  ch == ')' ||
+  ch == '<' ||
+  ch == '>'
+}
+
 fn is_digit(ch : Char) -> Bool {
   ch >= '0' && ch <= '9'
 }
@@ -247,14 +261,22 @@ fn Lexer::try_scan_operator(self : Lexer) -> Bool raise @ast.BashError {
       true
     }
     '{' => {
-      self.pos += 1
-      self.emit(@ast.Token::LeftBrace)
-      true
+      if self.brace_is_operator() {
+        self.pos += 1
+        self.emit(@ast.Token::LeftBrace)
+        true
+      } else {
+        false
+      }
     }
     '}' => {
-      self.pos += 1
-      self.emit(@ast.Token::RightBrace)
-      true
+      if self.brace_is_operator() {
+        self.pos += 1
+        self.emit(@ast.Token::RightBrace)
+        true
+      } else {
+        false
+      }
     }
     '<' => {
       self.scan_redirect_in()
@@ -266,6 +288,16 @@ fn Lexer::try_scan_operator(self : Lexer) -> Bool raise @ast.BashError {
     }
     _ => false
   }
+}
+
+fn Lexer::brace_is_operator(self : Lexer) -> Bool {
+  let prev = if self.pos == 0 {
+    '\u0000'
+  } else {
+    char_at(self.source, self.pos - 1)
+  }
+  let next = self.peek_at(1)
+  is_brace_boundary_char(prev) && is_brace_boundary_char(next)
 }
 
 // ============================================================================
@@ -589,30 +621,12 @@ fn word_looks_like_assignment_prefix(word : String) -> Bool {
       eq_pos = i
       break
     }
-    if not(is_name_char(ch)) {
-      return false
-    }
   }
 
-  if eq_pos <= 0 {
-    return false
+  match parse_assignment_name_end(word, eq_pos) {
+    Some(_) => true
+    None => false
   }
-
-  let append = eq_pos >= 2 && char_at(word, eq_pos - 1) == '+'
-  let name_end = if append { eq_pos - 1 } else { eq_pos }
-  if name_end <= 0 {
-    return false
-  }
-  if not(is_name_start(char_at(word, 0))) {
-    return false
-  }
-  for i = 1; i < name_end; i = i + 1 {
-    if not(is_name_char(char_at(word, i))) {
-      return false
-    }
-  }
-
-  true
 }
 
 fn Lexer::scan_word(self : Lexer) -> Unit raise @ast.BashError {
@@ -795,28 +809,56 @@ fn try_split_assignment(word : String) -> (String, String, Bool)? {
       eq_pos = i
       break
     }
-    if not(is_name_char(ch)) {
-      return None
-    }
   }
   if eq_pos <= 0 {
     return None
   }
-  let name_end = eq_pos
   let append = eq_pos >= 2 && char_at(word, eq_pos - 1) == '+'
-  let actual_name_end = if append { name_end - 1 } else { name_end }
-  if actual_name_end == 0 {
-    return None
-  }
-  if not(is_name_start(char_at(word, 0))) {
-    return None
-  }
-  for i = 1; i < actual_name_end; i = i + 1 {
-    if not(is_name_char(char_at(word, i))) {
-      return None
-    }
+  let actual_name_end = match parse_assignment_name_end(word, eq_pos) {
+    Some(end_) => end_
+    None => return None
   }
   let name = substr(word, 0, actual_name_end)
   let value = substr(word, eq_pos + 1, word.length())
   Some((name, value, append))
+}
+
+/// Parse assignment variable name end position before '='.
+/// Supports NAME, NAME+=, NAME[INDEX], and NAME[INDEX]+= forms.
+fn parse_assignment_name_end(word : String, eq_pos : Int) -> Int? {
+  if eq_pos <= 0 {
+    return None
+  }
+
+  let append = eq_pos >= 2 && char_at(word, eq_pos - 1) == '+'
+  let name_end = if append { eq_pos - 1 } else { eq_pos }
+  if name_end <= 0 {
+    return None
+  }
+
+  if not(is_name_start(char_at(word, 0))) {
+    return None
+  }
+
+  let mut i = 1
+  while i < name_end && is_name_char(char_at(word, i)) {
+    i += 1
+  }
+
+  while i < name_end {
+    if char_at(word, i) != '[' {
+      return None
+    }
+    i += 1
+    let subscript_start = i
+    while i < name_end && char_at(word, i) != ']' {
+      i += 1
+    }
+    if i >= name_end || char_at(word, i) != ']' || i == subscript_start {
+      return None
+    }
+    i += 1
+  }
+
+  Some(name_end)
 }

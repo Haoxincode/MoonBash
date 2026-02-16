@@ -394,7 +394,7 @@ fn Parser::parse_command(self : Parser) -> @ast.Command raise @ast.BashError {
       let cmd = self.parse_for()
       let redirs = self.parse_redirections()
       self.leave_depth()
-      @ast.Command::Compound(@ast.CompoundCommand::For(cmd), redirs)
+      @ast.Command::Compound(cmd, redirs)
     }
     @ast.Token::While => {
       self.enter_depth()
@@ -456,8 +456,15 @@ fn Parser::parse_command(self : Parser) -> @ast.Command raise @ast.BashError {
       self.parse_function_def()
     }
     _ => {
-      // Simple command (may also be a function definition: name() { ... })
-      @ast.Command::Simple(self.parse_simple_command())
+      // Simple command or POSIX function definition: name() { ... }
+      if self.looks_like_posix_function_def() {
+        self.enter_depth()
+        let fndef = self.parse_posix_function_def()
+        self.leave_depth()
+        fndef
+      } else {
+        @ast.Command::Simple(self.parse_simple_command())
+      }
     }
   }
 }
@@ -810,6 +817,50 @@ fn Parser::parse_function_def(self : Parser) -> @ast.Command raise @ast.BashErro
   }
   self.skip_newlines()
   // Parse body (must be a compound command)
+  let body = match self.parse_command() {
+    @ast.Command::Compound(cmd, _) => cmd
+    _ => raise @ast.BashError("function body must be a compound command")
+  }
+  let redirections = self.parse_redirections()
+  @ast.Command::FunctionDef({ name, body, redirections })
+}
+
+fn Parser::looks_like_posix_function_def(self : Parser) -> Bool {
+  match self.peek() {
+    @ast.Token::Word(_) => {
+      if self.peek_at_offset(1) != @ast.Token::LeftParen ||
+        self.peek_at_offset(2) != @ast.Token::RightParen {
+        return false
+      }
+      let mut i = 3
+      while self.peek_at_offset(i) == @ast.Token::Newline {
+        i += 1
+      }
+      match self.peek_at_offset(i) {
+        @ast.Token::LeftBrace
+        | @ast.Token::If
+        | @ast.Token::For
+        | @ast.Token::While
+        | @ast.Token::Until
+        | @ast.Token::Case
+        | @ast.Token::LeftParen => true
+        _ => false
+      }
+    }
+    _ => false
+  }
+}
+
+fn Parser::parse_posix_function_def(
+  self : Parser
+) -> @ast.Command raise @ast.BashError {
+  let name = match self.advance() {
+    @ast.Token::Word(s) => s
+    tok => raise @ast.BashError("expected function name, got \{tok}")
+  }
+  self.expect(@ast.Token::LeftParen)
+  self.expect(@ast.Token::RightParen)
+  self.skip_newlines()
   let body = match self.parse_command() {
     @ast.Command::Compound(cmd, _) => cmd
     _ => raise @ast.BashError("function body must be a compound command")

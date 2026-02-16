@@ -153,7 +153,6 @@ fn ExecContext::builtin_local(
   self : ExecContext,
   args : Array[String]
 ) -> Unit {
-  // In our sandbox, local behaves like regular assignment
   for arg in args {
     let mut eq_pos = -1
     for i = 0; i < arg.length(); i = i + 1 {
@@ -165,14 +164,103 @@ fn ExecContext::builtin_local(
     if eq_pos > 0 {
       let name = arg.substring(start=0, end=eq_pos)
       let value = arg.substring(start=eq_pos + 1)
+      self.capture_local_binding(name)
       self.env[name] = value
     } else {
+      self.capture_local_binding(arg)
       if not(self.env.contains(arg)) {
         self.env[arg] = ""
       }
     }
   }
   self.exit_code = 0
+}
+
+fn ExecContext::capture_local_binding(self : ExecContext, name : String) -> Unit {
+  if self.call_depth <= 0 {
+    return
+  }
+
+  let depth = self.call_depth
+  let names_key = local_scope_names_key(depth)
+  let saved_set_key = local_scope_saved_set_key(depth, name)
+  let saved_value_key = local_scope_saved_value_key(depth, name)
+  if self.env.contains(saved_set_key) {
+    return
+  }
+
+  match self.env.get(name) {
+    Some(value) => {
+      self.env[saved_set_key] = "1"
+      self.env[saved_value_key] = value
+    }
+    None => self.env[saved_set_key] = "0"
+  }
+
+  let names = self.env.get(names_key).unwrap_or("")
+  self.env[names_key] = if names.length() == 0 {
+    name
+  } else {
+    names + "\u001f" + name
+  }
+}
+
+fn ExecContext::restore_local_bindings(self : ExecContext, depth : Int) -> Unit {
+  if depth <= 0 {
+    return
+  }
+
+  let names_key = local_scope_names_key(depth)
+  let names = self.env.get(names_key).unwrap_or("")
+  if names.length() == 0 {
+    self.env.remove(names_key)
+    return
+  }
+
+  for name in split_local_scope_names(names) {
+    let saved_set_key = local_scope_saved_set_key(depth, name)
+    let saved_value_key = local_scope_saved_value_key(depth, name)
+    match self.env.get(saved_set_key) {
+      Some(flag) => {
+        if flag == "1" {
+          self.env[name] = self.env.get(saved_value_key).unwrap_or("")
+        } else {
+          self.env.remove(name)
+        }
+      }
+      None => ()
+    }
+    self.env.remove(saved_set_key)
+    self.env.remove(saved_value_key)
+  }
+
+  self.env.remove(names_key)
+}
+
+fn local_scope_names_key(depth : Int) -> String {
+  "__MOONBASH_LOCAL_NAMES__" + depth.to_string()
+}
+
+fn local_scope_saved_set_key(depth : Int, name : String) -> String {
+  "__MOONBASH_LOCAL_SET__" + depth.to_string() + "__" + name
+}
+
+fn local_scope_saved_value_key(depth : Int, name : String) -> String {
+  "__MOONBASH_LOCAL_VAL__" + depth.to_string() + "__" + name
+}
+
+fn split_local_scope_names(spec : String) -> Array[String] {
+  let parts : Array[String] = []
+  let mut start = 0
+  for i = 0; i <= spec.length(); i = i + 1 {
+    if i == spec.length() || spec[i].to_int().unsafe_to_char() == '\u001f' {
+      if i > start {
+        parts.push(spec.substring(start=start, end=i))
+      }
+      start = i + 1
+    }
+  }
+  parts
 }
 
 fn ExecContext::builtin_declare(
