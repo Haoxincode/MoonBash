@@ -49,7 +49,7 @@ MoonBash uses a three-layer architecture to separate concerns between the MoonBi
 │  └──────────┘  └──────────┘  └────────────────────┘        │
 │  ┌──────────┐  ┌──────────┐  ┌────────────────────┐        │
 │  │   AST    │  │ Expansion│  │   Command Registry │        │
-│  │  Types   │  │  Engine  │  │   (80+ commands)   │        │
+│  │  Types   │  │  Engine  │  │   (87 commands)   │        │
 │  └──────────┘  └──────────┘  └────────────────────┘        │
 │  ┌──────────┐  ┌──────────┐  ┌────────────────────┐        │
 │  │ Builtins │  │  Regex   │  │   InMemoryFs       │        │
@@ -469,87 +469,73 @@ trait CommandImpl {
 ```
 moon-bash/
 ├── src/
-│   ├── lib/                          # MoonBit core library
-│   │   ├── ast/                      # AST type definitions
-│   │   │   ├── types.mbt            # All AST node types (enum/struct)
-│   │   │   └── moon.pkg.json
-│   │   ├── lexer/                    # Tokenizer
-│   │   │   ├── lexer.mbt            # Token types and lexer logic
-│   │   │   ├── lexer_test.mbt       # Lexer unit tests
-│   │   │   └── moon.pkg.json
-│   │   ├── parser/                   # Recursive descent parser
-│   │   │   ├── parser.mbt           # Main parser entry
-│   │   │   ├── compound.mbt         # Compound command parsing
-│   │   │   ├── expansion.mbt        # Expansion syntax parsing
-│   │   │   ├── arithmetic.mbt       # Arithmetic expression parsing
-│   │   │   ├── word.mbt             # Word/argument parsing
-│   │   │   ├── parser_test.mbt
-│   │   │   └── moon.pkg.json
-│   │   ├── interpreter/              # AST evaluator
-│   │   │   ├── interpreter.mbt      # Main execution loop
-│   │   │   ├── expansion.mbt        # Runtime word expansion
-│   │   │   ├── pipeline.mbt         # Pipe execution
-│   │   │   ├── redirections.mbt     # I/O redirection handling
-│   │   │   ├── control_flow.mbt     # if/for/while/case
-│   │   │   ├── conditionals.mbt     # [[ ]] and [ ] evaluation
-│   │   │   ├── arithmetic.mbt       # $((...)) evaluation
-│   │   │   ├── functions.mbt        # Function def/invocation
-│   │   │   ├── builtins/            # Shell builtins
-│   │   │   │   ├── cd.mbt
-│   │   │   │   ├── export.mbt
-│   │   │   │   ├── declare.mbt
-│   │   │   │   ├── set.mbt
-│   │   │   │   ├── read.mbt
-│   │   │   │   ├── echo.mbt
-│   │   │   │   ├── printf.mbt
-│   │   │   │   └── ...
-│   │   │   └── moon.pkg.json
-│   │   ├── commands/                 # External commands (80+)
-│   │   │   ├── registry.mbt         # Command registry
-│   │   │   ├── file_ops/            # cat, cp, ls, mkdir, etc.
-│   │   │   ├── text/                # grep, sed, awk, sort, etc.
-│   │   │   ├── data/                # jq, yq, xan
-│   │   │   ├── compression/         # gzip, tar
-│   │   │   ├── navigation/          # find, du, basename, etc.
-│   │   │   ├── shell/               # date, seq, sleep, etc.
-│   │   │   ├── network/             # curl
-│   │   │   └── moon.pkg.json
-│   │   ├── fs/                       # Virtual filesystem
-│   │   │   ├── types.mbt            # IFileSystem trait
-│   │   │   ├── inmemory.mbt         # InMemoryFs implementation
-│   │   │   ├── overlay.mbt          # OverlayFs (via FFI)
-│   │   │   ├── mountable.mbt        # MountableFs
-│   │   │   ├── path.mbt             # Path normalization
-│   │   │   ├── glob.mbt             # Glob pattern matching
-│   │   │   └── moon.pkg.json
-│   │   ├── regex/                    # Regex engine wrapper
-│   │   │   ├── regex.mbt            # @moonbitlang/regexp integration
-│   │   │   └── moon.pkg.json
-│   │   ├── ffi/                      # JS interop definitions
-│   │   │   ├── fs_callbacks.mbt     # Filesystem FFI
-│   │   │   ├── network.mbt          # Network FFI
-│   │   │   ├── async_bridge.mbt     # Async/Promise bridge
-│   │   │   └── moon.pkg.json
-│   │   └── moon.pkg.json
+│   ├── lib/                               # MoonBit core library (~14K lines)
+│   │   ├── ast/                           # AST type definitions
+│   │   │   └── types.mbt                 # All AST node types (enum/struct)
+│   │   ├── lexer/                         # Tokenizer
+│   │   │   ├── lexer.mbt                 # Token types and lexer logic
+│   │   │   └── lexer_test.mbt            # Lexer unit tests
+│   │   ├── parser/                        # Recursive descent parser
+│   │   │   ├── parser.mbt               # Main parser entry + pipelines/lists
+│   │   │   ├── compound.mbt             # Compound command parsing (if/for/while/case)
+│   │   │   ├── word.mbt                 # Word/expansion/arithmetic parsing
+│   │   │   └── parser_test.mbt          # Parser tests
+│   │   ├── interpreter/                   # AST evaluator (~6K lines)
+│   │   │   ├── interpreter.mbt          # ExecContext definition, entry point
+│   │   │   ├── interpreter_execution.mbt # Command/pipeline/redirection execution
+│   │   │   ├── expansion.mbt            # Runtime word expansion engine
+│   │   │   ├── control_flow.mbt         # if/for/while/until/case evaluation
+│   │   │   ├── builtins_dispatch.mbt    # Builtin name → handler routing
+│   │   │   ├── builtins_state_flow.mbt  # exit/return/break/continue/export/set/local
+│   │   │   ├── builtins_io_meta.mbt     # read/printf/eval/source/test/[[
+│   │   │   ├── builtins_path_env.mbt    # basename/dirname/seq/env/printenv/which/date
+│   │   │   ├── builtins_text.mbt        # sort/uniq/cut/tee/rev/nl/fold/expand/paste/column/join
+│   │   │   ├── builtins_text_transform.mbt # tr
+│   │   │   ├── builtins_search.mbt      # grep/sed/xargs
+│   │   │   ├── helpers.mbt             # General helpers (glob, pattern, arithmetic)
+│   │   │   ├── helpers_text.mbt         # Text processing helpers (field extraction, etc.)
+│   │   │   └── helpers_search.mbt       # Grep/sed helpers (regex, address matching)
+│   │   ├── commands/                      # Registered external commands (~6K lines)
+│   │   │   ├── registry.mbt             # Command name → handler dispatch
+│   │   │   ├── file_ops.mbt             # ls/mkdir/rm/cp/mv/touch/find/cat
+│   │   │   ├── text.mbt                 # head/tail/wc
+│   │   │   ├── shell.mbt               # echo/cd/pwd/true/false
+│   │   │   ├── awk_jq.mbt              # AWK interpreter + jq JSON engine
+│   │   │   └── strings_split_tar.mbt   # strings/split/tar
+│   │   ├── fs/                            # Virtual filesystem
+│   │   │   ├── types.mbt               # VFS trait definitions
+│   │   │   ├── inmemory.mbt            # InMemoryFs (HashMap-based)
+│   │   │   ├── path.mbt               # Path normalization
+│   │   │   └── glob.mbt               # Glob pattern matching
+│   │   ├── regex/                         # Regex wrapper
+│   │   │   └── regex.mbt              # @moonbitlang/core/regexp thin wrapper
+│   │   ├── ffi/                           # JS interop (placeholder)
+│   │   │   └── ffi.mbt                # FFI declarations
+│   │   └── entry/                         # Entry point bridge
+│   │       └── entry.mbt              # execute_with_state() FFI export
 │   │
-│   ├── wrapper/                      # TypeScript API layer
-│   │   ├── index.ts                 # Main entry: class Bash
-│   │   ├── sandbox.ts               # Sandbox API wrapper
-│   │   ├── types.ts                 # TypeScript type definitions
-│   │   └── bridge.ts               # JS<->MoonBit bridge setup
+│   ├── wrapper/                           # TypeScript API layer
+│   │   ├── index.ts                      # Main entry: class Bash, class Sandbox
+│   │   └── types.ts                      # TypeScript type definitions
 │   │
-│   └── moon.mod.json                # MoonBit module config
+│   └── moon.mod.json                      # MoonBit module config
 │
 ├── tests/
-│   ├── unit/                        # MoonBit unit tests
-│   ├── comparison/                  # Bash behavior comparison tests
-│   │   └── fixtures/               # Pre-recorded bash outputs
-│   └── integration/                # Full-stack TS integration tests
+│   ├── comparison/                        # Bash behavior comparison tests (523 cases)
+│   │   └── fixtures/                     # 26 JSON fixtures with real bash outputs
+│   ├── spec/                              # Specification tests
+│   │   ├── bash/                         # 136+ bash spec tests (from Oils)
+│   │   ├── awk/                          # AWK spec tests
+│   │   ├── sed/                          # sed spec tests
+│   │   ├── grep/                         # grep spec tests
+│   │   └── jq/                           # jq spec tests
+│   ├── security/                          # Security & fuzzing tests
+│   └── agent-examples/                    # 13 AI agent workflow scenarios
 │
-├── docs/                            # This documentation
-├── package.json                     # NPM package config
-├── tsconfig.json                    # TypeScript config
-└── tsup.config.ts                   # Bundling config
+├── docs/                                  # Design documentation
+├── package.json                           # NPM package config
+├── tsconfig.json                          # TypeScript config
+└── tsup.config.ts                         # Bundling config
 ```
 
 ## 5. Data Flow Example

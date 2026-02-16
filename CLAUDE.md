@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 MoonBash is a zero-dependency, pure-memory POSIX Shell sandbox written in MoonBit, compiled to pure JavaScript (no WASM). It is a complete rewrite of vercel-labs/just-bash with 100% API compatibility, targeting AI agents, serverless edge, and browser environments.
 
-**Current status:** Phase 2 in progress. Core engine implemented (lexer, parser, interpreter, VFS, 40+ commands). Comparison test pass rate: 367/523 (70%).
+**Current status:** Phase 2 complete, Phase 3 mostly complete. Core engine implemented (lexer, parser, interpreter, VFS, 50+ commands). Comparison test pass rate: 523/523 (100%).
 
 ## Build Commands
 
@@ -22,7 +22,7 @@ Build pipeline: MoonBit (.mbt) → `moon build --target js` → Pure JS → Type
 
 Three-layer design:
 
-1. **Layer 1 - MoonBit Core Engine** (`src/lib/`): Lexer → Parser (recursive descent → ADT-based AST) → Interpreter (tree-walking evaluator). Includes 40+ built-in commands and InMemoryFs (HashMap-based VFS). 正则能力应使用 `@moonbitlang/core/regexp`（当前有手写实现待替换）。
+1. **Layer 1 - MoonBit Core Engine** (`src/lib/`): Lexer → Parser (recursive descent → ADT-based AST) → Interpreter (tree-walking evaluator). Includes 50+ built-in commands and InMemoryFs (HashMap-based VFS). 正则能力已迁移到 `@moonbitlang/core/regexp`（`src/lib/regex/regex.mbt` 仅为 159 行薄封装层）。
 
 2. **Layer 2 - FFI Boundary** (`src/lib/ffi/`): `extern "js"` declarations for filesystem callbacks, network, async bridging (MoonBit async ↔ JS Promise), and tracing.
 
@@ -78,7 +78,7 @@ All in `docs/`:
 
 ### 禁止事项
 
-- **禁止手写正则引擎** — 必须使用 `@moonbitlang/core/regexp`。当前 `src/lib/regex/regex.mbt` 的 710 行手写 VM 正则需要被替换。
+- **禁止手写正则引擎** — 必须使用 `@moonbitlang/core/regexp`。已完成迁移，`src/lib/regex/regex.mbt` 现为 159 行的 `@moonbitlang/core/regexp` 封装层。
 - **禁止手写排序算法** — 必须使用标准库的 `sort`/`sort_by`。
 - **禁止在有现成标准库方法时逐字符遍历字符串** — 优先使用 `core/string` 提供的 `contains`、`split`、`index_of`、`replace` 等方法。
 
