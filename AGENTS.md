@@ -41,14 +41,15 @@
 ## Project Overview
 - MoonBash is a zero-dependency, pure-memory POSIX Shell sandbox written in MoonBit and compiled to pure JavaScript (no WASM).
 - It is a rewrite of `vercel-labs/just-bash` with API compatibility, targeting AI agents, serverless edge, and browser environments.
-- Current status (from `CLAUDE.md`): Phase 2 in progress; core engine implemented (lexer, parser, interpreter, VFS, 40+ commands); comparison pass rate `367/523` (`70%`).
+- Current status: Phase 2 complete, Phase 3 mostly complete. Core engine implemented (lexer, parser, interpreter, VFS, 50+ commands). Comparison test pass rate: 523/523 (100%).
 
-## Architecture
-- Three-layer architecture:
-  - Layer 1 (`src/lib/`): MoonBit core engine (`lexer` -> `parser` -> `interpreter`), built-in commands, `InMemoryFs`.
-  - Layer 2 (`src/lib/ffi/`): `extern "js"` FFI boundary for fs callbacks, network, async bridge, tracing.
-  - Layer 3 (`src/wrapper/`): TypeScript facade (`Bash` and `Sandbox` classes), entry via `Bash.exec()`.
-- Regex capability should use `@moonbitlang/core/regexp`; handwritten regex engine is technical debt to be replaced.
+## Architecture: "巨核与薄壳"（Fat Kernel & Thin Shell）
+
+所有与"物理 I/O"无关的纯计算、纯解析任务，100% 收敛回 MoonBit 内部，实现零外部依赖。
+
+- **Layer 1 - MoonBit 巨核** (`src/lib/`): Lexer → Parser (recursive descent → ADT-based AST) → Interpreter (tree-walking evaluator). 包含 50+ built-in commands、InMemoryFs (HashMap-based VFS)、awk/sed/jq 微型解释器等全部纯计算逻辑。编译后经 DCE 优化产出 <200 KB 无依赖 JS。
+- **Layer 2 - FFI 薄壳** (`src/lib/ffi/` + `src/wrapper/`): 仅桥接 4 个系统原语 — 物理网络 (`fetch`)、事件循环 (`setTimeout`/`Date.now()`)、巨型异构 VM (`python`/`sqlite3`)、物理磁盘 (`OverlayFs`)。不含任何业务逻辑。
+- **Layer 3 - TypeScript API Facade** (`src/wrapper/`): `Bash` class and `Sandbox` class providing identical API to just-bash. Entry point is `Bash.exec()`.
 
 ## Test Suite Details
 - `tests/spec/bash/`: Bash spec tests using `## TESTNAME` / `## STDOUT:` / `## END` block format.
@@ -58,24 +59,54 @@
 - `tests/agent-examples/`: AI agent workflow scenarios (bug investigation, log analysis, code review, etc.).
 
 ## Key Design Docs
-- In addition to `ARCHITECTURE.md`, `API.md`, `SECURITY.md`, `ROADMAP.md`, keep `COMMANDS.md`, `FILESYSTEM.md`, and `FFI.md` aligned with behavior changes.
+
+> ⚠️ **实现任何新命令前，必须先阅读 `docs/ECOSYSTEM_COMMAND_MAPPING.md`。** 该文档包含 87 条命令的完整五战区分层映射、社区包白嫖清单、FFI 终极红线，是所有实现决策的权威参考。
+
+- **`ECOSYSTEM_COMMAND_MAPPING.md`** — 命令映射与架构全景表（必读）
+- `ARCHITECTURE.md` - 巨核与薄壳 architecture, AST types, execution flow, module layout
+- `API.md`, `SECURITY.md`, `ROADMAP.md`, `COMMANDS.md`, `FILESYSTEM.md`, `FFI.md` — 与行为变更保持同步
 
 ## Ecosystem-First Principle
-- Prefer MoonBit official/community packages before handwritten implementations.
-- Allowed handwritten core is strictly limited to:
-  - Shell parser (`lexer` + recursive descent parser)
-  - Shell interpreter (tree-walking evaluator)
-  - Minimal `awk` executor
-- Must-use examples:
-  - Regex for `grep`/`sed`: `@moonbitlang/core/regexp`
-  - `jq`: `@moonbitlang/core/json`
-  - `sort`: `@moonbitlang/core/array` (`sort_by`)
-  - `base64`: `@moonbitlang/x/codec/base64` or equivalent community package
-- Prohibitions:
-  - Do not handwrite a regex engine.
-  - Do not handwrite sorting algorithms.
-  - Do not do character-by-character string traversal when standard library methods already solve it.
-- Before implementing a new command, check MoonBit core docs and `mooncakes.io` packages first.
+
+**核心原则：优先复用 MoonBit 官方与社区能力，避免重复造轮子。所有纯计算逻辑 100% 收归 MoonBit 内核，FFI 边界压缩到 4 个系统原语。**
+
+完整分层决策见 `docs/ECOSYSTEM_COMMAND_MAPPING.md`，以下为摘要：
+
+### 社区包直接接管（已验证可用）
+
+| 命令 | 必须使用的包 |
+|---|---|
+| `grep`, `sed` 正则匹配 | `@moonbitlang/core/regexp` |
+| `jq` | `@moonbitlang/core/json` |
+| `sort` | `@moonbitlang/core/array` 的 `sort_by` |
+| `tar` | `bobzhang/tar` |
+| `diff` | `moonbit-community/piediff` |
+| `gzip`/`gunzip`/`zcat` | `gmlewis/gzip` + `gmlewis/flate` |
+| `base64` | `gmlewis/base64` |
+| `md5sum` | `gmlewis/md5` |
+| `sha256sum` | `shu-kitamura/sha256` 或 `gmlewis/sha256` |
+| `yq` (YAML) | `moonbit-community/yaml` |
+| `xan` (CSV) | `xunyoyo/NyaCSV` |
+
+### 仅允许手写的核心
+
+1. Shell Parser（lexer + recursive descent parser）
+2. Shell Interpreter（tree-walking evaluator + 展开引擎）
+3. `awk` 解释器
+4. `sed` 执行器
+5. `jq` 引擎（基于 `core/json`）
+6. `expr` 解析器（Pratt Parser）
+
+### 禁止事项
+
+- **禁止手写正则引擎** — 必须使用 `@moonbitlang/core/regexp`。
+- **禁止手写排序算法** — 必须使用标准库的 `sort`/`sort_by`。
+- **禁止在有现成社区包时重复造轮子** — 先查 [mooncakes.io](https://mooncakes.io) 确认。
+- **禁止将纯计算命令推给 JS FFI** — `tar`、`diff`、`gzip`、`base64`、`md5sum`、`yq`、`xan` 等必须用纯 MoonBit 实现。
+
+### 检查方法
+
+实现新命令前，先查 [MoonBit 核心库文档](https://mooncakes.io/docs/#/moonbitlang/core/) 和 [mooncakes.io](https://mooncakes.io) 社区包，确认没有现成能力再手写。
 
 ## Implementation Notes
 - Correctness first: behavior must match real Bash; use comparison fixtures for validation.

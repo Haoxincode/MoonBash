@@ -43,7 +43,8 @@ All TypeScript tests use Vitest and the `Bash` class.
 ## Key Design Documents
 
 All in `docs/`:
-- `ARCHITECTURE.md` - Three-layer design, AST types (Token, Statement, Pipeline, Command, Word, ParamExpansion enums), execution flow, module layout
+- **`ECOSYSTEM_COMMAND_MAPPING.md`** — ⚠️ **实现任何命令前必读。** 87 条命令的完整分层映射（社区包接管 / 标准库拼装 / 手写核心 / FFI 桥接），附社区白嫖清单和禁止事项。
+- `ARCHITECTURE.md` - 巨核与薄壳 architecture, AST types, execution flow, module layout
 - `API.md` - Public TypeScript API surface and configuration options
 - `COMMANDS.md` - 87 command specifications (matching just-bash) with implementation priority phases
 - `FILESYSTEM.md` - VFS trait (IFileSystem), InMemoryFs, OverlayFs, MountableFs designs
@@ -53,9 +54,11 @@ All in `docs/`:
 
 ## 生态优先原则（Ecosystem-First Principle）
 
+> ⚠️ **实现任何新命令前，必须先阅读 [`docs/ECOSYSTEM_COMMAND_MAPPING.md`](docs/ECOSYSTEM_COMMAND_MAPPING.md)。** 该文档包含 87 条命令的完整五战区分层映射、社区包白嫖清单、FFI 终极红线，是所有实现决策的权威参考。
+
 **核心原则：优先复用 MoonBit 官方与社区能力，避免重复造轮子。所有纯计算逻辑 100% 收归 MoonBit 内核，FFI 边界压缩到 4 个系统原语。**
 
-详见 `docs/ECOSYSTEM_COMMAND_MAPPING.md`。实现命令时必须按以下分层决策：
+实现命令时必须按以下分层决策：
 
 ### 社区包直接接管（已验证可用）
 
