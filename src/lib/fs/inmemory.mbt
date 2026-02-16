@@ -503,15 +503,15 @@ pub fn InMemoryFs::snapshot_entries(
     }
   })
   // Deterministic order for stable JSON snapshots.
-  for i = 0; i < entries.length(); i = i + 1 {
-    for j = 0; j < entries.length() - i - 1; j = j + 1 {
-      if entries[j + 1].0 < entries[j].0 {
-        let tmp = entries[j]
-        entries[j] = entries[j + 1]
-        entries[j + 1] = tmp
-      }
+  entries.sort_by(fn(a, b) {
+    if a.0 < b.0 {
+      -1
+    } else if a.0 > b.0 {
+      1
+    } else {
+      0
     }
-  }
+  })
   entries
 }
 

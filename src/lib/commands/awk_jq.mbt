@@ -208,119 +208,6 @@ fn aj_decode_c_escapes(s : String) -> String {
   out.to_string()
 }
 
-fn aj_escape_json_string(s : String) -> String {
-  let out = StringBuilder::new()
-  for i = 0; i < s.length(); i = i + 1 {
-    let ch = s[i].to_int().unsafe_to_char()
-    match ch {
-      '"' => out.write_string("\\\"")
-      '\\' => out.write_string("\\\\")
-      '\n' => out.write_string("\\n")
-      '\r' => out.write_string("\\r")
-      '\t' => out.write_string("\\t")
-      _ => out.write_char(ch)
-    }
-  }
-  out.to_string()
-}
-
-fn aj_args_blob(args : Array[String]) -> String {
-  let out = StringBuilder::new()
-  out.write_char('[')
-  for i = 0; i < args.length(); i = i + 1 {
-    if i > 0 {
-      out.write_char(',')
-    }
-    out.write_char('"')
-    out.write_string(aj_escape_json_string(args[i]))
-    out.write_char('"')
-  }
-  out.write_char(']')
-  out.to_string()
-}
-
-#cfg(target="js")
-extern "js" fn aj_run_host_tool_js(
-  tool : String,
-  args_blob : String,
-  stdin_content : String,
-  cwd : String,
-  fs_snapshot_json : String
-) -> String =
-  #| (tool, args_blob, stdin_content, cwd, fs_snapshot_json) => {
-  #|   const runner = globalThis.__moonbash_run_host_tool;
-  #|   if (typeof runner !== "function") {
-  #|     return JSON.stringify({ ok: false });
-  #|   }
-  #|   try {
-  #|     const result = runner(tool, args_blob, stdin_content, cwd, fs_snapshot_json);
-  #|     if (typeof result === "string") {
-  #|       return result;
-  #|     }
-  #|     return JSON.stringify(result);
-  #|   } catch (err) {
-  #|     const message = err && typeof err.message === "string" ? err.message : String(err);
-  #|     return JSON.stringify({
-  #|       ok: true,
-  #|       stdout: "",
-  #|       stderr: `${tool}: ${message}\n`,
-  #|       exitCode: 1,
-  #|     });
-  #|   }
-  #| }
-
-#cfg(not(target="js"))
-fn aj_run_host_tool_js(
-  _tool : String,
-  _args_blob : String,
-  _stdin_content : String,
-  _cwd : String,
-  _fs_snapshot_json : String
-) -> String {
-  "{\"ok\":false}"
-}
-
-fn aj_try_host_tool(
-  tool : String,
-  args : Array[String],
-  stdin_content : String,
-  cwd : String
-) -> @ast.ExecResult? {
-  let empty_fs = "{\"files\":{},\"dirs\":{},\"links\":{}}"
-  let raw = aj_run_host_tool_js(tool, aj_args_blob(args), stdin_content, cwd, empty_fs)
-  let parsed = try {
-    @json.parse(raw[:])
-  } catch {
-    _ => return None
-  }
-  match parsed {
-    Json::Object(obj) => {
-      let enabled = match obj.get("ok") {
-        Some(Json::True) => true
-        Some(Json::False) => false
-        _ => false
-      }
-      if not(enabled) {
-        return None
-      }
-      let stdout = match obj.get("stdout") {
-        Some(Json::String(s)) => s
-        _ => ""
-      }
-      let stderr = match obj.get("stderr") {
-        Some(Json::String(s)) => s
-        _ => ""
-      }
-      let exit_code = match obj.get("exitCode") {
-        Some(Json::Number(n, ..)) => n.to_int()
-        _ => 1
-      }
-      Some(@ast.ExecResult::new(stdout=stdout, stderr=stderr, exit_code=exit_code))
-    }
-    _ => None
-  }
-}
-
 // ============================================================================
 // awk
 // ============================================================================
@@ -811,15 +698,15 @@ fn jq_sorted_keys(obj : Map[String, Json]) -> Array[String] {
   for key, _ in obj {
     keys.push(key)
   }
-  for i = 0; i < keys.length(); i = i + 1 {
-    for j = 0; j < keys.length() - i - 1; j = j + 1 {
-      if keys[j + 1] < keys[j] {
-        let tmp = keys[j]
-        keys[j] = keys[j + 1]
-        keys[j + 1] = tmp
-      }
+  keys.sort_by(fn(a, b) {
+    if a < b {
+      -1
+    } else if a > b {
+      1
+    } else {
+      0
     }
-  }
+  })
   keys
 }
 
@@ -1230,15 +1117,6 @@ fn cmd_jq(ctx : CommandContext) -> @ast.ExecResult {
   let jq_filter = match filter {
     Some(f) => f
     None => return @ast.ExecResult::err("jq: missing filter\n")
-  }
-
-  // Prefer host jq when reading from stdin; fallback keeps virtual-fs behavior
-  // for explicit input files.
-  if input_file is None {
-    match aj_try_host_tool("jq", ctx.args, ctx.stdin_content, ctx.cwd) {
-      Some(result) => return result
-      None => ()
-    }
   }
 
   let inputs : Array[Json] = if null_input {

@@ -6,77 +6,12 @@
  */
 
 import type { ExecResult, BashOptions, FileSystem } from "./types";
-import { spawnSync } from "node:child_process";
 
 export type { ExecResult, BashOptions, FileSystem } from "./types";
 
 // Import the compiled MoonBit engine
 // @ts-ignore - generated file has no type declarations
 import { execute_with_state as mbExecuteWithState } from "../_build/js/debug/build/lib/entry/entry.js";
-
-type HostToolRunner = (
-  tool: string,
-  argsBlob: string,
-  stdinContent: string,
-  cwd: string,
-) => string;
-
-function installHostToolRunner(): void {
-  const g = globalThis as Record<string, unknown>;
-  if (typeof g.__moonbash_run_host_tool === "function") {
-    return;
-  }
-
-  const runner: HostToolRunner = (
-    tool: string,
-    argsBlob: string,
-    stdinContent: string,
-  ): string => {
-    let args: string[] = [];
-    if (argsBlob.length > 0) {
-      try {
-        const parsed = JSON.parse(argsBlob);
-        if (Array.isArray(parsed)) {
-          args = parsed.filter((v): v is string => typeof v === "string");
-        }
-      } catch {
-        args = [];
-      }
-    }
-    try {
-      const child = spawnSync(tool, args, {
-        input: stdinContent,
-        encoding: "utf-8",
-        cwd: process.cwd(),
-        env: process.env,
-        maxBuffer: 10 * 1024 * 1024,
-      });
-
-      const stdout = typeof child.stdout === "string" ? child.stdout : "";
-      const stderr = typeof child.stderr === "string" ? child.stderr : "";
-      const exitCode = typeof child.status === "number" ? child.status : 1;
-      return JSON.stringify({
-        ok: true,
-        stdout,
-        stderr,
-        exitCode,
-      });
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : String(error);
-      return JSON.stringify({
-        ok: true,
-        stdout: "",
-        stderr: `${tool}: ${message}\n`,
-        exitCode: 1,
-      });
-    }
-  };
-
-  g.__moonbash_run_host_tool = runner as unknown;
-}
-
-installHostToolRunner();
 
 interface StateExecResult extends ExecResult {
   files?: Record<string, string>;

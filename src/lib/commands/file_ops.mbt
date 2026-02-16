@@ -270,15 +270,9 @@ fn cmd_ls_read_names(
     }
   }
 
-  for i = 0; i < names.length(); i = i + 1 {
-    for j = 0; j < names.length() - i - 1; j = j + 1 {
-      if cmd_find_compare_ascii(names[j], names[j + 1]) > 0 {
-        let tmp = names[j]
-        names[j] = names[j + 1]
-        names[j + 1] = tmp
-      }
-    }
-  }
+  names.sort_by(fn(a, b) {
+    cmd_find_compare_ascii(a, b)
+  })
   if reverse {
     let mut l = 0
     let mut r = names.length() - 1
@@ -352,15 +346,9 @@ fn cmd_ls_list_recursive(
       _ => ()
     }
   }
-  for i = 0; i < child_names.length(); i = i + 1 {
-    for j = 0; j < child_names.length() - i - 1; j = j + 1 {
-      if cmd_find_compare_ascii(child_names[j], child_names[j + 1]) > 0 {
-        let tmp = child_names[j]
-        child_names[j] = child_names[j + 1]
-        child_names[j + 1] = tmp
-      }
-    }
-  }
+  child_names.sort_by(fn(a, b) {
+    cmd_find_compare_ascii(a, b)
+  })
   if reverse {
     let mut l = 0
     let mut r = child_names.length() - 1
@@ -787,15 +775,9 @@ fn cmd_find_walk(
     names.push(entry.name)
   }
   // Keep deterministic output order.
-  for i = 0; i < names.length(); i = i + 1 {
-    for j = 0; j < names.length() - i - 1; j = j + 1 {
-      if names[j + 1] < names[j] {
-        let tmp = names[j]
-        names[j] = names[j + 1]
-        names[j + 1] = tmp
-      }
-    }
-  }
+  names.sort_by(fn(a, b) {
+    cmd_find_compare_ascii(a, b)
+  })
 
   for name in names {
     let child_abs = if abs_path == "/" {
@@ -941,15 +923,9 @@ fn cmd_find(ctx : CommandContext) -> @ast.ExecResult {
   }
 
   // Keep deterministic output even before external `sort`.
-  for i = 0; i < matches.length(); i = i + 1 {
-    for j = 0; j < matches.length() - i - 1; j = j + 1 {
-      if cmd_find_compare_ascii(matches[j], matches[j + 1]) > 0 {
-        let tmp = matches[j]
-        matches[j] = matches[j + 1]
-        matches[j + 1] = tmp
-      }
-    }
-  }
+  matches.sort_by(fn(a, b) {
+    cmd_find_compare_ascii(a, b)
+  })
   let out = StringBuilder::new()
   for m in matches {
     out.write_string(m + "\n")

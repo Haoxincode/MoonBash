@@ -76,15 +76,15 @@ fn cst_join_path(parts : Array[String], start_idx : Int) -> String {
 }
 
 fn cst_sort_strings(values : Array[String]) -> Unit {
-  for i = 0; i < values.length(); i = i + 1 {
-    for j = 0; j < values.length() - i - 1; j = j + 1 {
-      if values[j + 1] < values[j] {
-        let tmp = values[j]
-        values[j] = values[j + 1]
-        values[j + 1] = tmp
-      }
+  values.sort_by(fn(a, b) {
+    if a < b {
+      -1
+    } else if a > b {
+      1
+    } else {
+      0
     }
-  }
+  })
 }
 
 fn cst_starts_with(s : String, prefix : String) -> Bool {
