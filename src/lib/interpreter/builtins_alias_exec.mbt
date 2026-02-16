@@ -6,6 +6,120 @@
 
 let alias_prefix : String = "__ALIAS_"
 
+fn shell_is_digit(ch : Char) -> Bool {
+  ch >= '0' && ch <= '9'
+}
+
+fn shell_parse_duration_ms(raw : String) -> Result[Int, String] {
+  if raw.length() == 0 {
+    return Err("invalid time interval '\{raw}'")
+  }
+  let mut unit_ms = 1000
+  let mut end_ = raw.length()
+  if raw.length() >= 2 && raw[raw.length() - 2].to_int().unsafe_to_char() == 'm' && raw[raw.length() - 1].to_int().unsafe_to_char() == 's' {
+    unit_ms = 1
+    end_ = raw.length() - 2
+  } else {
+    let suffix = raw[raw.length() - 1].to_int().unsafe_to_char()
+    match suffix {
+      's' => {
+        unit_ms = 1000
+        end_ = raw.length() - 1
+      }
+      'm' => {
+        unit_ms = 60 * 1000
+        end_ = raw.length() - 1
+      }
+      'h' => {
+        unit_ms = 60 * 60 * 1000
+        end_ = raw.length() - 1
+      }
+      'd' => {
+        unit_ms = 24 * 60 * 60 * 1000
+        end_ = raw.length() - 1
+      }
+      _ => ()
+    }
+  }
+  if end_ <= 0 {
+    return Err("invalid time interval '\{raw}'")
+  }
+  let mut start = 0
+  if raw[0].to_int().unsafe_to_char() == '+' {
+    start = 1
+  } else if raw[0].to_int().unsafe_to_char() == '-' {
+    return Err("invalid time interval '\{raw}'")
+  }
+  if start >= end_ {
+    return Err("invalid time interval '\{raw}'")
+  }
+  let mut whole = 0
+  let mut frac = 0
+  let mut frac_scale = 1
+  let mut has_digit = false
+  let mut seen_dot = false
+  for i = start; i < end_; i = i + 1 {
+    let ch = raw[i].to_int().unsafe_to_char()
+    if shell_is_digit(ch) {
+      has_digit = true
+      let digit = ch.to_int() - '0'.to_int()
+      if seen_dot {
+        if frac_scale < 1000000 {
+          frac = frac * 10 + digit
+          frac_scale = frac_scale * 10
+        }
+      } else {
+        whole = whole * 10 + digit
+      }
+    } else if ch == '.' && not(seen_dot) {
+      seen_dot = true
+    } else {
+      return Err("invalid time interval '\{raw}'")
+    }
+  }
+  if not(has_digit) {
+    return Err("invalid time interval '\{raw}'")
+  }
+  let max_ms = 2147483647
+  if whole > max_ms / unit_ms {
+    return Err("invalid time interval '\{raw}'")
+  }
+  let mut total = whole * unit_ms
+  if frac > 0 {
+    let frac_ms = (frac * unit_ms) / frac_scale
+    if frac_ms > max_ms - total {
+      return Err("invalid time interval '\{raw}'")
+    }
+    total += frac_ms
+  }
+  Ok(total)
+}
+
+fn shell_parse_total_duration_ms(args : Array[String]) -> Result[Int, String] {
+  let mut total = 0
+  for raw in args {
+    let duration_ms = match shell_parse_duration_ms(raw) {
+      Ok(value) => value
+      Err(msg) => return Err(msg)
+    }
+    if duration_ms > 2147483647 - total {
+      return Err("invalid time interval '\{raw}'")
+    }
+    total += duration_ms
+  }
+  Ok(total)
+}
+
+fn shell_pad3(value : Int) -> String {
+  if value < 10 {
+    "00" + value.to_string()
+  } else if value < 100 {
+    "0" + value.to_string()
+  } else {
+    value.to_string()
+  }
+}
+
 fn ExecContext::builtin_alias(
   self : ExecContext,
   args : Array[String]
@@ -163,15 +277,22 @@ fn ExecContext::builtin_time(
     self.exit_code = 0
     return
   }
+  let start_ms = @ffi.now_ms_sync()
   let cmd_name = args[0]
   let cmd_args : Array[String] = []
   for i = 1; i < args.length(); i = i + 1 {
     cmd_args.push(args[i])
   }
   self.run_command(cmd_name, cmd_args)
+  let end_ms = @ffi.now_ms_sync()
+  let elapsed_ms = if end_ms >= start_ms { end_ms - start_ms } else { 0 }
+  let minutes = elapsed_ms / 60000
+  let seconds = (elapsed_ms % 60000) / 1000
+  let millis = elapsed_ms % 1000
   self.stderr_buf.write_string(
-    "\nreal\t0m0.001s\nuser\t0m0.000s\nsys\t0m0.000s\n",
+    "\nreal\t\{minutes}m\{seconds}.\{shell_pad3(millis)}s\n",
   )
+  self.stderr_buf.write_string("user\t0m0.000s\nsys\t0m0.000s\n")
 }
 
 fn ExecContext::builtin_sleep(
@@ -183,29 +304,22 @@ fn ExecContext::builtin_sleep(
     self.exit_code = 1
     return
   }
-  // Validate the argument looks like a number
-  let arg = args[0]
-  let mut valid = arg.length() > 0
-  let mut has_dot = false
-  for i = 0; i < arg.length(); i = i + 1 {
-    let ch = arg[i].to_int().unsafe_to_char()
-    if ch >= '0' && ch <= '9' {
-      continue
-    } else if ch == '.' && not(has_dot) {
-      has_dot = true
-    } else {
-      valid = false
-      break
+  let duration_ms = match shell_parse_total_duration_ms(args) {
+    Ok(value) => value
+    Err(msg) => {
+      self.stderr_buf.write_string("moonbash: sleep: \{msg}\n")
+      self.exit_code = 1
+      return
     }
   }
-  if not(valid) {
+  let sleep_error = @ffi.sleep_sync(duration_ms)
+  if sleep_error.length() > 0 {
     self.stderr_buf.write_string(
-      "moonbash: sleep: invalid time interval '\{arg}'\n",
+      "moonbash: sleep: \{sleep_error}\n",
     )
     self.exit_code = 1
     return
   }
-  // No-op in sandbox — immediate return
   self.exit_code = 0
 }
 
@@ -220,11 +334,27 @@ fn ExecContext::builtin_timeout(
     self.exit_code = 1
     return
   }
-  // First arg is duration (ignored), rest is command
+  let duration_ms = match shell_parse_duration_ms(args[0]) {
+    Ok(value) => value
+    Err(msg) => {
+      self.stderr_buf.write_string("moonbash: timeout: \{msg}\n")
+      self.exit_code = 1
+      return
+    }
+  }
   let cmd_name = args[1]
   let cmd_args : Array[String] = []
   for i = 2; i < args.length(); i = i + 1 {
     cmd_args.push(args[i])
   }
+  let start_ms = @ffi.now_ms_sync()
   self.run_command(cmd_name, cmd_args)
+  let end_ms = @ffi.now_ms_sync()
+  let elapsed_ms = if end_ms >= start_ms { end_ms - start_ms } else { 0 }
+  if elapsed_ms > duration_ms {
+    self.stderr_buf.write_string(
+      "moonbash: timeout: command timed out after \{args[0]}\n",
+    )
+    self.exit_code = 124
+  }
 }

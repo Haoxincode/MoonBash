@@ -4,6 +4,7 @@
     "moonbash/lib/parser",
     "moonbash/lib/fs",
     "moonbash/lib/commands",
-    "moonbash/lib/regex"
+    "moonbash/lib/regex",
+    "moonbash/lib/ffi"
   ]
 }

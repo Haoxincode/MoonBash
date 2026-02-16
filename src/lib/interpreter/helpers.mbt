@@ -9,7 +9,9 @@ fn is_shell_builtin(name : String) -> Bool {
     | "dirname" | "seq" | "rev" | "nl" | "fold" | "expand" | "unexpand" | "paste"
     | "column" | "join" | "tr" | "sort" | "uniq" | "cut" | "tee" | "sed" | "grep"
     | "egrep" | "fgrep" | "rg" | "xargs" | "date" | "env" | "printenv"
-    | "which" => true
+    | "which" | "whoami" | "hostname" | "help" | "clear" | "history" | "tac"
+    | "od" | "alias" | "unalias" | "bash" | "sh" | "time" | "sleep"
+    | "timeout" => true
     _ => false
   }
 }

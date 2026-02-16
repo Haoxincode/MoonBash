@@ -64,6 +64,9 @@ pub fn find_command(
     // Network commands (network.mbt)
     "curl" => Some(cmd_curl)
     "html-to-markdown" => Some(cmd_html_to_markdown)
+    // VM bridge commands (vm.mbt)
+    "python3" => Some(cmd_python3)
+    "sqlite3" => Some(cmd_sqlite3)
     _ => None
   }
 }

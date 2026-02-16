@@ -11,6 +11,8 @@ import type {
   FileSystem,
   MoonBashFetchRequest,
   MoonBashFetchResponse,
+  MoonBashVmRequest,
+  MoonBashVmResponse,
 } from "./types";
 
 export type {
@@ -20,6 +22,10 @@ export type {
   MoonBashFetchRequest,
   MoonBashFetchResponse,
   NetworkOptions,
+  MoonBashVmRequest,
+  MoonBashVmResponse,
+  TimerOptions,
+  VmOptions,
 } from "./types";
 
 // Import the compiled MoonBit engine
@@ -33,10 +39,19 @@ interface StateExecResult extends ExecResult {
 }
 
 type MoonBashFetchBridge = (requestJson: string) => string;
+type MoonBashSleepBridge = (durationMs: number) => string;
+type MoonBashNowBridge = () => number;
+type MoonBashVmBridge = (requestJson: string) => string;
 
 declare global {
   // eslint-disable-next-line no-var
   var __moonbash_fetch: MoonBashFetchBridge | undefined;
+  // eslint-disable-next-line no-var
+  var __moonbash_sleep: MoonBashSleepBridge | undefined;
+  // eslint-disable-next-line no-var
+  var __moonbash_now: MoonBashNowBridge | undefined;
+  // eslint-disable-next-line no-var
+  var __moonbash_vm: MoonBashVmBridge | undefined;
 }
 
 function toErrorMessage(error: unknown): string {
@@ -56,7 +71,7 @@ function isPromiseLike<T>(value: unknown): value is PromiseLike<T> {
 function waitForPromise<T>(promise: Promise<T>): T {
   if (typeof SharedArrayBuffer === "undefined" || typeof Atomics === "undefined") {
     throw new Error(
-      "moonbash: async fetch bridge requires SharedArrayBuffer and Atomics support",
+      "moonbash: async bridge requires SharedArrayBuffer and Atomics support",
     );
   }
 
@@ -163,6 +178,55 @@ export class Bash {
     };
   }
 
+  private normalizeVmResponse(
+    response: MoonBashVmResponse,
+  ): MoonBashVmResponse {
+    return {
+      stdout: response.stdout ?? "",
+      stderr: response.stderr ?? "",
+      exitCode: Number.isFinite(response.exitCode) ? Math.floor(response.exitCode) : 1,
+      error: response.error,
+    };
+  }
+
+  private defaultNowMs(): number {
+    if (typeof performance !== "undefined" && typeof performance.now === "function") {
+      const value = performance.now();
+      return Number.isFinite(value) ? Math.floor(value) : 0;
+    }
+    if (typeof Date !== "undefined" && typeof Date.now === "function") {
+      const value = Date.now();
+      if (!Number.isFinite(value)) {
+        return 0;
+      }
+      return Math.floor(value % 2147483647);
+    }
+    return 0;
+  }
+
+  private defaultSleep(durationMs: number): void {
+    if (!Number.isFinite(durationMs) || durationMs <= 0) {
+      return;
+    }
+    const waitMs = Math.floor(durationMs);
+
+    if (
+      typeof SharedArrayBuffer !== "undefined" &&
+      typeof Atomics !== "undefined" &&
+      typeof setTimeout === "function"
+    ) {
+      waitForPromise(new Promise<void>((resolve) => {
+        setTimeout(resolve, waitMs);
+      }));
+      return;
+    }
+
+    const start = this.defaultNowMs();
+    while (this.defaultNowMs() - start < waitMs) {
+      // Busy-wait fallback for runtimes without Atomics.wait support.
+    }
+  }
+
   private defaultFetch(
     request: MoonBashFetchRequest,
   ): Promise<MoonBashFetchResponse> {
@@ -228,6 +292,71 @@ export class Bash {
     };
   }
 
+  private createSleepBridge(): MoonBashSleepBridge {
+    const sleepImpl = this.options.timers?.sleep
+      ? this.options.timers.sleep
+      : (durationMs: number) => this.defaultSleep(durationMs);
+
+    return (durationMs: number): string => {
+      try {
+        const waitMs = Number.isFinite(durationMs) ? Math.max(0, Math.floor(durationMs)) : 0;
+        const maybeResult = sleepImpl(waitMs);
+        if (isPromiseLike<void>(maybeResult)) {
+          waitForPromise(Promise.resolve(maybeResult));
+        }
+        return "";
+      } catch (error) {
+        return toErrorMessage(error);
+      }
+    };
+  }
+
+  private createNowBridge(): MoonBashNowBridge {
+    const nowImpl = this.options.timers?.now;
+    if (!nowImpl) {
+      return () => this.defaultNowMs();
+    }
+    return (): number => {
+      try {
+        const value = nowImpl();
+        if (!Number.isFinite(value)) {
+          return 0;
+        }
+        if (value < 0) {
+          return 0;
+        }
+        return Math.floor(value) % 2147483647;
+      } catch (_error) {
+        return 0;
+      }
+    };
+  }
+
+  private createVmBridge(): MoonBashVmBridge | undefined {
+    const vmImpl = this.options.vm?.run;
+    if (!vmImpl) {
+      return undefined;
+    }
+
+    return (requestJson: string): string => {
+      try {
+        const request = JSON.parse(requestJson) as MoonBashVmRequest;
+        const maybeResponse = vmImpl(request);
+        const response = isPromiseLike<MoonBashVmResponse>(maybeResponse)
+          ? waitForPromise(Promise.resolve(maybeResponse))
+          : maybeResponse;
+        return JSON.stringify(this.normalizeVmResponse(response));
+      } catch (error) {
+        return JSON.stringify({
+          stdout: "",
+          stderr: "",
+          exitCode: 1,
+          error: toErrorMessage(error),
+        } satisfies MoonBashVmResponse);
+      }
+    };
+  }
+
   /**
    * Execute a bash script in the sandbox.
    * Returns stdout, stderr, and exit code.
@@ -239,8 +368,17 @@ export class Bash {
     const linksJson = JSON.stringify(this.links);
     const cwd = this.options.cwd || "/home/user";
     const fetchBridge = this.createFetchBridge();
+    const sleepBridge = this.createSleepBridge();
+    const nowBridge = this.createNowBridge();
+    const vmBridge = this.createVmBridge();
     const previousFetchBridge = globalThis.__moonbash_fetch;
+    const previousSleepBridge = globalThis.__moonbash_sleep;
+    const previousNowBridge = globalThis.__moonbash_now;
+    const previousVmBridge = globalThis.__moonbash_vm;
     globalThis.__moonbash_fetch = fetchBridge;
+    globalThis.__moonbash_sleep = sleepBridge;
+    globalThis.__moonbash_now = nowBridge;
+    globalThis.__moonbash_vm = vmBridge;
 
     try {
       const jsonResult = mbExecuteWithState(
@@ -259,6 +397,21 @@ export class Bash {
         delete globalThis.__moonbash_fetch;
       } else {
         globalThis.__moonbash_fetch = previousFetchBridge;
+      }
+      if (previousSleepBridge === undefined) {
+        delete globalThis.__moonbash_sleep;
+      } else {
+        globalThis.__moonbash_sleep = previousSleepBridge;
+      }
+      if (previousNowBridge === undefined) {
+        delete globalThis.__moonbash_now;
+      } else {
+        globalThis.__moonbash_now = previousNowBridge;
+      }
+      if (previousVmBridge === undefined) {
+        delete globalThis.__moonbash_vm;
+      } else {
+        globalThis.__moonbash_vm = previousVmBridge;
       }
     }
   }

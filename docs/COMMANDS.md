@@ -1,6 +1,6 @@
 # MoonBash Built-in Commands
 
-MoonBash targets 87 Unix commands (matching vercel-labs/just-bash 100% API compatibility). Currently ~49 implemented (57%). Most commands run as pure in-memory MoonBit logic; commands that require host capabilities (network, timers, optional external runtimes) cross an explicit FFI boundary.
+MoonBash targets 87 Unix commands (matching vercel-labs/just-bash 100% API compatibility). Most commands run as pure in-memory MoonBit logic; commands that require host capabilities (network, timers, optional external runtimes) cross an explicit FFI boundary.
 
 ## Command Categories
 
@@ -58,11 +58,12 @@ MoonBash targets 87 Unix commands (matching vercel-labs/just-bash 100% API compa
 | `wc` | Word, line, character count | Low |
 | `xargs` | Build and execute commands | High |
 
-### Data Processing (4)
+### Data Processing (5)
 
 | Command | Description | Complexity |
 |---|---|---|
 | `jq` | JSON processor | **Very High** |
+| `python3` | Python runtime bridge (optional, host VM) | N/A |
 | `yq` | YAML/XML/TOML/CSV processor | High |
 | `xan` | CSV processor | High |
 | `sqlite3` | SQL database (optional, WASM) | N/A |
@@ -156,7 +157,7 @@ Commands for structured data processing:
 jq, yq, xan, base64, md5sum, sha1sum, sha256sum,
 gzip, gunzip, zcat, tar, rg, stat, file, tree,
 ln, readlink, rmdir, chmod, hostname, whoami,
-timeout, time, help, history, clear
+timeout, time, help, history, clear, python3, sqlite3
 ```
 
 ### Cohort 4: Network

@@ -35,6 +35,47 @@ export interface NetworkOptions {
   ) => MoonBashFetchResponse | Promise<MoonBashFetchResponse>;
 }
 
+export type MoonBashVmRuntime = "python3" | "sqlite3";
+
+export interface MoonBashVmRequest {
+  runtime: MoonBashVmRuntime;
+  args: string[];
+  stdin?: string;
+  cwd?: string;
+  env?: Record<string, string>;
+}
+
+export interface MoonBashVmResponse {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  error?: string;
+}
+
+export interface VmOptions {
+  /**
+   * Optional host VM bridge used by python3/sqlite3 commands.
+   * Can be synchronous or Promise-based.
+   */
+  run?: (
+    request: MoonBashVmRequest
+  ) => MoonBashVmResponse | Promise<MoonBashVmResponse>;
+}
+
+export interface TimerOptions {
+  /**
+   * Optional sleep bridge used by sleep/timeout builtins.
+   * Can be synchronous or Promise-based.
+   */
+  sleep?: (durationMs: number) => void | Promise<void>;
+
+  /**
+   * Optional monotonic clock (milliseconds).
+   * Used by time/timeout builtins.
+   */
+  now?: () => number;
+}
+
 export interface BashOptions {
   /** Initial environment variables */
   env?: Record<string, string>;
@@ -48,6 +89,10 @@ export interface BashOptions {
   trace?: boolean;
   /** Network bridge options used by curl/html-to-markdown */
   network?: NetworkOptions;
+  /** Timer bridge options used by sleep/time/timeout */
+  timers?: TimerOptions;
+  /** VM bridge options used by python3/sqlite3 */
+  vm?: VmOptions;
 }
 
 export interface ExecutionLimits {
