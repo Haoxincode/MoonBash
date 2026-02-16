@@ -67,8 +67,6 @@ pub fn GrepMatcher::find_all(self : GrepMatcher, line : String) -> Array[(Int, I
         ranges.push((s, e))
         if e > s {
           start = e
-        } else if start < line.length() {
-          start += 1
         } else {
           break
         }

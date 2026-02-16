@@ -489,17 +489,17 @@ pub fn InMemoryFs::chmod(
   }
 }
 
-/// Snapshot all filesystem entries as (path, kind, data) tuples.
+/// Snapshot all filesystem entries as (path, kind, data, mode) tuples.
 /// kind: "f" = file (data is content), "d" = directory, "l" = symlink (data is target)
 pub fn InMemoryFs::snapshot_entries(
   self : InMemoryFs
-) -> Array[(String, String, String)] {
-  let entries : Array[(String, String, String)] = []
+) -> Array[(String, String, String, String)] {
+  let entries : Array[(String, String, String, String)] = []
   self.entries.each(fn(path, entry) {
     match entry {
-      File(data) => entries.push((path, "f", data.content))
-      Directory(_) => entries.push((path, "d", ""))
-      Symlink(data) => entries.push((path, "l", data.target))
+      File(data) => entries.push((path, "f", data.content, data.mode.to_string()))
+      Directory(data) => entries.push((path, "d", "", data.mode.to_string()))
+      Symlink(data) => entries.push((path, "l", data.target, data.mode.to_string()))
     }
   })
   // Deterministic order for stable JSON snapshots.

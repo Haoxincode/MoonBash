@@ -103,13 +103,21 @@ export interface TimerOptions {
   now?: () => number;
 }
 
+export interface InitialFileEntry {
+  content?: string | Uint8Array;
+  mode?: number;
+}
+
+export type InitialFileValue = string | Uint8Array | InitialFileEntry;
+export type InitialFiles = Record<string, InitialFileValue>;
+
 export interface BashOptions {
   /** Initial environment variables */
   env?: Record<string, string>;
   /** Initial working directory (default: "/home/user") */
   cwd?: string;
   /** Initial filesystem contents: path -> content mapping */
-  files?: Record<string, string>;
+  files?: InitialFiles;
   /** Enable built-in Python runtime (defaults to WASM bridge). */
   python?: boolean;
   /** Enable built-in SQLite runtime (defaults to WASM bridge). */

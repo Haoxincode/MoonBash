@@ -233,10 +233,59 @@ fn ExecContext::execute_simple(
     for part in first_parts {
       expanded.push(part)
     }
-    let disable_glob_args = expanded.length() > 0 && expanded[0] == "find"
+    let cmd_name_for_expansion = if expanded.length() > 0 { expanded[0] } else { "" }
+    let disable_glob_args = cmd_name_for_expansion == "find"
+    let grep_like = is_grep_like_command(cmd_name_for_expansion)
+    let mut grep_pattern_set = false
+    let mut grep_stop_options = false
+    let mut grep_expect_e_pattern = false
+
     for i = 1; i < cmd.words.length(); i = i + 1 {
       let parts = if disable_glob_args {
         self.expand_word_no_glob(cmd.words[i])
+      } else if grep_like {
+        let raw_parts = self.expand_word_no_glob(cmd.words[i])
+        let expanded_parts : Array[String] = []
+        for token in raw_parts {
+          let mut no_glob = false
+          if grep_expect_e_pattern {
+            grep_expect_e_pattern = false
+            grep_pattern_set = true
+            no_glob = true
+          } else if not(grep_stop_options) {
+            if token == "--" {
+              grep_stop_options = true
+              no_glob = true
+            } else if token == "-e" || token == "--regexp" {
+              grep_expect_e_pattern = true
+              no_glob = true
+            } else if token.has_prefix("-e") && token.length() > 2 {
+              grep_pattern_set = true
+              no_glob = true
+            } else if token.has_prefix("--regexp=") {
+              grep_pattern_set = true
+              no_glob = true
+            } else if token.length() > 1 && token[0] == '-' {
+              no_glob = true
+            }
+          }
+          if not(no_glob) {
+            if not(grep_pattern_set) {
+              grep_pattern_set = true
+              no_glob = true
+            }
+          }
+
+          if no_glob {
+            expanded_parts.push(token)
+          } else {
+            let globbed = self.pathname_expand([token])
+            for piece in globbed {
+              expanded_parts.push(piece)
+            }
+          }
+        }
+        expanded_parts
       } else {
         self.expand_word(cmd.words[i])
       }
@@ -366,6 +415,13 @@ fn ExecContext::execute_simple(
   if input_from_file {
     self.stdin_buf = saved_stdin
   }
+}
+
+fn is_grep_like_command(cmd_name : String) -> Bool {
+  cmd_name == "grep" ||
+  cmd_name == "egrep" ||
+  cmd_name == "fgrep" ||
+  cmd_name == "rg"
 }
 
 // ============================================================================

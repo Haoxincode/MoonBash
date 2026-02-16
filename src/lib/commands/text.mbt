@@ -331,23 +331,35 @@ fn cmd_wc_write_row(
   show_lines : Bool,
   show_words : Bool,
   show_chars : Bool,
+  line_width : Int,
+  word_width : Int,
+  char_width : Int,
   label : String?
 ) -> Unit {
   let mut first = true
-  if show_lines {
-    if not(first) { out.write_char(' ') }
-    out.write_string(line_count.to_string())
+  let write_col = (value : Int, width : Int) => {
+    if not(first) {
+      out.write_char(' ')
+    }
+    let text = value.to_string()
+    let mut pad = width - text.length()
+    if pad < 0 {
+      pad = 0
+    }
+    for i = 0; i < pad; i = i + 1 {
+      out.write_char(' ')
+    }
+    out.write_string(text)
     first = false
+  }
+  if show_lines {
+    write_col(line_count, line_width)
   }
   if show_words {
-    if not(first) { out.write_char(' ') }
-    out.write_string(word_count.to_string())
-    first = false
+    write_col(word_count, word_width)
   }
   if show_chars {
-    if not(first) { out.write_char(' ') }
-    out.write_string(char_count.to_string())
-    first = false
+    write_col(char_count, char_width)
   }
   match label {
     Some(name) => out.write_string(" " + name)
@@ -398,6 +410,9 @@ fn cmd_wc(ctx : CommandContext) -> @ast.ExecResult {
       flag_lines,
       flag_words,
       flag_chars,
+      0,
+      0,
+      0,
       None,
     )
     return @ast.ExecResult::ok(out.to_string())
@@ -406,6 +421,7 @@ fn cmd_wc(ctx : CommandContext) -> @ast.ExecResult {
   let mut total_lines = 0
   let mut total_words = 0
   let mut total_chars = 0
+  let rows : Array[(Int, Int, Int, String)] = []
 
   for path in input_files {
     let input = {
@@ -425,16 +441,66 @@ fn cmd_wc(ctx : CommandContext) -> @ast.ExecResult {
     total_lines += line_count
     total_words += word_count
     total_chars += char_count
+    rows.push((line_count, word_count, char_count, path))
+  }
 
+  let mut line_width = 0
+  let mut word_width = 0
+  let mut char_width = 0
+  if rows.length() > 1 {
+    for row in rows {
+      if flag_lines {
+        let width = row.0.to_string().length()
+        if width > line_width {
+          line_width = width
+        }
+      }
+      if flag_words {
+        let width = row.1.to_string().length()
+        if width > word_width {
+          word_width = width
+        }
+      }
+      if flag_chars {
+        let width = row.2.to_string().length()
+        if width > char_width {
+          char_width = width
+        }
+      }
+    }
+    if flag_lines {
+      let width = total_lines.to_string().length()
+      if width > line_width {
+        line_width = width
+      }
+    }
+    if flag_words {
+      let width = total_words.to_string().length()
+      if width > word_width {
+        word_width = width
+      }
+    }
+    if flag_chars {
+      let width = total_chars.to_string().length()
+      if width > char_width {
+        char_width = width
+      }
+    }
+  }
+
+  for row in rows {
     cmd_wc_write_row(
       out,
-      line_count,
-      word_count,
-      char_count,
+      row.0,
+      row.1,
+      row.2,
       flag_lines,
       flag_words,
       flag_chars,
-      Some(path),
+      line_width,
+      word_width,
+      char_width,
+      Some(row.3),
     )
   }
 
@@ -447,6 +513,9 @@ fn cmd_wc(ctx : CommandContext) -> @ast.ExecResult {
       flag_lines,
       flag_words,
       flag_chars,
+      line_width,
+      word_width,
+      char_width,
       Some("total"),
     )
   }

@@ -14,11 +14,13 @@ fn ExecContext::builtin_tr(
   let input = self.stdin_buf
   let mut delete_mode = false
   let mut squeeze_mode = false
+  let mut complement_mode = false
   let mut arg_idx = 0
   while arg_idx < args.length() && args[arg_idx].length() > 1 && args[arg_idx][0] == '-' {
     for i = 1; i < args[arg_idx].length(); i = i + 1 {
       let flag = args[arg_idx][i].to_int().unsafe_to_char()
       match flag {
+        'c' => complement_mode = true
         'd' => delete_mode = true
         's' => squeeze_mode = true
         _ => ()
@@ -49,7 +51,8 @@ fn ExecContext::builtin_tr(
   }
 
   let squeeze_set = if delete_mode || not(has_set2) { set1 } else { set2 }
-  if squeeze_mode && not(tr_set_contains(squeeze_set, ' ')) {
+  let squeeze_complement = if has_set2 { false } else { complement_mode }
+  if squeeze_mode && not(tr_set_matches(squeeze_set, ' ', squeeze_complement)) {
     // Keep compatibility with quoted sets that include a trailing space.
     squeeze_set.push(' ')
   }
@@ -57,17 +60,17 @@ fn ExecContext::builtin_tr(
   let mut prev_written : Char? = None
   for i = 0; i < input.length(); i = i + 1 {
     let ch = input[i].to_int().unsafe_to_char()
-    if delete_mode && tr_set_contains(set1, ch) {
+    if delete_mode && tr_set_matches(set1, ch, complement_mode) {
       continue
     }
 
     let mapped = if has_set2 {
-      tr_translate(set1, set2, ch)
+      tr_translate_with_mode(set1, set2, ch, complement_mode)
     } else {
       ch
     }
 
-    if squeeze_mode && tr_set_contains(squeeze_set, mapped) {
+    if squeeze_mode && tr_set_matches(squeeze_set, mapped, squeeze_complement) {
       match prev_written {
         Some(last) if last == mapped => continue
         _ => ()
@@ -172,11 +175,11 @@ fn ExecContext::builtin_sort(
     } else if numeric {
       compare_ints(parse_int_str(key_a), parse_int_str(key_b))
     } else {
-      compare_strings(key_a, key_b)
+      compare_sort_text(key_a, key_b)
     }
 
     if cmp == 0 {
-      cmp = compare_strings(a, b)
+      cmp = compare_sort_text(a, b)
     }
     if reverse { -cmp } else { cmp }
   }
@@ -261,6 +264,19 @@ fn ExecContext::builtin_uniq(
   let lines = split_lines_no_trailing(input)
   let mut prev = ""
   let mut count = 0
+  let format_count = (value : Int) => {
+    let text = value.to_string()
+    let mut pad = 4 - text.length()
+    if pad < 0 {
+      pad = 0
+    }
+    let out = StringBuilder::new()
+    for i = 0; i < pad; i = i + 1 {
+      out.write_char(' ')
+    }
+    out.write_string(text)
+    out.to_string()
+  }
   let should_emit = (group_count : Int) => {
     if duplicates_only && unique_only {
       false
@@ -278,7 +294,7 @@ fn ExecContext::builtin_uniq(
       if i > 0 {
         if should_emit(count) {
           if count_mode {
-            self.stdout_buf.write_string("      \{count} \{prev}\n")
+            self.stdout_buf.write_string(format_count(count) + " " + prev + "\n")
           } else {
             self.stdout_buf.write_string(prev + "\n")
           }
@@ -293,7 +309,7 @@ fn ExecContext::builtin_uniq(
   if lines.length() > 0 {
     if should_emit(count) {
       if count_mode {
-        self.stdout_buf.write_string("      \{count} \{prev}\n")
+        self.stdout_buf.write_string(format_count(count) + " " + prev + "\n")
       } else {
         self.stdout_buf.write_string(prev + "\n")
       }

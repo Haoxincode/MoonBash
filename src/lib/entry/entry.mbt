@@ -19,18 +19,20 @@ pub fn execute_with_fs(
   files_json : String,
   cwd : String
 ) -> String {
-  execute_with_state(script, env_json, files_json, "{}", "{}", cwd)
+  execute_with_state(script, env_json, files_json, "{}", "{}", "{}", cwd)
 }
 
 /// Execute a bash script and return result plus filesystem snapshot.
 /// dirs_json: JSON object with directory paths as keys.
 /// links_json: JSON object of symlink path->target.
+/// modes_json: JSON object of path->mode (decimal string).
 pub fn execute_with_state(
   script : String,
   env_json : String,
   files_json : String,
   dirs_json : String,
   links_json : String,
+  modes_json : String,
   cwd : String
 ) -> String {
   let fs = @fs.InMemoryFs::new()
@@ -58,6 +60,14 @@ pub fn execute_with_state(
     try { fs.symlink(target, path) } catch { _ => () }
   }
 
+  // Parse and apply modes
+  let mode_entries = parse_json_object(modes_json)
+  for i = 0; i < mode_entries.length(); i = i + 1 {
+    let (path, mode_str) = mode_entries[i]
+    let mode = parse_decimal_int(mode_str)
+    try { fs.chmod(path, mode) } catch { _ => () }
+  }
+
   // Parse env vars
   let env : Map[String, String] = {}
   let env_entries = parse_json_object(env_json)
@@ -75,8 +85,10 @@ pub fn execute_with_state(
   let files_out : Array[(String, String)] = []
   let dirs_out : Array[(String, String)] = []
   let links_out : Array[(String, String)] = []
+  let modes_out : Array[(String, String)] = []
   for entry in fs.snapshot_entries() {
-    let (path, kind, data) = entry
+    let (path, kind, data, mode) = entry
+    modes_out.push((path, mode))
     if kind == "f" {
       files_out.push((path, data))
     } else if kind == "d" {
@@ -85,7 +97,7 @@ pub fn execute_with_state(
       links_out.push((path, data))
     }
   }
-  result_with_state_to_json(result, files_out, dirs_out, links_out)
+  result_with_state_to_json(result, files_out, dirs_out, links_out, modes_out)
 }
 
 // ============================================================================
@@ -110,7 +122,8 @@ fn result_with_state_to_json(
   result : @ast.ExecResult,
   files : Array[(String, String)],
   dirs : Array[(String, String)],
-  links : Array[(String, String)]
+  links : Array[(String, String)],
+  modes : Array[(String, String)]
 ) -> String {
   let buf = StringBuilder::new()
   buf.write_string("{\"stdout\":")
@@ -125,6 +138,8 @@ fn result_with_state_to_json(
   buf.write_string(json_object_from_pairs(dirs))
   buf.write_string(",\"links\":")
   buf.write_string(json_object_from_pairs(links))
+  buf.write_string(",\"modes\":")
+  buf.write_string(json_object_from_pairs(modes))
   buf.write_string("}")
   buf.to_string()
 }
@@ -300,6 +315,25 @@ fn parse_json_string(json : String, start : Int) -> (String, Int) {
     i += 1
   }
   (buf.to_string(), i)
+}
+
+fn parse_decimal_int(s : String) -> Int {
+  let mut value = 0
+  let mut sign = 1
+  let mut i = 0
+  if s.length() > 0 && s[0].to_int().unsafe_to_char() == '-' {
+    sign = -1
+    i = 1
+  }
+  while i < s.length() {
+    let ch = s[i].to_int().unsafe_to_char()
+    if ch < '0' || ch > '9' {
+      break
+    }
+    value = value * 10 + (ch.to_int() - '0'.to_int())
+    i += 1
+  }
+  value * sign
 }
 
 /// Ensure parent directories exist for a file path

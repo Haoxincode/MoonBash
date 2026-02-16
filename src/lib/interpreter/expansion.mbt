@@ -50,7 +50,7 @@ fn ExecContext::expand_word_internal(
   } else {
     self.word_split(expanded)
   }
-  if allow_glob {
+  if allow_glob && word_should_apply_glob(word.parts) {
     self.pathname_expand(parts)
   } else {
     parts
@@ -603,6 +603,31 @@ fn has_glob_meta(s : String) -> Bool {
   false
 }
 
+fn word_should_apply_glob(parts : Array[@ast.WordPart]) -> Bool {
+  for part in parts {
+    match part {
+      @ast.WordPart::Literal(s) => {
+        if has_glob_meta(s) {
+          return true
+        }
+      }
+      @ast.WordPart::Variable(_)
+      | @ast.WordPart::ParameterExpansion(_)
+      | @ast.WordPart::CommandSubstitution(_)
+      | @ast.WordPart::BraceExpansion(_)
+      | @ast.WordPart::TildePrefix(_)
+      | @ast.WordPart::Glob(_) => {
+        // Unquoted expansions may produce glob metacharacters.
+        return true
+      }
+      @ast.WordPart::ArithmeticExpansion(_)
+      | @ast.WordPart::SingleQuoted(_)
+      | @ast.WordPart::DoubleQuoted(_) => ()
+    }
+  }
+  false
+}
+
 fn ExecContext::abs_to_shell_path(self : ExecContext, abs_path : String) -> String {
   if abs_path == self.cwd {
     return "."
@@ -634,9 +659,18 @@ fn starts_with(s : String, prefix : String) -> Bool {
 
 fn sort_strings(values : Array[String]) -> Unit {
   values.sort_by(fn(a, b) {
-    if a < b {
+    let min_len = if a.length() < b.length() { a.length() } else { b.length() }
+    for i = 0; i < min_len; i = i + 1 {
+      if a[i] < b[i] {
+        return -1
+      }
+      if a[i] > b[i] {
+        return 1
+      }
+    }
+    if a.length() < b.length() {
       -1
-    } else if a > b {
+    } else if a.length() > b.length() {
       1
     } else {
       0

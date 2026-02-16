@@ -280,15 +280,59 @@ fn format_human_size(size : Int) -> String {
 fn cmd_du(ctx : CommandContext) -> @ast.ExecResult {
   let mut summary_only = false
   let mut human_readable = false
+  let mut all_entries = false
+  let mut max_depth : Int? = None
   let paths : Array[String] = []
-  for arg in ctx.args {
-    match arg {
-      "-s" => summary_only = true
-      "-h" => human_readable = true
-      "-sh" | "-hs" => { summary_only = true; human_readable = true }
-      _ => paths.push(arg)
+
+  let mut stop_options = false
+  let mut i = 0
+  while i < ctx.args.length() {
+    let arg = ctx.args[i]
+    if stop_options {
+      paths.push(arg)
+      i += 1
+      continue
     }
+
+    if arg == "--" {
+      stop_options = true
+      i += 1
+      continue
+    }
+    if arg == "--max-depth" && i + 1 < ctx.args.length() {
+      max_depth = Some(cmd_find_parse_int(ctx.args[i + 1]))
+      i += 2
+      continue
+    }
+    if arg.has_prefix("--max-depth=") {
+      max_depth = Some(cmd_find_parse_int(arg.substring(start=12)))
+      i += 1
+      continue
+    }
+    if arg.length() > 1 && arg[0] == '-' {
+      let mut valid_flags = true
+      for j = 1; j < arg.length(); j = j + 1 {
+        let flag = arg[j].to_int().unsafe_to_char()
+        match flag {
+          's' => summary_only = true
+          'h' => human_readable = true
+          'a' => all_entries = true
+          _ => {
+            valid_flags = false
+            break
+          }
+        }
+      }
+      if valid_flags {
+        i += 1
+        continue
+      }
+    }
+    paths.push(arg)
+    i += 1
   }
+
+  ignore(all_entries)
   if paths.length() == 0 {
     paths.push(".")
   }
@@ -321,19 +365,30 @@ fn cmd_du(ctx : CommandContext) -> @ast.ExecResult {
           @fs.FsEntry::Directory(_) => 4096
           @fs.FsEntry::Symlink(data) => data.target.length()
         }
-        total += size
-        // Compute display path relative to the argument
-        let display = if key == resolved {
-          path
+        let rel_depth = if key == resolved {
+          0
         } else {
-          let rel = key.substring(start=resolved.length())
-          if path == "." {
-            "." + rel
-          } else {
-            path + rel
-          }
+          cmd_du_relative_depth(key.substring(start=resolved.length()))
         }
-        sub_entries.push((display, size))
+        let include_entry = match max_depth {
+          Some(limit) => rel_depth <= limit
+          None => true
+        }
+        if include_entry {
+          total += size
+          // Compute display path relative to the argument
+          let display = if key == resolved {
+            path
+          } else {
+            let rel = key.substring(start=resolved.length())
+            if path == "." {
+              "." + rel
+            } else {
+              path + rel
+            }
+          }
+          sub_entries.push((display, size))
+        }
       }
     })
     if summary_only {
@@ -355,6 +410,26 @@ fn cmd_du(ctx : CommandContext) -> @ast.ExecResult {
     stderr=errbuf.to_string(),
     exit_code=exit_code,
   )
+}
+
+fn cmd_du_relative_depth(rel : String) -> Int {
+  let mut depth = 0
+  let mut in_segment = false
+  for i = 0; i < rel.length(); i = i + 1 {
+    let ch = rel[i].to_int().unsafe_to_char()
+    if ch == '/' {
+      if in_segment {
+        depth += 1
+        in_segment = false
+      }
+    } else {
+      in_segment = true
+    }
+  }
+  if in_segment {
+    depth += 1
+  }
+  depth
 }
 
 /// Parse an octal string to integer

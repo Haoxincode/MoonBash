@@ -9,6 +9,8 @@ import type {
   ExecResult,
   BashOptions,
   FileSystem,
+  InitialFileValue,
+  InitialFiles,
   MoonBashFetchRequest,
   MoonBashFetchResponse,
   MoonBashVmRequest,
@@ -19,6 +21,9 @@ export type {
   ExecResult,
   BashOptions,
   FileSystem,
+  InitialFileEntry,
+  InitialFileValue,
+  InitialFiles,
   MoonBashFetchRequest,
   MoonBashFetchResponse,
   NetworkOptions,
@@ -36,6 +41,7 @@ interface StateExecResult extends ExecResult {
   files?: Record<string, string>;
   dirs?: Record<string, string>;
   links?: Record<string, string>;
+  modes?: Record<string, string>;
 }
 
 type MoonBashFetchBridge = (requestJson: string) => string;
@@ -246,6 +252,7 @@ export class Bash {
   private files: Record<string, string>;
   private dirs: Record<string, string>;
   private links: Record<string, string>;
+  private modes: Record<string, string>;
   private pyodideRuntime: PyodideRuntimeLike | null;
   private pyodideRuntimePromise: Promise<PyodideRuntimeLike> | null;
   private sqlJsRuntime: SqlJsRuntimeLike | null;
@@ -254,9 +261,11 @@ export class Bash {
 
   constructor(options: BashOptions = {}) {
     this.options = options;
-    this.files = { ...(options.files || {}) };
+    const initialFs = this.normalizeInitialFiles(options.files);
+    this.files = initialFs.files;
     this.dirs = {};
     this.links = {};
+    this.modes = initialFs.modes;
     this.pyodideRuntime = null;
     this.pyodideRuntimePromise = null;
     this.sqlJsRuntime = null;
@@ -288,6 +297,102 @@ export class Bash {
     }
   }
 
+  private normalizeInitialFiles(files?: InitialFiles): {
+    files: Record<string, string>;
+    modes: Record<string, string>;
+  } {
+    const normalizedFiles: Record<string, string> = {};
+    const normalizedModes: Record<string, string> = {};
+    if (!files || typeof files !== "object") {
+      return { files: normalizedFiles, modes: normalizedModes };
+    }
+
+    for (const [rawPath, rawValue] of Object.entries(files)) {
+      const path = this.normalizePath(rawPath);
+      const parsed = this.normalizeInitialFileValue(rawValue);
+      normalizedFiles[path] = parsed.content;
+      if (parsed.mode !== null) {
+        normalizedModes[path] = parsed.mode.toString();
+      }
+    }
+
+    return { files: normalizedFiles, modes: normalizedModes };
+  }
+
+  private normalizeInitialFileValue(value: InitialFileValue): {
+    content: string;
+    mode: number | null;
+  } {
+    if (typeof value === "string") {
+      return { content: value, mode: null };
+    }
+
+    if (value instanceof Uint8Array) {
+      return { content: this.decodeInitialFileBytes(value), mode: null };
+    }
+
+    if (value && typeof value === "object") {
+      const entry = value as { content?: unknown; mode?: unknown };
+      return {
+        content: this.normalizeInitialFileContent(entry.content),
+        mode: this.normalizeInitialFileMode(entry.mode),
+      };
+    }
+
+    return { content: "", mode: null };
+  }
+
+  private normalizeInitialFileContent(content: unknown): string {
+    if (typeof content === "string") {
+      return content;
+    }
+    if (content instanceof Uint8Array) {
+      return this.decodeInitialFileBytes(content);
+    }
+    if (content === null || content === undefined) {
+      return "";
+    }
+    return String(content);
+  }
+
+  private decodeInitialFileBytes(bytes: Uint8Array): string {
+    if (typeof TextDecoder !== "undefined") {
+      return new TextDecoder().decode(bytes);
+    }
+    let out = "";
+    for (const byte of bytes) {
+      out += String.fromCharCode(byte);
+    }
+    return out;
+  }
+
+  private normalizeInitialFileMode(mode: unknown): number | null {
+    if (typeof mode === "number") {
+      if (!Number.isFinite(mode) || mode < 0) {
+        return null;
+      }
+      return Math.floor(mode);
+    }
+    if (typeof mode !== "string") {
+      return null;
+    }
+    const trimmed = mode.trim();
+    if (trimmed.length === 0) {
+      return null;
+    }
+    if (/^0[oO][0-7]+$/.test(trimmed)) {
+      return parseInt(trimmed.slice(2), 8);
+    }
+    if (/^[0-7]{3,4}$/.test(trimmed)) {
+      return parseInt(trimmed, 8);
+    }
+    const parsed = Number.parseInt(trimmed, 10);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      return null;
+    }
+    return Math.floor(parsed);
+  }
+
   private applyState(result: StateExecResult): void {
     if (result.files && typeof result.files === "object") {
       this.files = result.files;
@@ -297,6 +402,9 @@ export class Bash {
     }
     if (result.links && typeof result.links === "object") {
       this.links = result.links;
+    }
+    if (result.modes && typeof result.modes === "object") {
+      this.modes = result.modes;
     }
   }
 
@@ -1246,6 +1354,7 @@ export class Bash {
     const filesJson = JSON.stringify(this.files);
     const dirsJson = JSON.stringify(this.dirs);
     const linksJson = JSON.stringify(this.links);
+    const modesJson = JSON.stringify(this.modes);
     const cwd = this.options.cwd || "/home/user";
     const fetchBridge = this.createFetchBridge();
     const sleepBridge = this.createSleepBridge();
@@ -1267,6 +1376,7 @@ export class Bash {
         filesJson,
         dirsJson,
         linksJson,
+        modesJson,
         cwd,
       );
       const parsed = JSON.parse(jsonResult) as StateExecResult;
@@ -1307,6 +1417,7 @@ export class Bash {
   async writeFile(path: string, content: string): Promise<void> {
     const normalized = this.normalizePath(path);
     this.files[normalized] = content;
+    this.modes[normalized] = (0o644).toString();
     this.addParentDirs(normalized);
   }
 

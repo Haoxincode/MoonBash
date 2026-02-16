@@ -111,6 +111,9 @@ fn cmd_ls(ctx : CommandContext) -> @ast.ExecResult {
   let mut almost_all = false
   let mut recursive = false
   let mut reverse = false
+  let mut long_format = false
+  let mut human_readable = false
+  let mut sort_size = false
   let mut one_per_line = true
   let paths : Array[String] = []
 
@@ -128,7 +131,9 @@ fn cmd_ls(ctx : CommandContext) -> @ast.ExecResult {
           'R' => recursive = true
           'r' => reverse = true
           '1' => one_per_line = true
-          'l' => () // accepted but not fully formatted in comparison mode
+          'l' => long_format = true
+          'h' => human_readable = true
+          'S' => sort_size = true
           _ => {
             valid_flags = false
             break
@@ -182,7 +187,13 @@ fn cmd_ls(ctx : CommandContext) -> @ast.ExecResult {
   }
 
   for file in files {
-    out.write_string(file.0 + "\n")
+    if long_format {
+      let size = cmd_ls_entry_size(ctx.fs, file.1)
+      let label = if file.0.length() == 0 { file.1 } else { file.0 }
+      out.write_string(cmd_ls_format_size(size, human_readable) + " " + label + "\n")
+    } else {
+      out.write_string(file.0 + "\n")
+    }
   }
   if files.length() > 0 && dirs.length() > 0 {
     out.write_char('\n')
@@ -201,21 +212,33 @@ fn cmd_ls(ctx : CommandContext) -> @ast.ExecResult {
         show_all,
         almost_all,
         reverse,
+        sort_size,
         one_per_line,
+        long_format,
+        human_readable,
         out,
       )
     } else {
       if show_headers {
         out.write_string(label + ":\n")
       }
-      let names = cmd_ls_read_names(
+      let entries = cmd_ls_read_entries(
         ctx.fs,
         abs_path,
         show_all,
         almost_all,
         reverse,
+        sort_size,
       )
-      cmd_ls_write_names(out, names, one_per_line)
+      if long_format {
+        cmd_ls_write_long(out, entries, human_readable)
+      } else {
+        let names : Array[String] = []
+        for entry in entries {
+          names.push(entry.0)
+        }
+        cmd_ls_write_names(out, names, one_per_line)
+      }
     }
 
     if idx + 1 < dirs.length() {
@@ -242,36 +265,85 @@ fn cmd_ls_display_label(raw : String, abs_path : String) -> String {
   }
 }
 
-fn cmd_ls_read_names(
+fn cmd_ls_entry_size(fs : @fs.InMemoryFs, abs_path : String) -> Int {
+  match fs.entries.get(abs_path) {
+    Some(@fs.FsEntry::File(file)) => file.content.length()
+    Some(@fs.FsEntry::Directory(_)) => 4096
+    Some(@fs.FsEntry::Symlink(link)) => link.target.length()
+    None => 0
+  }
+}
+
+fn cmd_ls_format_human(size : Int, unit : Int, suffix : String) -> String {
+  let whole = size / unit
+  let rem = size % unit
+  if whole < 10 {
+    let tenth = (rem * 10) / unit
+    whole.to_string() + "." + tenth.to_string() + suffix
+  } else {
+    whole.to_string() + suffix
+  }
+}
+
+fn cmd_ls_format_size(size : Int, human_readable : Bool) -> String {
+  if not(human_readable) {
+    return size.to_string()
+  }
+  if size >= 1073741824 {
+    cmd_ls_format_human(size, 1073741824, "G")
+  } else if size >= 1048576 {
+    cmd_ls_format_human(size, 1048576, "M")
+  } else if size >= 1024 {
+    cmd_ls_format_human(size, 1024, "K")
+  } else {
+    size.to_string()
+  }
+}
+
+fn cmd_ls_read_entries(
   fs : @fs.InMemoryFs,
   dir_abs : String,
   show_all : Bool,
   almost_all : Bool,
-  reverse : Bool
-) -> Array[String] {
+  reverse : Bool,
+  sort_size : Bool
+) -> Array[(String, Int)] {
   let entries = try {
     fs.readdir(dir_abs)
   } catch {
     @fs.FsError(_msg) => return []
   }
 
-  let names : Array[String] = []
+  let names : Array[(String, Int)] = []
   if show_all {
-    names.push(".")
-    names.push("..")
+    names.push((".", 4096))
+    names.push(("..", 4096))
   }
 
   for entry in entries {
     let name = entry.name
-    if show_all || almost_all {
-      names.push(name)
-    } else if not(name.length() > 0 && name[0] == '.') {
-      names.push(name)
+    if show_all || almost_all || not(name.length() > 0 && name[0] == '.') {
+      let child_abs = if dir_abs == "/" {
+        "/" + name
+      } else {
+        dir_abs + "/" + name
+      }
+      names.push((name, cmd_ls_entry_size(fs, child_abs)))
     }
   }
 
   names.sort_by(fn(a, b) {
-    cmd_find_compare_ascii(a, b)
+    if sort_size {
+      if a.1 > b.1 {
+        -1
+      } else if a.1 < b.1 {
+        1
+      } else {
+        cmd_find_compare_ascii(a.0, b.0)
+      }
+    } else {
+      cmd_find_compare_ascii(a.0, b.0)
+    }
   })
   if reverse {
     let mut l = 0
@@ -285,6 +357,18 @@ fn cmd_ls_read_names(
     }
   }
   names
+}
+
+fn cmd_ls_write_long(
+  out : StringBuilder,
+  entries : Array[(String, Int)],
+  human_readable : Bool
+) -> Unit {
+  for entry in entries {
+    out.write_string(
+      cmd_ls_format_size(entry.1, human_readable) + " " + entry.0 + "\n",
+    )
+  }
 }
 
 fn cmd_ls_write_names(
@@ -319,12 +403,30 @@ fn cmd_ls_list_recursive(
   show_all : Bool,
   almost_all : Bool,
   reverse : Bool,
+  sort_size : Bool,
   one_per_line : Bool,
+  long_format : Bool,
+  human_readable : Bool,
   out : StringBuilder
 ) -> Unit {
   out.write_string(label + ":\n")
-  let names = cmd_ls_read_names(fs, dir_abs, show_all, almost_all, reverse)
-  cmd_ls_write_names(out, names, one_per_line)
+  let entries = cmd_ls_read_entries(
+    fs,
+    dir_abs,
+    show_all,
+    almost_all,
+    reverse,
+    sort_size,
+  )
+  if long_format {
+    cmd_ls_write_long(out, entries, human_readable)
+  } else {
+    let names : Array[String] = []
+    for entry in entries {
+      names.push(entry.0)
+    }
+    cmd_ls_write_names(out, names, one_per_line)
+  }
 
   let subdirs : Array[(String, String)] = []
   let entries = try {
@@ -347,7 +449,21 @@ fn cmd_ls_list_recursive(
     }
   }
   child_names.sort_by(fn(a, b) {
-    cmd_find_compare_ascii(a, b)
+    if sort_size {
+      let a_abs = if dir_abs == "/" { "/" + a } else { dir_abs + "/" + a }
+      let b_abs = if dir_abs == "/" { "/" + b } else { dir_abs + "/" + b }
+      let a_size = cmd_ls_entry_size(fs, a_abs)
+      let b_size = cmd_ls_entry_size(fs, b_abs)
+      if a_size > b_size {
+        -1
+      } else if a_size < b_size {
+        1
+      } else {
+        cmd_find_compare_ascii(a, b)
+      }
+    } else {
+      cmd_find_compare_ascii(a, b)
+    }
   })
   if reverse {
     let mut l = 0
@@ -386,7 +502,10 @@ fn cmd_ls_list_recursive(
       show_all,
       almost_all,
       reverse,
+      sort_size,
       one_per_line,
+      long_format,
+      human_readable,
       out,
     )
   }
@@ -669,11 +788,48 @@ fn cmd_find_display_basename(path : String) -> String {
   }
 }
 
+fn cmd_find_parse_octal(s : String) -> Int {
+  let mut value = 0
+  let mut i = 0
+  if s.length() >= 2 &&
+    s[0].to_int().unsafe_to_char() == '0' &&
+    (s[1].to_int().unsafe_to_char() == 'o' || s[1].to_int().unsafe_to_char() == 'O') {
+    i = 2
+  }
+  while i < s.length() {
+    let ch = s[i].to_int().unsafe_to_char()
+    if ch < '0' || ch > '7' {
+      break
+    }
+    value = value * 8 + (ch.to_int() - '0'.to_int())
+    i += 1
+  }
+  value
+}
+
+fn cmd_find_perm_matches(expr : String, mode : Int) -> Bool {
+  if expr.length() == 0 {
+    return false
+  }
+  let first = expr[0].to_int().unsafe_to_char()
+  if first == '-' {
+    let mask = cmd_find_parse_octal(expr.substring(start=1))
+    mode.land(mask) == mask
+  } else if first == '/' {
+    let mask = cmd_find_parse_octal(expr.substring(start=1))
+    mode.land(mask) != 0
+  } else {
+    let expected = cmd_find_parse_octal(expr)
+    mode.land(0o7777) == expected
+  }
+}
+
 /// Evaluate a parsed find expression for one entry.
 fn cmd_find_matches(
   display_path : String,
   is_file : Bool,
   is_directory : Bool,
+  mode : Int,
   groups : Array[Array[(String, String)]],
   has_predicates : Bool
 ) -> Bool {
@@ -702,6 +858,11 @@ fn cmd_find_matches(
             break
           }
         } else {
+          group_match = false
+          break
+        }
+      } else if kind == "perm" {
+        if not(cmd_find_perm_matches(value, mode)) {
           group_match = false
           break
         }
@@ -746,6 +907,7 @@ fn cmd_find_walk(
       display_path,
       stat.is_file,
       stat.is_directory,
+      stat.mode,
       groups,
       has_predicates,
     ) {
@@ -864,6 +1026,15 @@ fn cmd_find(ctx : CommandContext) -> @ast.ExecResult {
         return @ast.ExecResult::err("find: missing argument to -type\n")
       }
       current_group.push(("type", ctx.args[i + 1]))
+      has_predicates = true
+      i += 2
+      continue
+    }
+    if arg == "-perm" {
+      if i + 1 >= ctx.args.length() {
+        return @ast.ExecResult::err("find: missing argument to -perm\n")
+      }
+      current_group.push(("perm", ctx.args[i + 1]))
       has_predicates = true
       i += 2
       continue

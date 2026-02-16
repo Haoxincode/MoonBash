@@ -8,11 +8,17 @@ fn ExecContext::builtin_sed(
   let expressions : Array[String] = []
   let files : Array[String] = []
   let mut script_taken = false
+  let mut inplace = false
+  let mut extended = false
 
   let mut i = 0
   while i < args.length() {
     let arg = args[i]
-    if arg == "-e" && i + 1 < args.length() {
+    if arg == "-i" || (arg.has_prefix("-i") && arg.length() > 1 && not(script_taken)) {
+      inplace = true
+    } else if arg == "-E" || arg == "-r" {
+      extended = true
+    } else if arg == "-e" && i + 1 < args.length() {
       i += 1
       expressions.push(args[i])
       script_taken = true
@@ -22,11 +28,11 @@ fn ExecContext::builtin_sed(
     } else if not(script_taken) {
       let mut candidate = arg
       let mut consumed = 0
-      let mut parsed = parse_sed_command(candidate)
+      let mut parsed = parse_sed_command(candidate, extended~)
       while parsed is None && i + consumed + 1 < args.length() {
         consumed += 1
         candidate = candidate + " " + args[i + consumed]
-        parsed = parse_sed_command(candidate)
+        parsed = parse_sed_command(candidate, extended~)
       }
       if parsed is Some(_) {
         expressions.push(candidate)
@@ -49,9 +55,13 @@ fn ExecContext::builtin_sed(
 
   let commands : Array[SedCommand] = []
   for expr in expressions {
-    let parsed = parse_sed_command(expr)
+    let parsed = parse_sed_script_commands(expr, extended~)
     match parsed {
-      Some(cmd) => commands.push(cmd)
+      Some(cmds) => {
+        for cmd in cmds {
+          commands.push(cmd)
+        }
+      }
       None => {
         self.stderr_buf.write_string("sed: invalid script\n")
         self.exit_code = 1
@@ -61,8 +71,10 @@ fn ExecContext::builtin_sed(
   }
 
   let inputs : Array[String] = []
+  let input_paths : Array[String] = []
   if files.length() == 0 {
     inputs.push(self.stdin_buf)
+    input_paths.push("")
   } else {
     for path in files {
       let resolved = try {
@@ -80,57 +92,134 @@ fn ExecContext::builtin_sed(
         }
       }
       inputs.push(content)
+      input_paths.push(resolved)
     }
   }
 
-  for input in inputs {
-    let lines = split_lines_no_trailing(input)
-    let total_lines = lines.length()
-    let range_states = Array::makei(commands.length(), _ => false)
-
-    for line_idx = 0; line_idx < total_lines; line_idx = line_idx + 1 {
-      let line_no = line_idx + 1
-      let mut line = lines[line_idx]
-      let mut deleted = false
-
-      for cmd_idx = 0; cmd_idx < commands.length(); cmd_idx = cmd_idx + 1 {
-        let cmd = commands[cmd_idx]
-        let (applies, next_state) = sed_address_applies(
-          cmd.address,
-          line,
-          line_no,
-          total_lines,
-          range_states[cmd_idx],
-        )
-        range_states[cmd_idx] = next_state
-        if not(applies) {
-          continue
-        }
-
-        match cmd.kind {
-          Delete => {
-            deleted = true
-            break
-          }
-          Substitute(subst) => {
-            let (new_line, _) = sed_substitute_line(
-              line,
-              subst.matcher,
-              subst.replacement,
-              subst.global,
-            )
-            line = new_line
-          }
+  for idx = 0; idx < inputs.length(); idx = idx + 1 {
+    let rendered = sed_render_input(commands, inputs[idx])
+    if inplace && input_paths[idx].length() > 0 {
+      try {
+        self.fs.write_file(input_paths[idx], rendered)
+      } catch {
+        @fs.FsError(msg) => {
+          self.stderr_buf.write_string("sed: \{msg}\n")
+          self.exit_code = 1
+          return
         }
       }
-
-      if not(deleted) {
-        self.stdout_buf.write_string(line + "\n")
-      }
+    } else {
+      self.stdout_buf.write_string(rendered)
     }
   }
 
   self.exit_code = 0
+}
+
+fn sed_render_input(commands : Array[SedCommand], input : String) -> String {
+  let out = StringBuilder::new()
+  let lines = split_lines_no_trailing(input)
+  let total_lines = lines.length()
+  let range_states = Array::makei(commands.length(), _ => false)
+
+  let mut line_idx = 0
+  while line_idx < total_lines {
+    let line_no = line_idx + 1
+    let mut line = lines[line_idx]
+    let mut deleted = false
+    let mut consumed_extra = 0
+
+    for cmd_idx = 0; cmd_idx < commands.length(); cmd_idx = cmd_idx + 1 {
+      let cmd = commands[cmd_idx]
+      let (applies, next_state) = sed_address_applies(
+        cmd.address,
+        line,
+        line_no,
+        total_lines,
+        range_states[cmd_idx],
+      )
+      range_states[cmd_idx] = next_state
+      if not(applies) {
+        continue
+      }
+
+      match cmd.kind {
+        Delete => {
+          deleted = true
+          break
+        }
+        Substitute(subst) => {
+          let (new_line, _) = sed_substitute_line(
+            line,
+            subst.matcher,
+            subst.replacement,
+            subst.global,
+          )
+          line = new_line
+        }
+        AppendNextLine => {
+          let next_idx = line_idx + consumed_extra + 1
+          if next_idx < total_lines {
+            line = line + "\n" + lines[next_idx]
+            consumed_extra += 1
+          }
+        }
+        Transliterate(spec) => {
+          line = sed_transliterate_line(line, spec.source, spec.target)
+        }
+        PrintLineNumber => {
+          out.write_string(line_no.to_string() + "\n")
+        }
+      }
+    }
+
+    if not(deleted) {
+      out.write_string(line + "\n")
+    }
+    line_idx += consumed_extra + 1
+  }
+
+  out.to_string()
+}
+
+fn parse_sed_script_commands(
+  expr : String,
+  extended~ : Bool = false
+) -> Array[SedCommand]? {
+  let trimmed = trim_ascii_space(expr)
+  if trimmed.length() == 0 {
+    return Some([])
+  }
+
+  match parse_sed_command(trimmed, extended~) {
+    Some(cmd) => return Some([cmd])
+    None => ()
+  }
+
+  for i = 0; i < trimmed.length(); i = i + 1 {
+    if trimmed[i].to_int().unsafe_to_char() != ';' {
+      continue
+    }
+    let left = substring_slice(trimmed, 0, i)
+    let right = substring_slice(trimmed, i + 1, trimmed.length())
+    let left_cmds = parse_sed_script_commands(left, extended~)
+    let right_cmds = parse_sed_script_commands(right, extended~)
+    match (left_cmds, right_cmds) {
+      (Some(lhs), Some(rhs)) => {
+        let merged : Array[SedCommand] = []
+        for cmd in lhs {
+          merged.push(cmd)
+        }
+        for cmd in rhs {
+          merged.push(cmd)
+        }
+        return Some(merged)
+      }
+      _ => ()
+    }
+  }
+
+  None
 }
 
 fn ExecContext::builtin_grep(
@@ -151,7 +240,7 @@ fn ExecContext::builtin_grep(
   let mut fixed = false
   let mut before_context = 0
   let mut after_context = 0
-  let mut include_glob : String? = None
+  let include_globs : Array[String] = []
   let mut pattern = ""
   let file_args : Array[String] = []
   let mut pattern_set = false
@@ -160,10 +249,10 @@ fn ExecContext::builtin_grep(
   while i < args.length() {
     let arg = args[i]
     if arg.has_prefix("--include=") {
-      include_glob = Some(arg.substring(start=10))
+      include_globs.push(arg.substring(start=10))
     } else if arg == "--include" && i + 1 < args.length() {
       i += 1
-      include_glob = Some(args[i])
+      include_globs.push(args[i])
     } else if arg == "-v" {
       invert = true
     } else if arg == "-c" {
@@ -321,16 +410,21 @@ fn ExecContext::builtin_grep(
               }
             }
           }
-          matched_paths.sort()
+          grep_sort_paths(matched_paths)
           for full_path in matched_paths {
-            let display = to_display_path(self.cwd, full_path)
-            match include_glob {
-              Some(glob) => {
-                if not(@fs.glob_match(glob, path_basename(display))) {
-                  continue
+            let display = grep_recursive_display_path(raw_path, resolved, full_path)
+            if include_globs.length() > 0 {
+              let base = path_basename(display)
+              let mut include_match = false
+              for glob in include_globs {
+                if @fs.glob_match(glob, base) {
+                  include_match = true
+                  break
                 }
               }
-              None => ()
+              if not(include_match) {
+                continue
+              }
             }
             match self.fs.entries.get(full_path) {
               Some(@fs.FsEntry::File(file)) =>
@@ -415,6 +509,9 @@ fn ExecContext::builtin_grep(
         }
         let line = lines[line_idx]
         for range in line_matches[line_idx] {
+          if range.1 <= range.0 {
+            continue
+          }
           let prefix = grep_output_prefix(
             target.display_path,
             line_idx + 1,
@@ -470,4 +567,3 @@ fn ExecContext::builtin_grep(
     self.exit_code = if total_selected > 0 { 0 } else { 1 }
   }
 }
-

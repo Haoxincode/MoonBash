@@ -345,36 +345,370 @@ fn format_printf(format : String, args : Array[String]) -> String {
         '0' => { buf.write_char('\u0000'); i += 2 }
         _ => { buf.write_char('\\'); buf.write_char(next); i += 2 }
       }
-    } else if ch == '%' && i + 1 < format.length() {
-      let spec = format[i + 1].to_int().unsafe_to_char()
-      match spec {
-        's' => {
-          if arg_idx < args.length() {
-            buf.write_string(args[arg_idx])
-            arg_idx += 1
+    } else if ch == '%' {
+      if i + 1 >= format.length() {
+        buf.write_char('%')
+        i += 1
+        continue
+      }
+
+      let mut j = i + 1
+      let mut left_justify = false
+      let mut zero_pad = false
+      while j < format.length() {
+        let flag = format[j].to_int().unsafe_to_char()
+        if flag == '-' {
+          left_justify = true
+          j += 1
+          continue
+        }
+        if flag == '0' {
+          zero_pad = true
+          j += 1
+          continue
+        }
+        break
+      }
+
+      let mut width = 0
+      while j < format.length() {
+        let digit = format[j].to_int().unsafe_to_char()
+        if not(printf_is_digit(digit)) {
+          break
+        }
+        width = width * 10 + (digit.to_int() - '0'.to_int())
+        j += 1
+      }
+
+      let mut precision : Int? = None
+      if j < format.length() && format[j].to_int().unsafe_to_char() == '.' {
+        j += 1
+        let mut p = 0
+        let mut has_digits = false
+        while j < format.length() {
+          let digit = format[j].to_int().unsafe_to_char()
+          if not(printf_is_digit(digit)) {
+            break
           }
-          i += 2
+          has_digits = true
+          p = p * 10 + (digit.to_int() - '0'.to_int())
+          j += 1
+        }
+        if has_digits {
+          precision = Some(p)
+        } else {
+          precision = Some(0)
+        }
+      }
+
+      if j >= format.length() {
+        buf.write_char('%')
+        i += 1
+        continue
+      }
+
+      let spec = format[j].to_int().unsafe_to_char()
+      if spec == '%' {
+        let rendered = printf_apply_width(
+          "%",
+          width,
+          left_justify,
+          false,
+        )
+        buf.write_string(rendered)
+        i = j + 1
+        continue
+      }
+
+      let arg = if arg_idx < args.length() { args[arg_idx] } else { "" }
+      if arg_idx < args.length() {
+        arg_idx += 1
+      }
+
+      let mut rendered = match spec {
+        's' => {
+          match precision {
+            Some(p) => {
+              if p < arg.length() {
+                substring_slice(arg, 0, p)
+              } else {
+                arg
+              }
+            }
+            None => arg
+          }
         }
         'd' => {
-          if arg_idx < args.length() {
-            buf.write_string(parse_int_str(args[arg_idx]).to_string())
-            arg_idx += 1
-          }
-          i += 2
+          let value = parse_int_str(arg)
+          printf_format_decimal(value, precision)
         }
-        '%' => {
-          buf.write_char('%')
-          i += 2
+        'x' => {
+          let value = parse_int_str(arg)
+          printf_to_hex(value)
+        }
+        'f' => {
+          let p = precision.unwrap_or(6)
+          printf_format_float(arg, p)
         }
         _ => {
           buf.write_char('%')
           i += 1
+          continue
         }
       }
+
+      let allow_zero_pad = zero_pad &&
+        not(left_justify) &&
+        (precision is None) &&
+        (spec == 'd' || spec == 'x' || spec == 'f')
+      rendered = printf_apply_width(
+        rendered,
+        width,
+        left_justify,
+        allow_zero_pad,
+      )
+      buf.write_string(rendered)
+      i = j + 1
     } else {
       buf.write_char(ch)
       i += 1
     }
   }
   buf.to_string()
+}
+
+fn printf_is_digit(ch : Char) -> Bool {
+  ch >= '0' && ch <= '9'
+}
+
+fn printf_repeat_char(ch : Char, count : Int) -> String {
+  if count <= 0 {
+    return ""
+  }
+  let out = StringBuilder::new()
+  for i = 0; i < count; i = i + 1 {
+    out.write_char(ch)
+  }
+  out.to_string()
+}
+
+fn printf_apply_width(
+  value : String,
+  width : Int,
+  left_justify : Bool,
+  zero_pad : Bool
+) -> String {
+  if width <= value.length() {
+    return value
+  }
+  let pad_len = width - value.length()
+  if left_justify {
+    return value + printf_repeat_char(' ', pad_len)
+  }
+  if zero_pad &&
+    value.length() > 0 &&
+    value[0].to_int().unsafe_to_char() == '-' {
+    return "-" + printf_repeat_char('0', pad_len) + substring_slice(value, 1, value.length())
+  }
+  let pad_ch = if zero_pad { '0' } else { ' ' }
+  printf_repeat_char(pad_ch, pad_len) + value
+}
+
+fn printf_to_hex(value : Int) -> String {
+  if value == 0 {
+    return "0"
+  }
+  let mut v = if value < 0 { -value } else { value }
+  let out = StringBuilder::new()
+  while v > 0 {
+    let digit = v % 16
+    let ch = if digit < 10 {
+      (digit + '0'.to_int()).unsafe_to_char()
+    } else {
+      (digit - 10 + 'a'.to_int()).unsafe_to_char()
+    }
+    out.write_char(ch)
+    v = v / 16
+  }
+  let rev = reverse_string(out.to_string())
+  if value < 0 {
+    "-" + rev
+  } else {
+    rev
+  }
+}
+
+fn printf_format_decimal(value : Int, precision : Int?) -> String {
+  let text = value.to_string()
+  match precision {
+    None => text
+    Some(p) => {
+      if p <= 0 {
+        return text
+      }
+      let negative = text.length() > 0 && text[0].to_int().unsafe_to_char() == '-'
+      let digits = if negative { substring_slice(text, 1, text.length()) } else { text }
+      if digits.length() >= p {
+        text
+      } else {
+        let padded = printf_repeat_char('0', p - digits.length()) + digits
+        if negative {
+          "-" + padded
+        } else {
+          padded
+        }
+      }
+    }
+  }
+}
+
+fn printf_format_float(raw : String, precision : Int) -> String {
+  let mut i = 0
+  let mut negative = false
+  if raw.length() > 0 {
+    let first = raw[0].to_int().unsafe_to_char()
+    if first == '-' {
+      negative = true
+      i = 1
+    } else if first == '+' {
+      i = 1
+    }
+  }
+
+  let int_buf = StringBuilder::new()
+  let frac_buf = StringBuilder::new()
+  let mut in_frac = false
+  while i < raw.length() {
+    let ch = raw[i].to_int().unsafe_to_char()
+    if ch == '.' {
+      in_frac = true
+      i += 1
+      continue
+    }
+    if not(printf_is_digit(ch)) {
+      break
+    }
+    if in_frac {
+      frac_buf.write_char(ch)
+    } else {
+      int_buf.write_char(ch)
+    }
+    i += 1
+  }
+
+  let mut int_part = int_buf.to_string()
+  if int_part.length() == 0 {
+    int_part = "0"
+  }
+  let frac_part = frac_buf.to_string()
+
+  if precision <= 0 {
+    let mut rounded = int_part
+    if frac_part.length() > 0 && frac_part[0].to_int().unsafe_to_char() >= '5' {
+      rounded = printf_increment_digits(rounded)
+    }
+    if negative && rounded != "0" {
+      "-" + rounded
+    } else {
+      rounded
+    }
+  } else {
+    let mut frac_for_round = frac_part
+    while frac_for_round.length() < precision + 1 {
+      frac_for_round = frac_for_round + "0"
+    }
+    let keep = substring_slice(frac_for_round, 0, precision)
+    let round_digit = frac_for_round[precision].to_int().unsafe_to_char()
+    let mut out_int = int_part
+    let mut out_frac = keep
+    if round_digit >= '5' {
+      let (next_frac, carry) = printf_increment_fraction(out_frac)
+      out_frac = next_frac
+      if carry {
+        out_int = printf_increment_digits(out_int)
+      }
+    }
+    let sign = if negative && not(out_int == "0" && printf_all_zeros(out_frac)) {
+      "-"
+    } else {
+      ""
+    }
+    sign + out_int + "." + out_frac
+  }
+}
+
+fn printf_increment_digits(digits : String) -> String {
+  if digits.length() == 0 {
+    return "1"
+  }
+  let chars : Array[Char] = []
+  for i = 0; i < digits.length(); i = i + 1 {
+    chars.push(digits[i].to_int().unsafe_to_char())
+  }
+  let mut carry = 1
+  for i = chars.length() - 1; i >= 0; i = i - 1 {
+    let ch = chars[i]
+    if ch < '0' || ch > '9' {
+      continue
+    }
+    let sum = (ch.to_int() - '0'.to_int()) + carry
+    if sum >= 10 {
+      chars[i] = '0'
+      carry = 1
+    } else {
+      chars[i] = (sum + '0'.to_int()).unsafe_to_char()
+      carry = 0
+      break
+    }
+    if i == 0 {
+      break
+    }
+  }
+  let out = StringBuilder::new()
+  if carry == 1 {
+    out.write_char('1')
+  }
+  for ch in chars {
+    out.write_char(ch)
+  }
+  out.to_string()
+}
+
+fn printf_increment_fraction(frac : String) -> (String, Bool) {
+  if frac.length() == 0 {
+    return ("", true)
+  }
+  let chars : Array[Char] = []
+  for i = 0; i < frac.length(); i = i + 1 {
+    chars.push(frac[i].to_int().unsafe_to_char())
+  }
+  let mut carry = 1
+  for i = chars.length() - 1; i >= 0; i = i - 1 {
+    let sum = (chars[i].to_int() - '0'.to_int()) + carry
+    if sum >= 10 {
+      chars[i] = '0'
+      carry = 1
+    } else {
+      chars[i] = (sum + '0'.to_int()).unsafe_to_char()
+      carry = 0
+      break
+    }
+    if i == 0 {
+      break
+    }
+  }
+  let out = StringBuilder::new()
+  for ch in chars {
+    out.write_char(ch)
+  }
+  (out.to_string(), carry == 1)
+}
+
+fn printf_all_zeros(s : String) -> Bool {
+  for i = 0; i < s.length(); i = i + 1 {
+    if s[i].to_int().unsafe_to_char() != '0' {
+      return false
+    }
+  }
+  true
 }

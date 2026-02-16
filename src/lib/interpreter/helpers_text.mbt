@@ -347,6 +347,68 @@ fn compare_strings(a : String, b : String) -> Int {
   }
 }
 
+fn compare_sort_text(a : String, b : String) -> Int {
+  let min_len = if a.length() < b.length() { a.length() } else { b.length() }
+  for i = 0; i < min_len; i = i + 1 {
+    let ch_a = a[i].to_int().unsafe_to_char()
+    let ch_b = b[i].to_int().unsafe_to_char()
+    let cmp = compare_sort_char(ch_a, ch_b)
+    if cmp != 0 {
+      return cmp
+    }
+  }
+  if a.length() < b.length() {
+    -1
+  } else if a.length() > b.length() {
+    1
+  } else {
+    0
+  }
+}
+
+fn compare_sort_char(a : Char, b : Char) -> Int {
+  let (a_class, a_base, a_case, a_code) = sort_char_key(a)
+  let (b_class, b_base, b_case, b_code) = sort_char_key(b)
+  if a_class < b_class {
+    return -1
+  }
+  if a_class > b_class {
+    return 1
+  }
+  if a_base < b_base {
+    return -1
+  }
+  if a_base > b_base {
+    return 1
+  }
+  if a_case < b_case {
+    return -1
+  }
+  if a_case > b_case {
+    return 1
+  }
+  if a_code < b_code {
+    -1
+  } else if a_code > b_code {
+    1
+  } else {
+    0
+  }
+}
+
+fn sort_char_key(ch : Char) -> (Int, Int, Int, Int) {
+  let code = ch.to_int()
+  if ch >= 'a' && ch <= 'z' {
+    (2, code, 0, code)
+  } else if ch >= 'A' && ch <= 'Z' {
+    (2, code + 32, 1, code)
+  } else if ch >= '0' && ch <= '9' {
+    (1, code, 0, code)
+  } else {
+    (0, code, 0, code)
+  }
+}
+
 fn ltrim_blanks(s : String) -> String {
   let mut i = 0
   while i < s.length() {
@@ -542,6 +604,14 @@ fn tr_set_contains(set : Array[Char], ch : Char) -> Bool {
   false
 }
 
+fn tr_set_matches(set : Array[Char], ch : Char, complement : Bool) -> Bool {
+  if complement {
+    not(tr_set_contains(set, ch))
+  } else {
+    tr_set_contains(set, ch)
+  }
+}
+
 fn tr_translate(set1 : Array[Char], set2 : Array[Char], ch : Char) -> Char {
   for i = 0; i < set1.length(); i = i + 1 {
     if set1[i] == ch {
@@ -553,4 +623,23 @@ fn tr_translate(set1 : Array[Char], set2 : Array[Char], ch : Char) -> Char {
     }
   }
   ch
+}
+
+fn tr_translate_with_mode(
+  set1 : Array[Char],
+  set2 : Array[Char],
+  ch : Char,
+  complement : Bool
+) -> Char {
+  if complement {
+    if tr_set_contains(set1, ch) {
+      ch
+    } else if set2.length() > 0 {
+      set2[0]
+    } else {
+      ch
+    }
+  } else {
+    tr_translate(set1, set2, ch)
+  }
 }
