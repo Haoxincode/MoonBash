@@ -49,6 +49,8 @@ pub fn find_command(
     "comm" => Some(cmd_comm)
     "base64" => Some(cmd_base64)
     "expr" => Some(cmd_expr)
+    "yq" => Some(cmd_yq)
+    "xan" => Some(cmd_xan)
     // Hash commands (hash.mbt)
     "md5sum" => Some(cmd_md5sum)
     "sha1sum" => Some(cmd_sha1sum)

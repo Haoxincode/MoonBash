@@ -7,6 +7,8 @@
     "gmlewis/sha1",
     "gmlewis/io",
     "shu-kitamura/sha256",
+    "moonbit-community/yaml",
+    "moonbash/lib/nyacsv",
     "gmlewis/base64",
     "moonbit-community/piediff/line_diff",
     "moonbit-community/piediff/edit"

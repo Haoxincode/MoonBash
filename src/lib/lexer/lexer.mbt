@@ -135,7 +135,6 @@ fn lookup_reserved(word : String) -> @ast.Token? {
     "esac" => Some(@ast.Token::Esac)
     "in" => Some(@ast.Token::In)
     "function" => Some(@ast.Token::Function)
-    "select" => Some(@ast.Token::Select)
     "time" => Some(@ast.Token::Time)
     "!" => Some(@ast.Token::Bang)
     _ => None
