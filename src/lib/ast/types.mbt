@@ -278,6 +278,7 @@ pub(all) enum ArithExpr {
   UnaryOp(ArithUnaryOp, ArithExpr)
   Assign(String, ArithExpr)
   Ternary(ArithExpr, ArithExpr, ArithExpr)
+  Raw(String)
 } derive(Show)
 
 pub(all) enum ArithBinOp {

@@ -73,6 +73,101 @@ fn ExecContext::builtin_read(
   self.exit_code = if input.length() == 0 { 1 } else { 0 }
 }
 
+fn ExecContext::builtin_mapfile(
+  self : ExecContext,
+  args : Array[String]
+) -> Unit {
+  let mut strip_newline = false
+  let mut array_name = "MAPFILE"
+  let mut i = 0
+
+  while i < args.length() {
+    let arg = args[i]
+    if arg == "-t" {
+      strip_newline = true
+      i += 1
+      continue
+    }
+    if arg.length() > 0 && arg[0].to_int().unsafe_to_char() == '-' {
+      // Ignore unsupported flags for now.
+      i += 1
+      continue
+    }
+    array_name = arg
+    i += 1
+  }
+
+  let lines = mapfile_split_lines(self.stdin_buf, strip_newline)
+  if lines.length() > self.limits.max_array_elements {
+    self.stderr_buf.write_string("mapfile: array element limit exceeded\n")
+    self.exit_code = 1
+    return
+  }
+
+  // Remove previous values for this array name.
+  let remove_keys : Array[String] = []
+  let index_prefix = array_name + "["
+  let count_key = array_count_storage_key(array_name)
+  for key, _value in self.env {
+    if key == count_key || mapfile_starts_with(key, index_prefix) {
+      remove_keys.push(key)
+    }
+  }
+  for key in remove_keys {
+    self.env.remove(key)
+  }
+
+  let joined = StringBuilder::new()
+  for idx = 0; idx < lines.length(); idx = idx + 1 {
+    let value = lines[idx]
+    self.env["\{array_name}[\{idx.to_string()}]"] = value
+    if idx > 0 {
+      joined.write_char(' ')
+    }
+    joined.write_string(value)
+  }
+  self.env[array_name + "[@]"] = joined.to_string()
+  self.env[array_name + "[*]"] = joined.to_string()
+  self.env[count_key] = lines.length().to_string()
+  self.exit_code = 0
+}
+
+fn mapfile_split_lines(input : String, strip_newline : Bool) -> Array[String] {
+  let lines : Array[String] = []
+  let buf = StringBuilder::new()
+  for i = 0; i < input.length(); i = i + 1 {
+    let ch = input[i].to_int().unsafe_to_char()
+    if ch == '\n' {
+      let line = if strip_newline { buf.to_string() } else { buf.to_string() + "\n" }
+      lines.push(line)
+      buf.reset()
+    } else {
+      buf.write_char(ch)
+    }
+  }
+  let remaining = buf.to_string()
+  if remaining.length() > 0 {
+    lines.push(remaining)
+  }
+  lines
+}
+
+fn mapfile_starts_with(s : String, prefix : String) -> Bool {
+  if prefix.length() > s.length() {
+    return false
+  }
+  for i = 0; i < prefix.length(); i = i + 1 {
+    if s[i] != prefix[i] {
+      return false
+    }
+  }
+  true
+}
+
+fn array_count_storage_key(name : String) -> String {
+  "__MOONBASH_ARRAY_COUNT__" + name
+}
+
 fn ExecContext::builtin_test(
   self : ExecContext,
   args : Array[String]
@@ -149,6 +244,22 @@ fn ExecContext::builtin_eval(
     }
   }
   self.execute_script(parsed)
+}
+
+fn ExecContext::builtin_let(
+  self : ExecContext,
+  args : Array[String]
+) -> Unit {
+  if args.length() == 0 {
+    self.exit_code = 1
+    return
+  }
+
+  let mut last = 0
+  for expr_text in args {
+    last = self.eval_arith(@ast.ArithExpr::Raw(expr_text))
+  }
+  self.exit_code = if last != 0 { 0 } else { 1 }
 }
 
 fn ExecContext::builtin_source(

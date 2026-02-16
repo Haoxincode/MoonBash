@@ -19,7 +19,17 @@ pub fn execute_with_fs(
   files_json : String,
   cwd : String
 ) -> String {
-  execute_with_state(script, env_json, files_json, "{}", "{}", "{}", cwd)
+  execute_with_state(
+    script,
+    env_json,
+    files_json,
+    "{}",
+    "{}",
+    "{}",
+    cwd,
+    "{}",
+    "default",
+  )
 }
 
 /// Execute a bash script and return result plus filesystem snapshot.
@@ -33,7 +43,9 @@ pub fn execute_with_state(
   dirs_json : String,
   links_json : String,
   modes_json : String,
-  cwd : String
+  cwd : String,
+  limits_json : String,
+  layout_mode : String
 ) -> String {
   let fs = @fs.InMemoryFs::new()
 
@@ -68,6 +80,18 @@ pub fn execute_with_state(
     try { fs.chmod(path, mode) } catch { _ => () }
   }
 
+  let actual_cwd = if cwd.length() > 0 { cwd } else { "/home/user" }
+
+  // Optionally strip default /home/user layout for explicit-layout mode.
+  if layout_mode == "minimal" && not(needs_home_user_layout(
+    file_entries,
+    dir_entries,
+    link_entries,
+    actual_cwd,
+  )) {
+    try { fs.rm("/home/user", recursive=true) } catch { _ => () }
+  }
+
   // Parse env vars
   let env : Map[String, String] = {}
   let env_entries = parse_json_object(env_json)
@@ -76,10 +100,16 @@ pub fn execute_with_state(
     env[key] = value
   }
 
-  let actual_cwd = if cwd.length() > 0 { cwd } else { "/home/user" }
+  // Parse and apply execution limits
+  let limits = parse_limits(limits_json)
   // Ensure cwd exists for relative-path commands in empty fixtures.
   try { fs.mkdir(actual_cwd, recursive=true) } catch { _ => () }
-  let ctx = @interpreter.ExecContext::new(fs, env=env, cwd=actual_cwd)
+  let ctx = @interpreter.ExecContext::new(
+    fs,
+    env=env,
+    cwd=actual_cwd,
+    limits=limits,
+  )
   let result = ctx.execute(script)
 
   let files_out : Array[(String, String)] = []
@@ -97,7 +127,27 @@ pub fn execute_with_state(
       links_out.push((path, data))
     }
   }
-  result_with_state_to_json(result, files_out, dirs_out, links_out, modes_out)
+  let env_out : Array[(String, String)] = []
+  for key, value in ctx.env {
+    env_out.push((key, value))
+  }
+  env_out.sort_by(fn(a, b) {
+    if a.0 < b.0 {
+      -1
+    } else if a.0 > b.0 {
+      1
+    } else {
+      0
+    }
+  })
+  result_with_state_to_json(
+    result,
+    files_out,
+    dirs_out,
+    links_out,
+    modes_out,
+    env_out,
+  )
 }
 
 // ============================================================================
@@ -123,7 +173,8 @@ fn result_with_state_to_json(
   files : Array[(String, String)],
   dirs : Array[(String, String)],
   links : Array[(String, String)],
-  modes : Array[(String, String)]
+  modes : Array[(String, String)],
+  env : Array[(String, String)]
 ) -> String {
   let buf = StringBuilder::new()
   buf.write_string("{\"stdout\":")
@@ -140,6 +191,8 @@ fn result_with_state_to_json(
   buf.write_string(json_object_from_pairs(links))
   buf.write_string(",\"modes\":")
   buf.write_string(json_object_from_pairs(modes))
+  buf.write_string(",\"env\":")
+  buf.write_string(json_object_from_pairs(env))
   buf.write_string("}")
   buf.to_string()
 }
@@ -334,6 +387,100 @@ fn parse_decimal_int(s : String) -> Int {
     i += 1
   }
   value * sign
+}
+
+fn starts_with(prefix_target : String, prefix : String) -> Bool {
+  if prefix.length() > prefix_target.length() {
+    return false
+  }
+  for i = 0; i < prefix.length(); i = i + 1 {
+    if prefix_target[i] != prefix[i] {
+      return false
+    }
+  }
+  true
+}
+
+fn needs_home_user_layout(
+  file_entries : Array[(String, String)],
+  dir_entries : Array[(String, String)],
+  link_entries : Array[(String, String)],
+  cwd : String
+) -> Bool {
+  if starts_with(cwd, "/home/user") {
+    return true
+  }
+
+  for i = 0; i < file_entries.length(); i = i + 1 {
+    let (path, _value) = file_entries[i]
+    if starts_with(path, "/home/user") {
+      return true
+    }
+  }
+  for i = 0; i < dir_entries.length(); i = i + 1 {
+    let (path, _value) = dir_entries[i]
+    if starts_with(path, "/home/user") {
+      return true
+    }
+  }
+  for i = 0; i < link_entries.length(); i = i + 1 {
+    let (path, _value) = link_entries[i]
+    if starts_with(path, "/home/user") {
+      return true
+    }
+  }
+  false
+}
+
+fn parse_limits(limits_json : String) -> @ast.ExecutionLimits {
+  let defaults = @ast.ExecutionLimits::default()
+  let mut max_call_depth = defaults.max_call_depth
+  let mut max_command_count = defaults.max_command_count
+  let mut max_loop_iterations = defaults.max_loop_iterations
+  let mut max_string_length = defaults.max_string_length
+  let mut max_array_elements = defaults.max_array_elements
+  let mut max_heredoc_size = defaults.max_heredoc_size
+  let mut max_substitution_depth = defaults.max_substitution_depth
+  let mut max_glob_operations = defaults.max_glob_operations
+  let mut max_awk_iterations = defaults.max_awk_iterations
+  let mut max_sed_iterations = defaults.max_sed_iterations
+  let mut max_jq_iterations = defaults.max_jq_iterations
+
+  let entries = parse_json_object(limits_json)
+  for i = 0; i < entries.length(); i = i + 1 {
+    let (key, value) = entries[i]
+    let parsed = parse_decimal_int(value)
+    if parsed <= 0 {
+      continue
+    }
+    match key {
+      "max_call_depth" => max_call_depth = parsed
+      "max_command_count" => max_command_count = parsed
+      "max_loop_iterations" => max_loop_iterations = parsed
+      "max_string_length" => max_string_length = parsed
+      "max_array_elements" => max_array_elements = parsed
+      "max_heredoc_size" => max_heredoc_size = parsed
+      "max_substitution_depth" => max_substitution_depth = parsed
+      "max_glob_operations" => max_glob_operations = parsed
+      "max_awk_iterations" => max_awk_iterations = parsed
+      "max_sed_iterations" => max_sed_iterations = parsed
+      "max_jq_iterations" => max_jq_iterations = parsed
+      _ => ()
+    }
+  }
+  {
+    max_call_depth,
+    max_command_count,
+    max_loop_iterations,
+    max_string_length,
+    max_array_elements,
+    max_heredoc_size,
+    max_substitution_depth,
+    max_glob_operations,
+    max_awk_iterations,
+    max_sed_iterations,
+    max_jq_iterations,
+  }
 }
 
 /// Ensure parent directories exist for a file path

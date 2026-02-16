@@ -8,6 +8,24 @@
 
 import fc from "fast-check";
 
+function stringOfCompat(
+  arb: fc.Arbitrary<string>,
+  constraints?: { minLength?: number; maxLength?: number },
+): fc.Arbitrary<string> {
+  const maybe = fc as unknown as {
+    stringOf?: (
+      input: fc.Arbitrary<string>,
+      opts?: { minLength?: number; maxLength?: number },
+    ) => fc.Arbitrary<string>;
+  };
+  if (typeof maybe.stringOf === "function") {
+    return maybe.stringOf(arb, constraints);
+  }
+  const minLength = constraints?.minLength ?? 0;
+  const maxLength = constraints?.maxLength ?? 16;
+  return fc.array(arb, { minLength, maxLength }).map((chars) => chars.join(""));
+}
+
 // =============================================================================
 // TOKENS - Basic building blocks
 // =============================================================================
@@ -16,7 +34,7 @@ import fc from "fast-check";
 export const identifier: fc.Arbitrary<string> = fc
   .tuple(
     fc.constantFrom(..."abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"),
-    fc.stringOf(
+    stringOfCompat(
       fc.constantFrom(
         ..."abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_",
       ),
@@ -111,7 +129,7 @@ export const integerLiteral: fc.Arbitrary<string> = fc.oneof(
 );
 
 /** Simple word (no special characters) */
-export const simpleWord: fc.Arbitrary<string> = fc.stringOf(
+export const simpleWord: fc.Arbitrary<string> = stringOfCompat(
   fc.constantFrom(
     ..."abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-./",
   ),
@@ -773,12 +791,13 @@ export const pollutionScript: fc.Arbitrary<string> = fc.oneof(
 // =============================================================================
 
 /** Safe filename for testing (no special chars that could cause issues) */
-const safeFilename: fc.Arbitrary<string> = fc
-  .stringOf(fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789_-"), {
+const safeFilename: fc.Arbitrary<string> = stringOfCompat(
+  fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789_-"),
+  {
     minLength: 1,
     maxLength: 12,
-  })
-  .map((s) => s || "file");
+  },
+).map((s) => s || "file");
 
 /** Safe path component */
 const safePath: fc.Arbitrary<string> = fc.oneof(

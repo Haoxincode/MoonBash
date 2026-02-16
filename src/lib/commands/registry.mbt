@@ -67,6 +67,8 @@ pub fn find_command(
     // VM bridge commands (vm.mbt)
     "python3" => Some(cmd_python3)
     "sqlite3" => Some(cmd_sqlite3)
+    // Wrapper custom command bridge (custom_bridge.mbt)
+    "__moonbash_custom__" => Some(cmd_custom_bridge)
     _ => None
   }
 }

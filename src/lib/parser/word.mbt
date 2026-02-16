@@ -361,27 +361,84 @@ fn parse_cmd_substitution(s : String, start : Int) -> (@ast.WordPart, Int) {
 
 /// Parse $((...)) starting after the opening ((.
 fn parse_arith_expansion(s : String, start : Int) -> (@ast.WordPart, Int) {
-  let mut depth = 1
+  let mut paren_depth = 0
   let mut i = start
-  while i < s.length() && depth > 0 {
-    if i + 1 < s.length() && wchar_at(s, i) == ')' && wchar_at(s, i + 1) == ')' {
-      depth -= 1
-      if depth == 0 {
-        break
+  let mut in_single = false
+  let mut in_double = false
+  let mut escaped = false
+
+  while i < s.length() {
+    if not(in_single) &&
+      not(in_double) &&
+      not(escaped) &&
+      paren_depth == 0 &&
+      i + 1 < s.length() &&
+      wchar_at(s, i) == ')' &&
+      wchar_at(s, i + 1) == ')' {
+      break
+    }
+
+    let ch = wchar_at(s, i)
+
+    if escaped {
+      escaped = false
+      i += 1
+      continue
+    }
+
+    if in_single {
+      if ch == '\'' {
+        in_single = false
+      }
+      i += 1
+      continue
+    }
+
+    if in_double {
+      if ch == '"' {
+        in_double = false
+      } else if ch == '\\' {
+        escaped = true
+      }
+      i += 1
+      continue
+    }
+
+    if ch == '\\' {
+      escaped = true
+      i += 1
+      continue
+    }
+
+    if ch == '\'' {
+      in_single = true
+      i += 1
+      continue
+    }
+
+    if ch == '"' {
+      in_double = true
+      i += 1
+      continue
+    }
+
+    if ch == '(' {
+      paren_depth += 1
+    } else if ch == ')' {
+      if paren_depth > 0 {
+        paren_depth -= 1
       }
     }
-    if i + 1 < s.length() && wchar_at(s, i) == '(' && wchar_at(s, i + 1) == '(' {
-      depth += 1
-      i += 2
-    } else {
-      i += 1
-    }
+
+    i += 1
   }
-  // For now, wrap in a placeholder ArithExpr::Num(0)
-  // A full arithmetic parser would be here
-  let _content = wsubstr(s, start, i)
-  i += 2 // skip closing ))
-  (@ast.WordPart::ArithmeticExpansion(@ast.ArithExpr::Num(0)), i)
+
+  let content = wsubstr(s, start, i)
+  if i + 1 < s.length() {
+    i += 2 // skip closing ))
+  }
+
+  (@ast.WordPart::ArithmeticExpansion(@ast.ArithExpr::Raw(content)), i)
 }
 
 // ============================================================================

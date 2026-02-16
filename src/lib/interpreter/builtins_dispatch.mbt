@@ -43,6 +43,10 @@ fn ExecContext::run_builtin(
       self.builtin_read(args)
       true
     }
+    "mapfile" | "readarray" => {
+      self.builtin_mapfile(args)
+      true
+    }
     "test" | "[" => {
       self.builtin_test(args)
       true
@@ -69,6 +73,10 @@ fn ExecContext::run_builtin(
     }
     "declare" | "typeset" => {
       self.builtin_declare(args)
+      true
+    }
+    "let" => {
+      self.builtin_let(args)
       true
     }
     ":" => {

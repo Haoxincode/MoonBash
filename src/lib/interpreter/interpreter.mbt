@@ -31,9 +31,11 @@ pub(all) struct ExecContext {
   mut return_requested : Bool
 
   // Limits
-  limits : @ast.ExecutionLimits
+  mut limits : @ast.ExecutionLimits
   mut command_count : Int
   mut call_depth : Int
+  mut substitution_depth : Int
+  mut glob_operations : Int
 
   // Filesystem
   fs : @fs.InMemoryFs
@@ -43,7 +45,8 @@ pub(all) struct ExecContext {
 pub fn ExecContext::new(
   fs : @fs.InMemoryFs,
   env~ : Map[String, String] = {},
-  cwd~ : String = "/home/user"
+  cwd~ : String = "/home/user",
+  limits~ : @ast.ExecutionLimits = @ast.ExecutionLimits::default()
 ) -> ExecContext {
   let default_env : Map[String, String] = {}
   default_env["HOME"] = "/home/user"
@@ -71,9 +74,11 @@ pub fn ExecContext::new(
     break_count: 0,
     continue_count: 0,
     return_requested: false,
-    limits: @ast.ExecutionLimits::default(),
+    limits,
     command_count: 0,
     call_depth: 0,
+    substitution_depth: 0,
+    glob_operations: 0,
     fs,
   }
 }
@@ -88,12 +93,14 @@ pub fn ExecContext::execute(
   self.stderr_buf = StringBuilder::new()
   self.should_exit = false
   self.return_requested = false
+  self.substitution_depth = 0
+  self.glob_operations = 0
 
   let parsed = try {
     @parser.parse(script)
   } catch {
     @ast.BashError(msg) =>
-      return @ast.ExecResult::new(stderr=msg + "\n", exit_code=2)
+      return @ast.ExecResult::new(stderr="syntax error: " + msg + "\n", exit_code=2)
   }
   self.execute_script(parsed)
   @ast.ExecResult::new(

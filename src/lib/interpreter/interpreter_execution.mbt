@@ -29,6 +29,8 @@ fn ExecContext::execute_statement(
   }
 
   self.execute_pipeline(pipelines[0])
+  let first_next_op = if ops.length() > 0 { Some(ops[0]) } else { None }
+  self.apply_errexit_after_pipeline(pipelines[0], first_next_op)
   let mut i = 0
   while i < ops.length() {
     if self.should_exit || self.return_requested || self.break_count > 0 ||
@@ -43,7 +45,14 @@ fn ExecContext::execute_statement(
       _ => false
     }
     if should_run {
-      self.execute_pipeline(pipelines[i + 1])
+      let pipeline_idx = i + 1
+      self.execute_pipeline(pipelines[pipeline_idx])
+      let next_op = if pipeline_idx < ops.length() {
+        Some(ops[pipeline_idx])
+      } else {
+        None
+      }
+      self.apply_errexit_after_pipeline(pipelines[pipeline_idx], next_op)
     }
     i += 1
   }
@@ -212,6 +221,9 @@ fn ExecContext::execute_simple(
         Some(word) => self.expand_word_to_string(word)
         None => ""
       }
+      if self.should_exit {
+        return
+      }
       if assign.append {
         let existing = self.env.get(assign.name).unwrap_or("")
         self.env[assign.name] = existing + value
@@ -221,7 +233,9 @@ fn ExecContext::execute_simple(
     }
     // If no words follow, we're done (assignment-only command)
     if not(has_words) {
-      self.exit_code = 0
+      if not(self.should_exit) {
+        self.exit_code = 0
+      }
       return
     }
   }
@@ -232,6 +246,9 @@ fn ExecContext::execute_simple(
     let first_parts = self.expand_word(cmd.words[0])
     for part in first_parts {
       expanded.push(part)
+    }
+    if self.should_exit {
+      return
     }
     let cmd_name_for_expansion = if expanded.length() > 0 { expanded[0] } else { "" }
     let disable_glob_args = cmd_name_for_expansion == "find"
@@ -292,7 +309,14 @@ fn ExecContext::execute_simple(
       for part in parts {
         expanded.push(part)
       }
+      if self.should_exit {
+        return
+      }
     }
+  }
+
+  if self.should_exit {
+    return
   }
 
   if expanded.length() == 0 {
@@ -313,6 +337,7 @@ fn ExecContext::execute_simple(
   let mut redirected_file : String? = None
   let mut redirect_append = false
   let mut null_output = false
+  let mut stdout_to_stderr = false
   let mut input_from_file = false
 
   for redir in cmd.redirections {
@@ -323,7 +348,8 @@ fn ExecContext::execute_simple(
           null_output = true
           self.stdout_buf = StringBuilder::new()
         } else if target == "/dev/stderr" {
-          // stdout goes to stderr - noop in sandbox
+          stdout_to_stderr = true
+          self.stdout_buf = StringBuilder::new()
         } else {
           redirected_file = Some(target)
           redirect_append = false
@@ -370,6 +396,20 @@ fn ExecContext::execute_simple(
         self.stdin_buf = content
         input_from_file = true
       }
+      @ast.RedirectOp::DupOutput => {
+        let target = self.expand_word_to_string(redir.target)
+        let source_fd = match redir.fd {
+          Some(fd) => fd
+          None => 1
+        }
+        if source_fd == 1 && (target == "2" || target == "/dev/stderr") {
+          stdout_to_stderr = true
+          self.stdout_buf = StringBuilder::new()
+        } else if source_fd == 1 && target == "-" {
+          null_output = true
+          self.stdout_buf = StringBuilder::new()
+        }
+      }
       @ast.RedirectOp::AndOutput => {
         let target = self.expand_word_to_string(redir.target)
         if target == "/dev/null" {
@@ -406,7 +446,11 @@ fn ExecContext::execute_simple(
       self.stdout_buf = saved_stdout
     }
     None => {
-      if null_output {
+      if stdout_to_stderr {
+        let output = self.stdout_buf.to_string()
+        saved_stderr.write_string(output)
+        self.stdout_buf = saved_stdout
+      } else if null_output {
         self.stdout_buf = saved_stdout
       }
     }
@@ -433,8 +477,34 @@ fn ExecContext::run_command(
   name : String,
   args : Array[String]
 ) -> Unit {
+  let original_name = name
+  let mut dispatch_name = name
+
+  // Support path-style command invocation (/bin/echo) by resolving to basename.
+  if contains_slash(name) {
+    let resolved_path = try {
+      @fs.resolve_path(self.cwd, name)
+    } catch {
+      _ => name
+    }
+    match self.fs.entries.get(resolved_path) {
+      Some(@fs.FsEntry::File(_)) | Some(@fs.FsEntry::Symlink(_)) =>
+        dispatch_name = @fs.basename(resolved_path)
+      Some(@fs.FsEntry::Directory(_)) => {
+        self.stderr_buf.write_string("moonbash: \{original_name}: Is a directory\n")
+        self.exit_code = 126
+        return
+      }
+      None => {
+        self.stderr_buf.write_string("moonbash: \{original_name}: command not found\n")
+        self.exit_code = 127
+        return
+      }
+    }
+  }
+
   // 1. Check functions
-  match self.functions.get(name) {
+  match self.functions.get(dispatch_name) {
     Some(fndef) => {
       self.call_depth += 1
       if self.call_depth > self.limits.max_call_depth {
@@ -469,8 +539,15 @@ fn ExecContext::run_command(
     None => ()
   }
 
+  // 2. Optional command allowlist
+  if not(self.command_allowed(dispatch_name)) {
+    self.stderr_buf.write_string("moonbash: \{original_name}: command not found\n")
+    self.exit_code = 127
+    return
+  }
+
   // 2. Handle cd specially (needs to modify cwd)
-  if name == "cd" {
+  if dispatch_name == "cd" {
     let target = if args.length() == 0 {
       self.env.get("HOME").unwrap_or("/home/user")
     } else if args[0] == "-" {
@@ -482,7 +559,7 @@ fn ExecContext::run_command(
       @fs.resolve_path(self.cwd, target)
     } catch {
       _ => {
-        self.stderr_buf.write_string("cd: no such file or directory: \{target}\n")
+        self.stderr_buf.write_string("cd: No such file or directory: \{target}\n")
         self.exit_code = 1
         return
       }
@@ -496,11 +573,11 @@ fn ExecContext::run_command(
         self.exit_code = 0
       }
       Some(_) => {
-        self.stderr_buf.write_string("cd: not a directory: \{target}\n")
+        self.stderr_buf.write_string("cd: Not a directory: \{target}\n")
         self.exit_code = 1
       }
       None => {
-        self.stderr_buf.write_string("cd: no such file or directory: \{target}\n")
+        self.stderr_buf.write_string("cd: No such file or directory: \{target}\n")
         self.exit_code = 1
       }
     }
@@ -508,12 +585,12 @@ fn ExecContext::run_command(
   }
 
   // 3. Check builtins
-  if self.run_builtin(name, args) {
+  if self.run_builtin(dispatch_name, args) {
     return
   }
 
   // 4. Check command registry
-  match @commands.find_command(name) {
+  match @commands.find_command(dispatch_name) {
     Some(cmd_fn) => {
       let ctx : @commands.CommandContext = {
         args,
@@ -532,8 +609,57 @@ fn ExecContext::run_command(
   }
 
   // 5. Command not found
-  self.stderr_buf.write_string("moonbash: \{name}: command not found\n")
+  self.stderr_buf.write_string("moonbash: \{original_name}: command not found\n")
   self.exit_code = 127
+}
+
+fn contains_slash(name : String) -> Bool {
+  for i = 0; i < name.length(); i = i + 1 {
+    if name[i].to_int().unsafe_to_char() == '/' {
+      return true
+    }
+  }
+  false
+}
+
+fn ExecContext::apply_errexit_after_pipeline(
+  self : ExecContext,
+  pipeline : @ast.Pipeline,
+  next_op : Int?
+) -> Unit {
+  if self.should_exit || not(self.options.errexit) || self.exit_code == 0 {
+    return
+  }
+  if pipeline.negated {
+    return
+  }
+  match next_op {
+    Some(op) => {
+      if op == 1 || op == 2 {
+        return
+      }
+    }
+    None => ()
+  }
+  self.should_exit = true
+}
+
+fn ExecContext::command_allowed(self : ExecContext, name : String) -> Bool {
+  match self.env.get("__MOONBASH_ALLOWED_COMMANDS") {
+    None => true
+    Some(spec) => {
+      if spec.length() == 0 {
+        return false
+      }
+      let allowed = split_string_by_delimiter(spec, ",")
+      for i = 0; i < allowed.length(); i = i + 1 {
+        if allowed[i] == name {
+          return true
+        }
+      }
+      false
+    }
+  }
 }
 
 fn ExecContext::apply_redirections(

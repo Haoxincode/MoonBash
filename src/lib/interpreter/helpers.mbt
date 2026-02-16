@@ -5,13 +5,13 @@ fn is_shell_builtin(name : String) -> Bool {
   match name {
     "export" | "unset" | "set" | "shift" | "exit" | "return" | "break"
     | "continue" | "read" | "test" | "[" | "[[" | "printf" | "eval" | "source"
-    | "." | "local" | "declare" | "typeset" | ":" | "type" | "command" | "basename"
+    | "." | "local" | "declare" | "typeset" | "let" | ":" | "type" | "command" | "basename"
     | "dirname" | "seq" | "rev" | "nl" | "fold" | "expand" | "unexpand" | "paste"
     | "column" | "join" | "tr" | "sort" | "uniq" | "cut" | "tee" | "sed" | "grep"
     | "egrep" | "fgrep" | "rg" | "xargs" | "date" | "env" | "printenv"
     | "which" | "whoami" | "hostname" | "help" | "clear" | "history" | "tac"
     | "od" | "alias" | "unalias" | "bash" | "sh" | "time" | "sleep"
-    | "timeout" => true
+    | "timeout" | "mapfile" | "readarray" => true
     _ => false
   }
 }

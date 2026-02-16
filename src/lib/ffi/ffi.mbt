@@ -196,3 +196,63 @@ fn host_vm_sync_js(_request_json : String) -> String {
 pub fn vm_sync(request_json : String) -> String {
   host_vm_sync_js(request_json)
 }
+
+/// JS bridge: delegate custom command execution to `globalThis.__moonbash_custom`.
+/// The bridge must return a JSON string.
+#cfg(target="js")
+extern "js" fn host_custom_command_sync_js(request_json : String) -> String =
+  #| function(requestJson) {
+  #|   try {
+  #|     const bridge = globalThis.__moonbash_custom;
+  #|     if (typeof bridge !== "function") {
+  #|       return JSON.stringify({
+  #|         handled: false,
+  #|         stdout: "",
+  #|         stderr: "",
+  #|         exitCode: 127,
+  #|       });
+  #|     }
+  #|     const result = bridge(requestJson);
+  #|     if (result && typeof result.then === "function") {
+  #|       return JSON.stringify({
+  #|         handled: false,
+  #|         stdout: "",
+  #|         stderr: "",
+  #|         exitCode: 1,
+  #|         error: "async custom command bridge is not supported by sync runtime",
+  #|       });
+  #|     }
+  #|     if (typeof result === "string") {
+  #|       return result;
+  #|     }
+  #|     if (typeof result === "undefined") {
+  #|       return JSON.stringify({
+  #|         handled: false,
+  #|         stdout: "",
+  #|         stderr: "",
+  #|         exitCode: 1,
+  #|         error: "custom command bridge returned undefined",
+  #|       });
+  #|     }
+  #|     return JSON.stringify(result);
+  #|   } catch (error) {
+  #|     const message = error && error.message ? error.message : String(error);
+  #|     return JSON.stringify({
+  #|       handled: false,
+  #|       stdout: "",
+  #|       stderr: "",
+  #|       exitCode: 1,
+  #|       error: message,
+  #|     });
+  #|   }
+  #| }
+
+#cfg(not(target="js"))
+fn host_custom_command_sync_js(_request_json : String) -> String {
+  "{\"handled\":false,\"stdout\":\"\",\"stderr\":\"\",\"exitCode\":127,\"error\":\"custom command bridge is only supported on js target\"}"
+}
+
+/// Perform one custom command bridge call and return a JSON payload.
+pub fn custom_command_sync(request_json : String) -> String {
+  host_custom_command_sync_js(request_json)
+}

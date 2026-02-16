@@ -322,12 +322,332 @@ fn Lexer::scan_redirect_out(self : Lexer) -> Unit raise @ast.BashError {
 // Word Scanning
 // ============================================================================
 
+fn Lexer::scan_dollar_brace_into_word(
+  self : Lexer,
+  buf : StringBuilder
+) -> Unit raise @ast.BashError {
+  // Consume "${"
+  buf.write_char(self.advance())
+  buf.write_char(self.advance())
+
+  let mut depth = 1
+  let mut in_single = false
+  let mut in_double = false
+  let mut escaped = false
+
+  while not(self.at_end()) {
+    let ch = self.advance()
+    buf.write_char(ch)
+
+    if escaped {
+      escaped = false
+      continue
+    }
+
+    if in_single {
+      if ch == '\'' {
+        in_single = false
+      }
+      continue
+    }
+
+    if in_double {
+      if ch == '"' {
+        in_double = false
+      } else if ch == '\\' {
+        escaped = true
+      }
+      continue
+    }
+
+    if ch == '\\' {
+      escaped = true
+      continue
+    }
+
+    if ch == '\'' {
+      in_single = true
+      continue
+    }
+
+    if ch == '"' {
+      in_double = true
+      continue
+    }
+
+    if ch == '{' {
+      depth += 1
+    } else if ch == '}' {
+      depth -= 1
+      if depth == 0 {
+        return
+      }
+    }
+  }
+
+  raise @ast.BashError("unterminated parameter expansion")
+}
+
+fn Lexer::scan_dollar_paren_into_word(
+  self : Lexer,
+  buf : StringBuilder,
+  arithmetic~ : Bool = false
+) -> Unit raise @ast.BashError {
+  // Consume "$("
+  buf.write_char(self.advance())
+  buf.write_char(self.advance())
+
+  let mut depth = if arithmetic { 0 } else { 1 }
+  if arithmetic {
+    // Consume second '(' for "$((".
+    buf.write_char(self.advance())
+  }
+
+  let mut in_single = false
+  let mut in_double = false
+  let mut escaped = false
+
+  while not(self.at_end()) {
+    if arithmetic &&
+      not(in_single) &&
+      not(in_double) &&
+      not(escaped) &&
+      depth == 0 &&
+      self.peek() == ')' &&
+      self.peek_at(1) == ')' {
+      buf.write_char(self.advance())
+      buf.write_char(self.advance())
+      return
+    }
+
+    let ch = self.advance()
+    buf.write_char(ch)
+
+    if escaped {
+      escaped = false
+      continue
+    }
+
+    if in_single {
+      if ch == '\'' {
+        in_single = false
+      }
+      continue
+    }
+
+    if in_double {
+      if ch == '"' {
+        in_double = false
+      } else if ch == '\\' {
+        escaped = true
+      }
+      continue
+    }
+
+    if ch == '\\' {
+      escaped = true
+      continue
+    }
+
+    if ch == '\'' {
+      in_single = true
+      continue
+    }
+
+    if ch == '"' {
+      in_double = true
+      continue
+    }
+
+    if ch == '(' {
+      depth += 1
+      continue
+    }
+
+    if ch == ')' {
+      if arithmetic {
+        if depth > 0 {
+          depth -= 1
+        }
+      } else {
+        depth -= 1
+        if depth == 0 {
+          return
+        }
+      }
+    }
+  }
+
+  if arithmetic {
+    raise @ast.BashError("unterminated arithmetic expansion")
+  } else {
+    raise @ast.BashError("unterminated command substitution")
+  }
+}
+
+fn Lexer::scan_backtick_into_word(
+  self : Lexer,
+  buf : StringBuilder
+) -> Unit raise @ast.BashError {
+  // Consume opening backtick.
+  buf.write_char(self.advance())
+
+  let mut escaped = false
+  while not(self.at_end()) {
+    let ch = self.advance()
+    buf.write_char(ch)
+
+    if escaped {
+      escaped = false
+      continue
+    }
+
+    if ch == '\\' {
+      escaped = true
+      continue
+    }
+
+    if ch == '`' {
+      return
+    }
+  }
+
+  raise @ast.BashError("unterminated backtick command substitution")
+}
+
+fn Lexer::scan_parenthesized_assignment_value(
+  self : Lexer,
+  buf : StringBuilder
+) -> Unit raise @ast.BashError {
+  let mut depth = 0
+  let mut in_single = false
+  let mut in_double = false
+  let mut escaped = false
+
+  while not(self.at_end()) {
+    let ch = self.advance()
+    buf.write_char(ch)
+
+    if escaped {
+      escaped = false
+      continue
+    }
+
+    if in_single {
+      if ch == '\'' {
+        in_single = false
+      }
+      continue
+    }
+
+    if in_double {
+      if ch == '"' {
+        in_double = false
+      } else if ch == '\\' {
+        escaped = true
+      }
+      continue
+    }
+
+    if ch == '\\' {
+      escaped = true
+      continue
+    }
+
+    if ch == '\'' {
+      in_single = true
+      continue
+    }
+
+    if ch == '"' {
+      in_double = true
+      continue
+    }
+
+    if ch == '(' {
+      depth += 1
+    } else if ch == ')' {
+      depth -= 1
+      if depth == 0 {
+        return
+      }
+    }
+  }
+
+  raise @ast.BashError("unterminated parenthesized assignment value")
+}
+
+fn word_looks_like_assignment_prefix(word : String) -> Bool {
+  if word.length() < 2 {
+    return false
+  }
+
+  let mut eq_pos = -1
+  for i = 0; i < word.length(); i = i + 1 {
+    let ch = char_at(word, i)
+    if ch == '=' {
+      eq_pos = i
+      break
+    }
+    if not(is_name_char(ch)) {
+      return false
+    }
+  }
+
+  if eq_pos <= 0 {
+    return false
+  }
+
+  let append = eq_pos >= 2 && char_at(word, eq_pos - 1) == '+'
+  let name_end = if append { eq_pos - 1 } else { eq_pos }
+  if name_end <= 0 {
+    return false
+  }
+  if not(is_name_start(char_at(word, 0))) {
+    return false
+  }
+  for i = 1; i < name_end; i = i + 1 {
+    if not(is_name_char(char_at(word, i))) {
+      return false
+    }
+  }
+
+  true
+}
+
 fn Lexer::scan_word(self : Lexer) -> Unit raise @ast.BashError {
   let buf = StringBuilder::new()
   let mut had_quoted = false
 
   while not(self.at_end()) {
     let ch = self.peek()
+
+    if ch == '$' && self.peek_at(1) == '{' {
+      self.scan_dollar_brace_into_word(buf)
+      continue
+    }
+
+    if ch == '$' && self.peek_at(1) == '(' {
+      if self.peek_at(2) == '(' {
+        self.scan_dollar_paren_into_word(buf, arithmetic=true)
+      } else {
+        self.scan_dollar_paren_into_word(buf)
+      }
+      continue
+    }
+
+    if ch == '`' {
+      self.scan_backtick_into_word(buf)
+      continue
+    }
+
+    if ch == '(' {
+      let current = buf.to_string()
+      if word_looks_like_assignment_prefix(current) {
+        self.scan_parenthesized_assignment_value(buf)
+        continue
+      }
+    }
 
     if is_metachar(ch) {
       break

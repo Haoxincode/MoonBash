@@ -159,6 +159,92 @@ fn token_to_string(tok : @ast.Token) -> String {
   }
 }
 
+fn arith_token_to_string(tok : @ast.Token) -> String {
+  match tok {
+    @ast.Token::Word(s) => s
+    @ast.Token::Number(n) => n.to_string()
+    @ast.Token::AssignmentWord(name, value) => name + "=" + value
+    @ast.Token::Pipe => "|"
+    @ast.Token::PipeAnd => "|&"
+    @ast.Token::And => "&&"
+    @ast.Token::Or => "||"
+    @ast.Token::Ampersand => "&"
+    @ast.Token::Bang => "!"
+    @ast.Token::Semi => ";"
+    @ast.Token::RedirectIn => "<"
+    @ast.Token::RedirectOut => ">"
+    @ast.Token::RedirectAppend => ">>"
+    @ast.Token::HereDoc => "<<"
+    @ast.Token::HereDocStrip => "<<-"
+    @ast.Token::HereString => "<<<"
+    @ast.Token::RedirectInOut => "<>"
+    @ast.Token::RedirectClobber => ">|"
+    @ast.Token::DupIn => "<&"
+    @ast.Token::DupOut => ">&"
+    @ast.Token::RedirectAndOut => "&>"
+    @ast.Token::RedirectAndAppend => "&>>"
+    @ast.Token::If => "if"
+    @ast.Token::Then => "then"
+    @ast.Token::Elif => "elif"
+    @ast.Token::Else => "else"
+    @ast.Token::Fi => "fi"
+    @ast.Token::For => "for"
+    @ast.Token::While => "while"
+    @ast.Token::Until => "until"
+    @ast.Token::Do => "do"
+    @ast.Token::Done => "done"
+    @ast.Token::Case => "case"
+    @ast.Token::Esac => "esac"
+    @ast.Token::In => "in"
+    @ast.Token::Function => "function"
+    @ast.Token::Select => "select"
+    @ast.Token::Time => "time"
+    @ast.Token::Newline => " "
+    @ast.Token::LeftParen => "("
+    @ast.Token::RightParen => ")"
+    @ast.Token::LeftBrace => "{"
+    @ast.Token::RightBrace => "}"
+    @ast.Token::DoubleBracketOpen => "[["
+    @ast.Token::DoubleBracketClose => "]]"
+    @ast.Token::FdNumber(n) => n.to_string()
+    @ast.Token::EOF => ""
+  }
+}
+
+fn Parser::parse_arithmetic_raw(self : Parser) -> String raise @ast.BashError {
+  let buf = StringBuilder::new()
+  let mut depth = 0
+
+  while not(self.at_end()) {
+    let tok = self.advance()
+    match tok {
+      @ast.Token::LeftParen => {
+        depth += 1
+        buf.write_char('(')
+      }
+      @ast.Token::RightParen => {
+        if depth > 0 {
+          depth -= 1
+          buf.write_char(')')
+        } else if self.match_token(@ast.Token::RightParen) {
+          return buf.to_string()
+        } else {
+          buf.write_char(')')
+        }
+      }
+      _ => {
+        let text = arith_token_to_string(tok)
+        if text.length() == 0 {
+          continue
+        }
+        buf.write_string(text)
+      }
+    }
+  }
+
+  raise @ast.BashError("unterminated arithmetic command")
+}
+
 // ============================================================================
 // Script Parsing
 // ============================================================================
@@ -332,15 +418,28 @@ fn Parser::parse_command(self : Parser) -> @ast.Command raise @ast.BashError {
       @ast.Command::Compound(@ast.CompoundCommand::Case(cmd), redirs)
     }
     @ast.Token::LeftParen => {
-      self.enter_depth()
-      self.advance() |> ignore
-      self.skip_newlines()
-      let script = self.parse_script()
-      self.skip_newlines()
-      self.expect(@ast.Token::RightParen)
-      let redirs = self.parse_redirections()
-      self.leave_depth()
-      @ast.Command::Compound(@ast.CompoundCommand::Subshell(script), redirs)
+      if self.peek_at_offset(1) == @ast.Token::LeftParen {
+        self.enter_depth()
+        self.advance() |> ignore
+        self.advance() |> ignore
+        let raw_expr = self.parse_arithmetic_raw()
+        let redirs = self.parse_redirections()
+        self.leave_depth()
+        @ast.Command::Compound(
+          @ast.CompoundCommand::ArithmeticCommand(@ast.ArithExpr::Raw(raw_expr)),
+          redirs,
+        )
+      } else {
+        self.enter_depth()
+        self.advance() |> ignore
+        self.skip_newlines()
+        let script = self.parse_script()
+        self.skip_newlines()
+        self.expect(@ast.Token::RightParen)
+        let redirs = self.parse_redirections()
+        self.leave_depth()
+        @ast.Command::Compound(@ast.CompoundCommand::Subshell(script), redirs)
+      }
     }
     @ast.Token::LeftBrace => {
       self.enter_depth()

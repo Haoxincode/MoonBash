@@ -6,9 +6,18 @@
  */
 
 import type {
+  BashExecResult,
+  BashLogger,
   ExecResult,
+  ExecOptions,
   BashOptions,
+  Command,
+  CommandContext,
+  CustomCommand,
+  LazyCommand,
+  ExecutionLimits,
   FileSystem,
+  InitialFileEntry,
   InitialFileValue,
   InitialFiles,
   MoonBashFetchRequest,
@@ -18,8 +27,15 @@ import type {
 } from "./types";
 
 export type {
+  BashExecResult,
+  BashLogger,
   ExecResult,
+  ExecOptions,
   BashOptions,
+  Command,
+  CommandContext,
+  CustomCommand,
+  LazyCommand,
   FileSystem,
   InitialFileEntry,
   InitialFileValue,
@@ -27,6 +43,7 @@ export type {
   MoonBashFetchRequest,
   MoonBashFetchResponse,
   NetworkOptions,
+  ExecutionLimits,
   MoonBashVmRequest,
   MoonBashVmResponse,
   TimerOptions,
@@ -42,12 +59,141 @@ interface StateExecResult extends ExecResult {
   dirs?: Record<string, string>;
   links?: Record<string, string>;
   modes?: Record<string, string>;
+  env?: Record<string, string>;
 }
 
 type MoonBashFetchBridge = (requestJson: string) => string;
 type MoonBashSleepBridge = (durationMs: number) => string;
 type MoonBashNowBridge = () => number;
 type MoonBashVmBridge = (requestJson: string) => string;
+type MoonBashCustomBridge = (requestJson: string) => string;
+
+interface MoonBashCustomRequest {
+  name: string;
+  args: string[];
+  stdin?: string;
+  cwd?: string;
+  env?: Record<string, string>;
+  files?: Record<string, string>;
+}
+
+interface MoonBashCustomResponse {
+  handled: boolean;
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  error?: string;
+  files?: Record<string, string>;
+}
+
+const DEFAULT_COMMAND_NAMES: string[] = [
+  "echo",
+  "cat",
+  "pwd",
+  "ls",
+  "mkdir",
+  "rm",
+  "cp",
+  "mv",
+  "touch",
+  "find",
+  "head",
+  "tail",
+  "wc",
+  "awk",
+  "jq",
+  "true",
+  "false",
+  "rmdir",
+  "stat",
+  "file",
+  "tree",
+  "du",
+  "chmod",
+  "ln",
+  "readlink",
+  "diff",
+  "cmp",
+  "comm",
+  "base64",
+  "expr",
+  "yq",
+  "xan",
+  "csvlook",
+  "md5sum",
+  "sha1sum",
+  "sha256sum",
+  "gzip",
+  "gunzip",
+  "zcat",
+  "python3",
+  "sqlite3",
+  "export",
+  "unset",
+  "set",
+  "shift",
+  "exit",
+  "return",
+  "break",
+  "continue",
+  "read",
+  "mapfile",
+  "readarray",
+  "test",
+  "[",
+  "[[",
+  "printf",
+  "eval",
+  "source",
+  ".",
+  "local",
+  "declare",
+  "typeset",
+  "let",
+  ":",
+  "type",
+  "command",
+  "basename",
+  "dirname",
+  "seq",
+  "rev",
+  "nl",
+  "fold",
+  "expand",
+  "unexpand",
+  "paste",
+  "column",
+  "join",
+  "tr",
+  "sort",
+  "uniq",
+  "cut",
+  "tee",
+  "sed",
+  "grep",
+  "egrep",
+  "fgrep",
+  "rg",
+  "xargs",
+  "date",
+  "env",
+  "printenv",
+  "which",
+  "whoami",
+  "hostname",
+  "help",
+  "clear",
+  "history",
+  "tac",
+  "od",
+  "alias",
+  "unalias",
+  "bash",
+  "sh",
+  "time",
+  "sleep",
+  "timeout",
+];
 
 interface PyodideFsLike {
   analyzePath(path: string): { exists: boolean };
@@ -183,6 +329,8 @@ declare global {
   var __moonbash_now: MoonBashNowBridge | undefined;
   // eslint-disable-next-line no-var
   var __moonbash_vm: MoonBashVmBridge | undefined;
+  // eslint-disable-next-line no-var
+  var __moonbash_custom: MoonBashCustomBridge | undefined;
 }
 
 function toErrorMessage(error: unknown): string {
@@ -237,6 +385,188 @@ function waitForPromise<T>(promise: Promise<T>): T {
   return resolved as T;
 }
 
+function shellSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function normalizePosixPath(inputPath: string, cwd = "/"): string {
+  const base = inputPath.startsWith("/")
+    ? inputPath
+    : (cwd === "/" ? `/${inputPath}` : `${cwd}/${inputPath}`);
+  const parts = base.split("/");
+  const out: string[] = [];
+  for (const part of parts) {
+    if (!part || part === ".") {
+      continue;
+    }
+    if (part === "..") {
+      if (out.length > 0) {
+        out.pop();
+      }
+      continue;
+    }
+    out.push(part);
+  }
+  return out.length === 0 ? "/" : `/${out.join("/")}`;
+}
+
+function listChildren(paths: string[], dirPath: string): string[] {
+  const prefix = dirPath === "/" ? "/" : `${dirPath}/`;
+  const names = new Set<string>();
+  for (const path of paths) {
+    if (!path.startsWith(prefix) || path === dirPath) {
+      continue;
+    }
+    const rest = path.slice(prefix.length);
+    if (!rest) {
+      continue;
+    }
+    const slash = rest.indexOf("/");
+    names.add(slash === -1 ? rest : rest.slice(0, slash));
+  }
+  return [...names].sort();
+}
+
+function splitSimplePipeline(script: string): string[] | null {
+  const segments: string[] = [];
+  let buf = "";
+  let inSingle = false;
+  let inDouble = false;
+  let escaped = false;
+
+  for (let i = 0; i < script.length; i += 1) {
+    const ch = script[i];
+    if (escaped) {
+      buf += ch;
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\" && !inSingle) {
+      buf += ch;
+      escaped = true;
+      continue;
+    }
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle;
+      buf += ch;
+      continue;
+    }
+    if (ch === "\"" && !inSingle) {
+      inDouble = !inDouble;
+      buf += ch;
+      continue;
+    }
+    if (!inSingle && !inDouble) {
+      if (ch === ";" || ch === "&" || ch === ">" || ch === "<") {
+        return null;
+      }
+      if (ch === "|" && script[i + 1] === "|") {
+        return null;
+      }
+      if (ch === "|") {
+        const segment = buf.trim();
+        if (!segment) {
+          return null;
+        }
+        segments.push(segment);
+        buf = "";
+        continue;
+      }
+    }
+    buf += ch;
+  }
+
+  if (inSingle || inDouble || escaped) {
+    return null;
+  }
+  const last = buf.trim();
+  if (!last) {
+    return null;
+  }
+  segments.push(last);
+  return segments;
+}
+
+function parseSimpleArgs(commandText: string): string[] | null {
+  const args: string[] = [];
+  let buf = "";
+  let inSingle = false;
+  let inDouble = false;
+  let escaped = false;
+
+  for (let i = 0; i < commandText.length; i += 1) {
+    const ch = commandText[i];
+    if (escaped) {
+      buf += ch;
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\" && !inSingle) {
+      escaped = true;
+      continue;
+    }
+    if (ch === "'" && !inDouble) {
+      inSingle = !inSingle;
+      continue;
+    }
+    if (ch === "\"" && !inSingle) {
+      inDouble = !inDouble;
+      continue;
+    }
+    if (!inSingle && !inDouble && /\s/.test(ch)) {
+      if (buf.length > 0) {
+        args.push(buf);
+        buf = "";
+      }
+      continue;
+    }
+    buf += ch;
+  }
+
+  if (inSingle || inDouble || escaped) {
+    return null;
+  }
+  if (buf.length > 0) {
+    args.push(buf);
+  }
+  return args.length > 0 ? args : null;
+}
+
+export function getCommandNames(): string[] {
+  return [...DEFAULT_COMMAND_NAMES];
+}
+
+export function isLazyCommand(command: CustomCommand): command is LazyCommand {
+  return typeof (command as LazyCommand).load === "function";
+}
+
+export function defineCommand(
+  name: string,
+  fn: (args: string[], ctx: CommandContext) => Promise<ExecResult>,
+): Command {
+  return {
+    name,
+    execute: fn,
+  };
+}
+
+export function createLazyCustomCommand(lazyCommand: LazyCommand): Command {
+  let loaded: Command | null = null;
+  return {
+    name: lazyCommand.name,
+    async execute(args: string[], ctx: CommandContext): Promise<ExecResult> {
+      if (!loaded) {
+        loaded = await lazyCommand.load();
+      }
+      return loaded.execute(args, ctx);
+    },
+  };
+}
+
 /**
  * Main entry point for executing bash commands in a sandboxed environment.
  *
@@ -249,31 +579,70 @@ function waitForPromise<T>(promise: Promise<T>): T {
  */
 export class Bash {
   private options: BashOptions;
+  private baseCwd: string;
+  private baseEnv: Record<string, string>;
+  private useDefaultLayout: boolean;
   private files: Record<string, string>;
   private dirs: Record<string, string>;
   private links: Record<string, string>;
   private modes: Record<string, string>;
+  private eagerCustomCommands: Map<string, Command>;
+  private lazyCustomCommands: Map<string, LazyCommand>;
   private pyodideRuntime: PyodideRuntimeLike | null;
   private pyodideRuntimePromise: Promise<PyodideRuntimeLike> | null;
   private sqlJsRuntime: SqlJsRuntimeLike | null;
   private sqlJsRuntimePromise: Promise<SqlJsRuntimeLike> | null;
   private pyodideTrackedFiles: Set<string>;
+  readonly fs: FileSystem;
 
   constructor(options: BashOptions = {}) {
-    this.options = options;
+    const normalizedOptions: BashOptions = { ...options };
+    const fsSnapshot = this.extractFsSnapshot((options as { fs?: unknown }).fs);
+    if (fsSnapshot) {
+      normalizedOptions.files = {
+        ...(normalizedOptions.files ?? {}),
+        ...fsSnapshot,
+      };
+    }
+    if (typeof options.sleep === "function" && !options.timers?.sleep) {
+      normalizedOptions.timers = { ...(options.timers ?? {}), sleep: options.sleep };
+    }
+
+    this.options = normalizedOptions;
+    this.baseCwd = options.cwd && options.cwd.length > 0
+      ? options.cwd
+      : (options.files ? "/" : "/home/user");
+    this.baseEnv = { ...(options.env ?? {}) };
+    this.useDefaultLayout = options.files === undefined && !options.cwd;
     const initialFs = this.normalizeInitialFiles(options.files);
     this.files = initialFs.files;
     this.dirs = {};
     this.links = {};
     this.modes = initialFs.modes;
+    this.eagerCustomCommands = new Map();
+    this.lazyCustomCommands = new Map();
     this.pyodideRuntime = null;
     this.pyodideRuntimePromise = null;
     this.sqlJsRuntime = null;
     this.sqlJsRuntimePromise = null;
     this.pyodideTrackedFiles = new Set();
+
+    for (const customCommand of options.customCommands ?? []) {
+      if (isLazyCommand(customCommand)) {
+        this.lazyCustomCommands.set(customCommand.name, customCommand);
+      } else {
+        this.eagerCustomCommands.set(customCommand.name, customCommand);
+      }
+    }
+
+    if (this.useDefaultLayout) {
+      this.installDefaultBinStubs();
+    }
+
     for (const filePath of Object.keys(this.files)) {
       this.addParentDirs(filePath);
     }
+    this.fs = this.createFsApi();
   }
 
   private normalizePath(inputPath: string): string {
@@ -295,6 +664,228 @@ export class Bash {
       current += `/${parts[i]}`;
       this.dirs[current] = "1";
     }
+  }
+
+  private installDefaultBinStubs(): void {
+    const executableMode = (0o755).toString();
+    for (const commandName of DEFAULT_COMMAND_NAMES) {
+      const stubPath = `/bin/${commandName}`;
+      if (!Object.prototype.hasOwnProperty.call(this.files, stubPath)) {
+        this.files[stubPath] = "";
+      }
+      if (!Object.prototype.hasOwnProperty.call(this.modes, stubPath)) {
+        this.modes[stubPath] = executableMode;
+      }
+    }
+  }
+
+  private createFsApi(): FileSystem {
+    return {
+      readFile: (path: string): string => {
+        const normalized = this.normalizePath(path);
+        if (Object.prototype.hasOwnProperty.call(this.files, normalized)) {
+          return this.files[normalized];
+        }
+        throw new Error(`No such file: ${normalized}`);
+      },
+      writeFile: (path: string, content: string): void => {
+        const normalized = this.normalizePath(path);
+        this.files[normalized] = content;
+        this.modes[normalized] = this.modes[normalized] ?? (0o644).toString();
+        this.addParentDirs(normalized);
+      },
+      appendFile: (path: string, content: string): void => {
+        const normalized = this.normalizePath(path);
+        const existing = this.files[normalized] ?? "";
+        this.files[normalized] = existing + content;
+        this.modes[normalized] = this.modes[normalized] ?? (0o644).toString();
+        this.addParentDirs(normalized);
+      },
+      exists: (path: string): boolean => {
+        const normalized = this.normalizePath(path);
+        return Object.prototype.hasOwnProperty.call(this.files, normalized) ||
+          Object.prototype.hasOwnProperty.call(this.dirs, normalized) ||
+          Object.prototype.hasOwnProperty.call(this.links, normalized);
+      },
+      stat: (path: string) => {
+        const normalized = this.normalizePath(path);
+        if (Object.prototype.hasOwnProperty.call(this.files, normalized)) {
+          return {
+            isFile: true,
+            isDirectory: false,
+            isSymlink: false,
+            size: this.files[normalized].length,
+            mode: Number.parseInt(this.modes[normalized] ?? "420", 10),
+            mtime: 0,
+          };
+        }
+        if (Object.prototype.hasOwnProperty.call(this.dirs, normalized)) {
+          return {
+            isFile: false,
+            isDirectory: true,
+            isSymlink: false,
+            size: 0,
+            mode: Number.parseInt(this.modes[normalized] ?? "493", 10),
+            mtime: 0,
+          };
+        }
+        if (Object.prototype.hasOwnProperty.call(this.links, normalized)) {
+          return {
+            isFile: false,
+            isDirectory: false,
+            isSymlink: true,
+            size: this.links[normalized].length,
+            mode: Number.parseInt(this.modes[normalized] ?? "511", 10),
+            mtime: 0,
+          };
+        }
+        throw new Error(`No such file: ${normalized}`);
+      },
+      readdir: (path: string) => {
+        const normalized = this.normalizePath(path);
+        const prefix = normalized === "/" ? "/" : `${normalized}/`;
+        const names = new Set<string>();
+        const collect = (candidatePath: string): void => {
+          if (!candidatePath.startsWith(prefix)) {
+            return;
+          }
+          const rest = candidatePath.slice(prefix.length);
+          if (rest.length === 0) {
+            return;
+          }
+          const slash = rest.indexOf("/");
+          const name = slash === -1 ? rest : rest.slice(0, slash);
+          if (name.length > 0) {
+            names.add(name);
+          }
+        };
+        for (const key of Object.keys(this.files)) {
+          collect(key);
+        }
+        for (const key of Object.keys(this.dirs)) {
+          collect(key);
+        }
+        for (const key of Object.keys(this.links)) {
+          collect(key);
+        }
+        return [...names].sort().map((name) => {
+          const child = normalized === "/" ? `/${name}` : `${normalized}/${name}`;
+          const type = Object.prototype.hasOwnProperty.call(this.dirs, child)
+            ? "directory"
+            : Object.prototype.hasOwnProperty.call(this.links, child)
+            ? "symlink"
+            : "file";
+          return { name, type } as const;
+        });
+      },
+      mkdir: (path: string, options?: { recursive?: boolean }): void => {
+        const normalized = this.normalizePath(path);
+        if (options?.recursive) {
+          const parts = normalized.split("/").filter(Boolean);
+          let current = "";
+          for (const part of parts) {
+            current += `/${part}`;
+            this.dirs[current] = "1";
+            this.modes[current] = this.modes[current] ?? (0o755).toString();
+          }
+          return;
+        }
+        this.dirs[normalized] = "1";
+        this.modes[normalized] = this.modes[normalized] ?? (0o755).toString();
+      },
+      rm: (path: string, options?: { recursive?: boolean; force?: boolean }): void => {
+        const normalized = this.normalizePath(path);
+        const removeEntry = (targetPath: string): void => {
+          delete this.files[targetPath];
+          delete this.links[targetPath];
+          delete this.dirs[targetPath];
+          delete this.modes[targetPath];
+        };
+        if (options?.recursive) {
+          for (const key of Object.keys(this.files)) {
+            if (key === normalized || key.startsWith(`${normalized}/`)) {
+              removeEntry(key);
+            }
+          }
+          for (const key of Object.keys(this.links)) {
+            if (key === normalized || key.startsWith(`${normalized}/`)) {
+              removeEntry(key);
+            }
+          }
+          for (const key of Object.keys(this.dirs)) {
+            if (key === normalized || key.startsWith(`${normalized}/`)) {
+              removeEntry(key);
+            }
+          }
+          return;
+        }
+        if (
+          !Object.prototype.hasOwnProperty.call(this.files, normalized) &&
+          !Object.prototype.hasOwnProperty.call(this.links, normalized) &&
+          !Object.prototype.hasOwnProperty.call(this.dirs, normalized) &&
+          !options?.force
+        ) {
+          throw new Error(`No such file: ${normalized}`);
+        }
+        removeEntry(normalized);
+      },
+      cp: (src: string, dst: string): void => {
+        const srcPath = this.normalizePath(src);
+        const dstPath = this.normalizePath(dst);
+        if (!Object.prototype.hasOwnProperty.call(this.files, srcPath)) {
+          throw new Error(`No such file: ${srcPath}`);
+        }
+        this.files[dstPath] = this.files[srcPath];
+        this.modes[dstPath] = this.modes[srcPath] ?? (0o644).toString();
+        this.addParentDirs(dstPath);
+      },
+      mv: (src: string, dst: string): void => {
+        const srcPath = this.normalizePath(src);
+        const dstPath = this.normalizePath(dst);
+        if (!Object.prototype.hasOwnProperty.call(this.files, srcPath)) {
+          throw new Error(`No such file: ${srcPath}`);
+        }
+        this.files[dstPath] = this.files[srcPath];
+        this.modes[dstPath] = this.modes[srcPath] ?? (0o644).toString();
+        delete this.files[srcPath];
+        delete this.modes[srcPath];
+        this.addParentDirs(dstPath);
+      },
+      chmod: (path: string, mode: number): void => {
+        const normalized = this.normalizePath(path);
+        this.modes[normalized] = Math.floor(mode).toString();
+      },
+    };
+  }
+
+  private extractFsSnapshot(fsLike: unknown): InitialFiles | undefined {
+    if (!fsLike || typeof fsLike !== "object") {
+      return undefined;
+    }
+    const maybeSnapshot = fsLike as {
+      __moonbash_snapshot?: () => unknown;
+    };
+    if (typeof maybeSnapshot.__moonbash_snapshot !== "function") {
+      return undefined;
+    }
+    const raw = maybeSnapshot.__moonbash_snapshot();
+    if (!raw || typeof raw !== "object") {
+      return undefined;
+    }
+
+    const out: InitialFiles = {};
+    for (const [path, value] of Object.entries(raw as Record<string, unknown>)) {
+      if (typeof value === "string" || value instanceof Uint8Array) {
+        out[path] = value;
+      } else if (value === null || value === undefined) {
+        out[path] = "";
+      } else if (typeof value === "object") {
+        out[path] = value as InitialFileEntry;
+      } else {
+        out[path] = String(value);
+      }
+    }
+    return out;
   }
 
   private normalizeInitialFiles(files?: InitialFiles): {
@@ -546,7 +1137,8 @@ export class Bash {
         const waitMs = Number.isFinite(durationMs) ? Math.max(0, Math.floor(durationMs)) : 0;
         const maybeResult = sleepImpl(waitMs);
         if (isPromiseLike<void>(maybeResult)) {
-          waitForPromise(Promise.resolve(maybeResult));
+          // Keep host event-loop responsive for mocked async clocks in tests.
+          Promise.resolve(maybeResult).catch(() => {});
         }
         return "";
       } catch (error) {
@@ -574,6 +1166,393 @@ export class Bash {
         return 0;
       }
     };
+  }
+
+  private getLogger(): BashLogger | undefined {
+    const logger = this.options.logger;
+    if (!logger || typeof logger.info !== "function" || typeof logger.debug !== "function") {
+      return undefined;
+    }
+    return logger;
+  }
+
+  private getExecutionLimits(): Partial<ExecutionLimits> {
+    return {
+      ...(this.options.limits ?? {}),
+      ...(this.options.executionLimits ?? {}),
+    };
+  }
+
+  private encodeLimitsJson(): string {
+    const limits = this.getExecutionLimits();
+    const out: Record<string, string> = {};
+    const set = (key: string, value: unknown): void => {
+      if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+        return;
+      }
+      out[key] = Math.floor(value).toString();
+    };
+    set("max_call_depth", limits.maxCallDepth);
+    set("max_command_count", limits.maxCommandCount);
+    set("max_loop_iterations", limits.maxLoopIterations);
+    set("max_string_length", limits.maxStringLength);
+    set("max_array_elements", limits.maxArrayElements);
+    set("max_heredoc_size", limits.maxHeredocSize);
+    set("max_substitution_depth", limits.maxSubstitutionDepth);
+    set("max_glob_operations", limits.maxGlobOperations);
+    set("max_awk_iterations", limits.maxAwkIterations);
+    set("max_sed_iterations", limits.maxSedIterations);
+    set("max_jq_iterations", limits.maxJqIterations);
+    return JSON.stringify(out);
+  }
+
+  private hasCustomCommands(): boolean {
+    return this.eagerCustomCommands.size > 0 || this.lazyCustomCommands.size > 0;
+  }
+
+  private async resolveCustomCommand(name: string): Promise<Command | undefined> {
+    const eager = this.eagerCustomCommands.get(name);
+    if (eager) {
+      return eager;
+    }
+    const lazy = this.lazyCustomCommands.get(name);
+    if (!lazy) {
+      return undefined;
+    }
+    const loaded = await lazy.load();
+    this.eagerCustomCommands.set(name, loaded);
+    this.lazyCustomCommands.delete(name);
+    return loaded;
+  }
+
+  private buildCustomPrelude(script: string): string {
+    if (!this.hasCustomCommands()) {
+      return script;
+    }
+    const names = new Set<string>();
+    for (const name of this.eagerCustomCommands.keys()) {
+      names.add(name);
+    }
+    for (const name of this.lazyCustomCommands.keys()) {
+      names.add(name);
+    }
+    const lines: string[] = [];
+    for (const name of names) {
+      // Custom command names are sourced from trusted host code.
+      lines.push(`${name}() { __moonbash_custom__ ${shellSingleQuote(name)} "$@"; }`);
+    }
+    if (lines.length === 0) {
+      return script;
+    }
+    return `${lines.join("\n")}\n${script}`;
+  }
+
+  private listCustomCommandNames(): string[] {
+    const names: string[] = [];
+    for (const name of this.eagerCustomCommands.keys()) {
+      names.push(name);
+    }
+    for (const name of this.lazyCustomCommands.keys()) {
+      names.push(name);
+    }
+    return names;
+  }
+
+  private scriptReferencesCustomCommand(script: string): boolean {
+    const names = this.listCustomCommandNames();
+    for (const name of names) {
+      const pattern = new RegExp(`(^|[\\s|])${escapeRegExp(name)}($|[\\s|])`);
+      if (pattern.test(script)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private async tryExecuteWithCustomCommands(
+    script: string,
+    effectiveEnv: Record<string, string>,
+    cwd: string,
+    execOptions: ExecOptions,
+  ): Promise<BashExecResult | null> {
+    if (!this.hasCustomCommands() || !this.scriptReferencesCustomCommand(script)) {
+      return null;
+    }
+
+    const segments = splitSimplePipeline(script);
+    if (!segments) {
+      return null;
+    }
+
+    let pipelineInput = execOptions.stdin ?? "";
+    let finalStdout = "";
+    let finalExitCode = 0;
+    const stderrParts: string[] = [];
+
+    for (const segment of segments) {
+      const parsedArgs = parseSimpleArgs(segment);
+      if (!parsedArgs || parsedArgs.length === 0) {
+        return null;
+      }
+      const commandName = parsedArgs[0];
+      const commandArgs = parsedArgs.slice(1);
+      const customCommand = await this.resolveCustomCommand(commandName);
+
+      if (customCommand) {
+        const commandEnv = new Map<string, string>(Object.entries(effectiveEnv));
+        const result = await customCommand.execute(commandArgs, {
+          fs: this.fs,
+          cwd,
+          env: commandEnv,
+          stdin: pipelineInput,
+          exec: (command: string, options: ExecOptions = {}) =>
+            this.exec(command, {
+              ...options,
+              cwd: options.cwd ?? cwd,
+              env: { ...effectiveEnv, ...(options.env ?? {}) },
+            }),
+        });
+        const stdout = result.stdout ?? "";
+        const stderr = result.stderr ?? "";
+        finalStdout = stdout;
+        finalExitCode = Number.isFinite(result.exitCode) ? result.exitCode : 1;
+        pipelineInput = stdout;
+        if (stderr.length > 0) {
+          stderrParts.push(stderr);
+        }
+        continue;
+      }
+
+      const result = await this.exec(segment, {
+        cwd,
+        env: { ...effectiveEnv },
+        stdin: pipelineInput,
+      });
+      finalStdout = result.stdout ?? "";
+      finalExitCode = result.exitCode;
+      pipelineInput = finalStdout;
+      if (result.stderr.length > 0) {
+        stderrParts.push(result.stderr);
+      }
+    }
+
+    return {
+      stdout: finalStdout,
+      stderr: stderrParts.join(""),
+      exitCode: finalExitCode,
+      env: { ...effectiveEnv },
+    };
+  }
+
+  private createCustomBridge(
+    limitsJson: string,
+    layoutMode: "default" | "minimal",
+  ): MoonBashCustomBridge | undefined {
+    if (!this.hasCustomCommands()) {
+      return undefined;
+    }
+
+    return (requestJson: string): string => {
+      try {
+        const request = JSON.parse(requestJson) as MoonBashCustomRequest;
+        const maybeResponse = this.runCustomCommandBridge(request, limitsJson, layoutMode);
+        const response = isPromiseLike<MoonBashCustomResponse>(maybeResponse)
+          ? waitForPromise(Promise.resolve(maybeResponse))
+          : maybeResponse;
+        return JSON.stringify(this.normalizeCustomResponse(response));
+      } catch (error) {
+        return JSON.stringify({
+          handled: false,
+          stdout: "",
+          stderr: "",
+          exitCode: 1,
+          error: toErrorMessage(error),
+        } satisfies MoonBashCustomResponse);
+      }
+    };
+  }
+
+  private normalizeCustomResponse(response: MoonBashCustomResponse): MoonBashCustomResponse {
+    return {
+      handled: Boolean(response.handled),
+      stdout: response.stdout ?? "",
+      stderr: response.stderr ?? "",
+      exitCode: Number.isFinite(response.exitCode) ? Math.floor(response.exitCode) : 1,
+      error: response.error,
+      files: response.files && typeof response.files === "object" ? response.files : undefined,
+    };
+  }
+
+  private async runCustomCommandBridge(
+    request: MoonBashCustomRequest,
+    limitsJson: string,
+    layoutMode: "default" | "minimal",
+  ): Promise<MoonBashCustomResponse> {
+    if (!request || typeof request.name !== "string") {
+      return { handled: false, stdout: "", stderr: "", exitCode: 1 };
+    }
+
+    const customCommand = await this.resolveCustomCommand(request.name);
+    if (!customCommand) {
+      return { handled: false, stdout: "", stderr: "", exitCode: 127 };
+    }
+
+    const cwd = normalizePosixPath(request.cwd ?? "/");
+    const envObject: Record<string, string> = { ...(request.env ?? {}) };
+    let filesState: Record<string, string> = { ...(request.files ?? {}) };
+
+    const fsApi: FileSystem = {
+      readFile: (path: string): string => {
+        const normalized = normalizePosixPath(path, cwd);
+        if (!Object.prototype.hasOwnProperty.call(filesState, normalized)) {
+          throw new Error(`No such file: ${normalized}`);
+        }
+        return filesState[normalized];
+      },
+      writeFile: (path: string, content: string): void => {
+        const normalized = normalizePosixPath(path, cwd);
+        filesState[normalized] = content;
+      },
+      appendFile: (path: string, content: string): void => {
+        const normalized = normalizePosixPath(path, cwd);
+        filesState[normalized] = (filesState[normalized] ?? "") + content;
+      },
+      exists: (path: string): boolean => {
+        const normalized = normalizePosixPath(path, cwd);
+        if (Object.prototype.hasOwnProperty.call(filesState, normalized)) {
+          return true;
+        }
+        const allPaths = Object.keys(filesState);
+        return allPaths.some((candidate) => candidate.startsWith(`${normalized}/`));
+      },
+      stat: (path: string) => {
+        const normalized = normalizePosixPath(path, cwd);
+        if (Object.prototype.hasOwnProperty.call(filesState, normalized)) {
+          return {
+            isFile: true,
+            isDirectory: false,
+            isSymlink: false,
+            size: filesState[normalized].length,
+            mode: 0o644,
+            mtime: 0,
+          };
+        }
+        const allPaths = Object.keys(filesState);
+        if (allPaths.some((candidate) => candidate.startsWith(`${normalized}/`))) {
+          return {
+            isFile: false,
+            isDirectory: true,
+            isSymlink: false,
+            size: 0,
+            mode: 0o755,
+            mtime: 0,
+          };
+        }
+        throw new Error(`No such file: ${normalized}`);
+      },
+      readdir: (path: string) => {
+        const normalized = normalizePosixPath(path, cwd);
+        const children = listChildren(Object.keys(filesState), normalized);
+        return children.map((name) => ({ name, type: "file" as const }));
+      },
+      mkdir: (_path: string): void => {
+        // Directories are inferred from file paths in this lightweight bridge.
+      },
+      rm: (path: string, options?: { recursive?: boolean }): void => {
+        const normalized = normalizePosixPath(path, cwd);
+        if (options?.recursive) {
+          for (const filePath of Object.keys(filesState)) {
+            if (filePath === normalized || filePath.startsWith(`${normalized}/`)) {
+              delete filesState[filePath];
+            }
+          }
+          return;
+        }
+        delete filesState[normalized];
+      },
+      cp: (src: string, dst: string): void => {
+        const srcPath = normalizePosixPath(src, cwd);
+        const dstPath = normalizePosixPath(dst, cwd);
+        if (!Object.prototype.hasOwnProperty.call(filesState, srcPath)) {
+          throw new Error(`No such file: ${srcPath}`);
+        }
+        filesState[dstPath] = filesState[srcPath];
+      },
+      mv: (src: string, dst: string): void => {
+        const srcPath = normalizePosixPath(src, cwd);
+        const dstPath = normalizePosixPath(dst, cwd);
+        if (!Object.prototype.hasOwnProperty.call(filesState, srcPath)) {
+          throw new Error(`No such file: ${srcPath}`);
+        }
+        filesState[dstPath] = filesState[srcPath];
+        delete filesState[srcPath];
+      },
+      chmod: (_path: string, _mode: number): void => {
+        // No-op in lightweight custom bridge FS.
+      },
+    };
+
+    const execFn = async (
+      command: string,
+      options: ExecOptions = {},
+    ): Promise<ExecResult> => {
+      const subEnv = {
+        ...envObject,
+        ...(options.env ?? {}),
+      };
+      const subCwd = normalizePosixPath(options.cwd ?? cwd);
+      const subResult = JSON.parse(mbExecuteWithState(
+        command,
+        JSON.stringify(subEnv),
+        JSON.stringify(filesState),
+        "{}",
+        "{}",
+        "{}",
+        subCwd,
+        limitsJson,
+        layoutMode,
+      )) as StateExecResult;
+      filesState = { ...(subResult.files ?? filesState) };
+      return {
+        stdout: subResult.stdout ?? "",
+        stderr: subResult.stderr ?? "",
+        exitCode: Number.isFinite(subResult.exitCode) ? subResult.exitCode : 1,
+      };
+    };
+
+    const context: CommandContext = {
+      fs: fsApi,
+      cwd,
+      env: new Map(Object.entries(envObject)),
+      stdin: request.stdin ?? "",
+      exec: execFn,
+    };
+
+    try {
+      const maybeResult = customCommand.execute(
+        Array.isArray(request.args) ? request.args : [],
+        context,
+      );
+      const result = isPromiseLike<ExecResult>(maybeResult)
+        ? await Promise.resolve(maybeResult)
+        : maybeResult;
+      return {
+        handled: true,
+        stdout: result.stdout ?? "",
+        stderr: result.stderr ?? "",
+        exitCode: Number.isFinite(result.exitCode) ? Math.floor(result.exitCode) : 1,
+        files: filesState,
+      };
+    } catch (error) {
+      return {
+        handled: true,
+        stdout: "",
+        stderr: "",
+        exitCode: 1,
+        error: toErrorMessage(error),
+        files: filesState,
+      };
+    }
   }
 
   private invokeDynamicImport(specifier: string): Promise<unknown> {
@@ -1348,40 +2327,107 @@ export class Bash {
    * Execute a bash script in the sandbox.
    * Returns stdout, stderr, and exit code.
    */
-  async exec(script: string): Promise<ExecResult> {
+  async exec(script: string, execOptions: ExecOptions = {}): Promise<BashExecResult> {
     await this.ensureDefaultVmRuntimesReady();
-    const envJson = JSON.stringify(this.options.env || {});
+    const logger = this.getLogger();
+    const isEmptyScript = script.trim().length === 0;
+    if (!isEmptyScript && logger) {
+      logger.info("exec", { command: script });
+    }
+
+    const effectiveEnv: Record<string, string> = {
+      ...this.baseEnv,
+      ...(execOptions.env ?? {}),
+    };
+    if (Array.isArray(this.options.commands)) {
+      const allowed = [...this.options.commands];
+      if (this.hasCustomCommands()) {
+        allowed.push("__moonbash_custom__");
+      }
+      effectiveEnv.__MOONBASH_ALLOWED_COMMANDS = allowed.join(",");
+    }
+
+    const cwd = normalizePosixPath(execOptions.cwd ?? this.baseCwd);
+    const limitsJson = this.encodeLimitsJson();
+    const layoutMode: "default" | "minimal" = this.useDefaultLayout ? "default" : "minimal";
+
+    if (this.hasCustomCommands()) {
+      const customResult = await this.tryExecuteWithCustomCommands(
+        script,
+        effectiveEnv,
+        cwd,
+        execOptions,
+      );
+      if (customResult) {
+        if (!isEmptyScript && logger) {
+          if (customResult.stdout.length > 0) {
+            logger.debug("stdout", { output: customResult.stdout });
+          }
+          if (customResult.stderr.length > 0) {
+            logger.info("stderr", { output: customResult.stderr });
+          }
+          logger.info("exit", { exitCode: customResult.exitCode });
+        }
+        return customResult;
+      }
+    }
+
+    let scriptToRun = script;
+    if (typeof execOptions.stdin === "string" && execOptions.stdin.length > 0) {
+      scriptToRun = `printf '%s' ${shellSingleQuote(execOptions.stdin)} | ${scriptToRun}`;
+    }
+    const envJson = JSON.stringify(effectiveEnv);
     const filesJson = JSON.stringify(this.files);
     const dirsJson = JSON.stringify(this.dirs);
     const linksJson = JSON.stringify(this.links);
     const modesJson = JSON.stringify(this.modes);
-    const cwd = this.options.cwd || "/home/user";
+
     const fetchBridge = this.createFetchBridge();
     const sleepBridge = this.createSleepBridge();
     const nowBridge = this.createNowBridge();
     const vmBridge = this.createVmBridge();
+    const customBridge = this.createCustomBridge(limitsJson, layoutMode);
     const previousFetchBridge = globalThis.__moonbash_fetch;
     const previousSleepBridge = globalThis.__moonbash_sleep;
     const previousNowBridge = globalThis.__moonbash_now;
     const previousVmBridge = globalThis.__moonbash_vm;
+    const previousCustomBridge = globalThis.__moonbash_custom;
     globalThis.__moonbash_fetch = fetchBridge;
     globalThis.__moonbash_sleep = sleepBridge;
     globalThis.__moonbash_now = nowBridge;
     globalThis.__moonbash_vm = vmBridge;
+    globalThis.__moonbash_custom = customBridge;
 
     try {
       const jsonResult = mbExecuteWithState(
-        script,
+        scriptToRun,
         envJson,
         filesJson,
         dirsJson,
         linksJson,
         modesJson,
         cwd,
+        limitsJson,
+        layoutMode,
       );
       const parsed = JSON.parse(jsonResult) as StateExecResult;
       this.applyState(parsed);
-      return parsed;
+      const result: BashExecResult = {
+        stdout: parsed.stdout ?? "",
+        stderr: parsed.stderr ?? "",
+        exitCode: Number.isFinite(parsed.exitCode) ? parsed.exitCode : 1,
+        env: parsed.env && typeof parsed.env === "object" ? parsed.env : { ...effectiveEnv },
+      };
+      if (!isEmptyScript && logger) {
+        if (result.stdout.length > 0) {
+          logger.debug("stdout", { output: result.stdout });
+        }
+        if (result.stderr.length > 0) {
+          logger.info("stderr", { output: result.stderr });
+        }
+        logger.info("exit", { exitCode: result.exitCode });
+      }
+      return result;
     } finally {
       if (previousFetchBridge === undefined) {
         delete globalThis.__moonbash_fetch;
@@ -1403,6 +2449,11 @@ export class Bash {
       } else {
         globalThis.__moonbash_vm = previousVmBridge;
       }
+      if (previousCustomBridge === undefined) {
+        delete globalThis.__moonbash_custom;
+      } else {
+        globalThis.__moonbash_custom = previousCustomBridge;
+      }
     }
   }
 
@@ -1422,14 +2473,11 @@ export class Bash {
   }
 
   getCwd(): string {
-    if (this.options.cwd && this.options.cwd.length > 0) {
-      return this.options.cwd;
-    }
-    return "/home/user";
+    return this.baseCwd;
   }
 
   getEnv(): Record<string, string> {
-    return { ...(this.options.env || {}) };
+    return { ...this.baseEnv };
   }
 
   /**
@@ -1437,7 +2485,7 @@ export class Bash {
    * Note: Currently not implemented - filesystem is internal to execution.
    */
   getFs(): FileSystem {
-    throw new Error("moonbash: getFs() is not yet supported. Use the 'files' option in BashOptions instead.");
+    return this.fs;
   }
 }
 
@@ -1452,10 +2500,11 @@ export class Bash {
  */
 export async function exec(
   script: string,
-  options: BashOptions = {}
-): Promise<ExecResult> {
+  options: BashOptions = {},
+  execOptions: ExecOptions = {},
+): Promise<BashExecResult> {
   const bash = new Bash(options);
-  return bash.exec(script);
+  return bash.exec(script, execOptions);
 }
 
 /**
@@ -1472,8 +2521,8 @@ export class Sandbox {
   /**
    * Execute a script in this sandbox.
    */
-  async exec(script: string): Promise<ExecResult> {
-    return this.bash.exec(script);
+  async exec(script: string, options: ExecOptions = {}): Promise<BashExecResult> {
+    return this.bash.exec(script, options);
   }
 
   /**

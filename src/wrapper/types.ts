@@ -9,6 +9,23 @@ export interface ExecResult {
   exitCode: number;
 }
 
+export interface BashExecResult extends ExecResult {
+  env: Record<string, string>;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ExecOptions {
+  env?: Record<string, string>;
+  cwd?: string;
+  rawScript?: boolean;
+  stdin?: string;
+}
+
+export interface BashLogger {
+  info(message: string, data?: Record<string, unknown>): void;
+  debug(message: string, data?: Record<string, unknown>): void;
+}
+
 export interface MoonBashFetchRequest {
   url: string;
   method: string;
@@ -118,12 +135,24 @@ export interface BashOptions {
   cwd?: string;
   /** Initial filesystem contents: path -> content mapping */
   files?: InitialFiles;
+  /** Compatibility hook for external in-memory fs adapters used by tests. */
+  fs?: unknown;
   /** Enable built-in Python runtime (defaults to WASM bridge). */
   python?: boolean;
   /** Enable built-in SQLite runtime (defaults to WASM bridge). */
   sqlite?: boolean;
   /** Execution limits */
   limits?: Partial<ExecutionLimits>;
+  /** just-bash compatible alias of `limits` */
+  executionLimits?: Partial<ExecutionLimits>;
+  /** Restrict available command names. */
+  commands?: string[];
+  /** Register custom commands. */
+  customCommands?: CustomCommand[];
+  /** Convenience alias for timers.sleep. */
+  sleep?: (durationMs: number) => void | Promise<void>;
+  /** Optional execution logger. */
+  logger?: BashLogger;
   /** Enable debug tracing */
   trace?: boolean;
   /** Network bridge options used by curl/html-to-markdown */
@@ -156,6 +185,7 @@ export interface FileSystem {
   rm(path: string, options?: { recursive?: boolean; force?: boolean }): void;
   cp(src: string, dst: string, options?: { recursive?: boolean }): void;
   mv(src: string, dst: string): void;
+  chmod(path: string, mode: number): void;
 }
 
 export interface FileStat {
@@ -171,3 +201,23 @@ export interface DirentEntry {
   name: string;
   type: "file" | "directory" | "symlink";
 }
+
+export interface CommandContext {
+  fs: FileSystem;
+  cwd: string;
+  env: Map<string, string>;
+  stdin: string;
+  exec?: (command: string, options?: ExecOptions) => Promise<ExecResult>;
+}
+
+export interface Command {
+  name: string;
+  execute(args: string[], ctx: CommandContext): Promise<ExecResult>;
+}
+
+export interface LazyCommand {
+  name: string;
+  load(): Promise<Command>;
+}
+
+export type CustomCommand = Command | LazyCommand;
