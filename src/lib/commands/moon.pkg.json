@@ -2,6 +2,7 @@
   "import": [
     "moon_bash/lib/ast",
     "moon_bash/lib/fs",
+    "bobzhang/moonjq",
     "moonbitlang/core/json",
     "gmlewis/md5",
     "gmlewis/sha1",

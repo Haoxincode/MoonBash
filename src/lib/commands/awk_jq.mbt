@@ -2246,6 +2246,279 @@ fn jq_apply_filter(
   current
 }
 
+fn jq_is_ident_start(ch : Char) -> Bool {
+  (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '_'
+}
+
+fn jq_is_ident_char(ch : Char) -> Bool {
+  jq_is_ident_start(ch) || (ch >= '0' && ch <= '9')
+}
+
+fn jq_starts_with_at(s : String, pos : Int, needle : String) -> Bool {
+  if pos < 0 || pos + needle.length() > s.length() {
+    return false
+  }
+  for i = 0; i < needle.length(); i = i + 1 {
+    if s[pos + i] != needle[i] {
+      return false
+    }
+  }
+  true
+}
+
+fn jq_is_ws(ch : Char) -> Bool {
+  ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r'
+}
+
+fn jq_prev_non_ws_char(s : String, pos : Int) -> Char? {
+  let mut i = pos - 1
+  while i >= 0 {
+    let ch = s[i].to_int().unsafe_to_char()
+    if not(jq_is_ws(ch)) {
+      return Some(ch)
+    }
+    i -= 1
+  }
+  None
+}
+
+fn jq_next_non_ws_char(s : String, pos : Int) -> Char? {
+  let mut i = pos
+  while i < s.length() {
+    let ch = s[i].to_int().unsafe_to_char()
+    if not(jq_is_ws(ch)) {
+      return Some(ch)
+    }
+    i += 1
+  }
+  None
+}
+
+fn jq_rewrite_keys_builtin(filter : String) -> String {
+  let out = StringBuilder::new()
+  let mut i = 0
+  let mut quote : Char? = None
+
+  while i < filter.length() {
+    let ch = filter[i].to_int().unsafe_to_char()
+    match quote {
+      Some(q) => {
+        out.write_char(ch)
+        if ch == '\\' && i + 1 < filter.length() {
+          i += 1
+          out.write_char(filter[i].to_int().unsafe_to_char())
+        } else if ch == q {
+          quote = None
+        }
+        i += 1
+      }
+      None => {
+        if ch == '"' || ch == '\'' {
+          quote = Some(ch)
+          out.write_char(ch)
+          i += 1
+          continue
+        }
+
+        if jq_starts_with_at(filter, i, "keys") {
+          let left_ok = if i == 0 {
+            true
+          } else {
+            not(jq_is_ident_char(filter[i - 1].to_int().unsafe_to_char()))
+          }
+          let right_pos = i + 4
+          let right_ok = if right_pos >= filter.length() {
+            true
+          } else {
+            not(jq_is_ident_char(filter[right_pos].to_int().unsafe_to_char()))
+          }
+          if left_ok && right_ok {
+            let prev_sig = jq_prev_non_ws_char(filter, i)
+            let next_sig = jq_next_non_ws_char(filter, right_pos)
+
+            let is_member_or_var = match prev_sig {
+              Some(prev) => prev == '.' || prev == '$'
+              None => false
+            }
+            let is_object_key = match next_sig {
+              Some(next) => next == ':'
+              None => false
+            }
+            let is_object_shorthand = match prev_sig {
+              Some(prev) => if prev == '{' || prev == ',' {
+                match next_sig {
+                  Some(next) => next == '}' || next == ','
+                  None => false
+                }
+              } else {
+                false
+              }
+              None => false
+            }
+
+            if not(is_member_or_var) &&
+              not(is_object_key) &&
+              not(is_object_shorthand) {
+              out.write_string("(keys|sort)")
+              i += 4
+              continue
+            }
+          }
+        }
+
+        out.write_char(ch)
+        i += 1
+      }
+    }
+  }
+  out.to_string()
+}
+
+fn jq_normalize_def_param_dollars(filter : String) -> String {
+  let out = StringBuilder::new()
+  let mut i = 0
+  let mut quote : Char? = None
+
+  while i < filter.length() {
+    let ch = filter[i].to_int().unsafe_to_char()
+    match quote {
+      Some(q) => {
+        out.write_char(ch)
+        if ch == '\\' && i + 1 < filter.length() {
+          i += 1
+          out.write_char(filter[i].to_int().unsafe_to_char())
+        } else if ch == q {
+          quote = None
+        }
+        i += 1
+      }
+      None => {
+        if ch == '"' || ch == '\'' {
+          quote = Some(ch)
+          out.write_char(ch)
+          i += 1
+          continue
+        }
+
+        if jq_starts_with_at(filter, i, "def") {
+          let left_ok = if i == 0 {
+            true
+          } else {
+            not(jq_is_ident_char(filter[i - 1].to_int().unsafe_to_char()))
+          }
+          let after = i + 3
+          let right_ok = if after >= filter.length() {
+            true
+          } else {
+            not(jq_is_ident_char(filter[after].to_int().unsafe_to_char()))
+          }
+          if left_ok && right_ok {
+            out.write_string("def")
+            i += 3
+
+            while i < filter.length() {
+              let ws = filter[i].to_int().unsafe_to_char()
+              if ws == ' ' || ws == '\t' || ws == '\n' || ws == '\r' {
+                out.write_char(ws)
+                i += 1
+              } else {
+                break
+              }
+            }
+
+            while i < filter.length() &&
+              jq_is_ident_char(filter[i].to_int().unsafe_to_char()) {
+              out.write_char(filter[i].to_int().unsafe_to_char())
+              i += 1
+            }
+
+            while i < filter.length() {
+              let ws = filter[i].to_int().unsafe_to_char()
+              if ws == ' ' || ws == '\t' || ws == '\n' || ws == '\r' {
+                out.write_char(ws)
+                i += 1
+              } else {
+                break
+              }
+            }
+
+            if i < filter.length() && filter[i].to_int().unsafe_to_char() == '(' {
+              out.write_char('(')
+              i += 1
+              let mut param_quote : Char? = None
+              while i < filter.length() {
+                let pch = filter[i].to_int().unsafe_to_char()
+                match param_quote {
+                  Some(pq) => {
+                    out.write_char(pch)
+                    if pch == '\\' && i + 1 < filter.length() {
+                      i += 1
+                      out.write_char(filter[i].to_int().unsafe_to_char())
+                    } else if pch == pq {
+                      param_quote = None
+                    }
+                    i += 1
+                  }
+                  None => {
+                    if pch == '"' || pch == '\'' {
+                      param_quote = Some(pch)
+                      out.write_char(pch)
+                      i += 1
+                    } else if pch == '$' && i + 1 < filter.length() &&
+                      jq_is_ident_start(filter[i + 1].to_int().unsafe_to_char()) {
+                      i += 1
+                    } else {
+                      out.write_char(pch)
+                      i += 1
+                      if pch == ')' {
+                        break
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            continue
+          }
+        }
+
+        out.write_char(ch)
+        i += 1
+      }
+    }
+  }
+  out.to_string()
+}
+
+fn jq_parse_query_with_compat(
+  filter : String
+) -> (@moonjq.Query?, String) {
+  let keys_compat_filter = jq_rewrite_keys_builtin(filter)
+  let first = try {
+    Some(@moonjq.parse(keys_compat_filter))
+  } catch {
+    _ => None
+  }
+  match first {
+    Some(query) => (Some(query), "")
+    None => {
+      let compat_filter = jq_normalize_def_param_dollars(keys_compat_filter)
+      if compat_filter == keys_compat_filter {
+        return (None, "jq: invalid filter\n")
+      }
+      let second = try {
+        Some(@moonjq.parse(compat_filter))
+      } catch {
+        _ => None
+      }
+      match second {
+        Some(query) => (Some(query), "")
+        None => (None, "jq: invalid filter\n")
+      }
+    }
+  }
+}
+
 fn cmd_jq(ctx : CommandContext) -> @ast.ExecResult {
   let mut compact = false
   let mut raw = false
@@ -2285,8 +2558,14 @@ fn cmd_jq(ctx : CommandContext) -> @ast.ExecResult {
     None => return @ast.ExecResult::err("jq: missing filter\n")
   }
 
+  let (query_opt, parse_err) = jq_parse_query_with_compat(jq_filter)
+  let query = match query_opt {
+    Some(q) => q
+    None => return @ast.ExecResult::err(parse_err)
+  }
+
   let inputs : Array[Json] = if null_input {
-    [jq_json_null()]
+    [Json::null()]
   } else {
     let source = match input_file {
       Some(path) => {
@@ -2303,50 +2582,88 @@ fn cmd_jq(ctx : CommandContext) -> @ast.ExecResult {
       }
       None => ctx.stdin_content
     }
-
+    let trimmed = aj_trim(source)
     if slurp {
-      let lines = aj_split_lines_records(source)
-      let arr : Array[Json] = []
-      for line in lines {
-        let t = aj_trim(line)
-        if t.length() == 0 {
-          continue
-        }
-        let parsed = try {
-          @json.parse(t[:])
-        } catch {
-          _ => return @ast.ExecResult::err("jq: invalid JSON input\n")
-        }
-        arr.push(parsed)
-      }
-      [Json::array(arr)]
-    } else {
-      let trimmed = aj_trim(source)
       if trimmed.length() == 0 {
-        [jq_json_null()]
+        [Json::array([])]
       } else {
-        let parsed = try {
-          @json.parse(trimmed[:])
+        let single = try {
+          Some(@json.parse(trimmed[:]))
         } catch {
-          _ => return @ast.ExecResult::err("jq: invalid JSON input\n")
+          _ => None
         }
-        [parsed]
+        match single {
+          Some(value) => [Json::array([value])]
+          None => {
+            let lines = aj_split_lines_records(source)
+            let arr : Array[Json] = []
+            for line in lines {
+              let t = aj_trim(line)
+              if t.length() == 0 {
+                continue
+              }
+              let parsed = try {
+                @json.parse(t[:])
+              } catch {
+                _ => return @ast.ExecResult::err("jq: invalid JSON input\n")
+              }
+              arr.push(parsed)
+            }
+            [Json::array(arr)]
+          }
+        }
+      }
+    } else {
+      if trimmed.length() == 0 {
+        [Json::null()]
+      } else {
+        let single = try {
+          Some(@json.parse(trimmed[:]))
+        } catch {
+          _ => None
+        }
+        match single {
+          Some(value) => [value]
+          None => {
+            let lines = aj_split_lines_records(source)
+            let parsed_lines : Array[Json] = []
+            for line in lines {
+              let t = aj_trim(line)
+              if t.length() == 0 {
+                continue
+              }
+              let parsed = try {
+                @json.parse(t[:])
+              } catch {
+                _ => return @ast.ExecResult::err("jq: invalid JSON input\n")
+              }
+              parsed_lines.push(parsed)
+            }
+            if parsed_lines.length() == 0 { [Json::null()] } else { parsed_lines }
+          }
+        }
       }
     }
   }
 
-  let values = jq_apply_filter(jq_filter, inputs)
   let out = StringBuilder::new()
-  for value in values {
-    if raw {
-      match value {
-        Json::String(s) => out.write_string(s)
-        _ => out.write_string(value.stringify(indent=if compact { 0 } else { 2 }))
-      }
-    } else {
-      out.write_string(value.stringify(indent=if compact { 0 } else { 2 }))
+  for input in inputs {
+    let values = try {
+      @moonjq.run_json(query, input)
+    } catch {
+      e => return @ast.ExecResult::err("jq: \{e}\n")
     }
-    out.write_char('\n')
+    for value in values {
+      if raw {
+        match value {
+          Json::String(s) => out.write_string(s)
+          _ => out.write_string(value.stringify(indent=if compact { 0 } else { 2 }))
+        }
+      } else {
+        out.write_string(value.stringify(indent=if compact { 0 } else { 2 }))
+      }
+      out.write_char('\n')
+    }
   }
   @ast.ExecResult::ok(out.to_string())
 }
