@@ -104,7 +104,7 @@ fn Parser::is_word(self : Parser) -> Bool {
   match self.peek() {
     @ast.Token::Word(_) => true
     @ast.Token::Number(_) => true
-    @ast.Token::AssignmentWord(_, _) => true
+    @ast.Token::AssignmentWord(_, _, _) => true
     @ast.Token::If
     | @ast.Token::Then
     | @ast.Token::Elif
@@ -131,11 +131,11 @@ fn token_to_string(tok : @ast.Token) -> String {
   match tok {
     @ast.Token::Word(s) => s
     @ast.Token::Number(n) => n.to_string()
-    @ast.Token::AssignmentWord(name, value) => {
+    @ast.Token::AssignmentWord(name, value, append) => {
       if value.length() == 0 {
-        name + "="
+        if append { name + "+=" } else { name + "=" }
       } else {
-        name + "=" + value
+        if append { name + "+=" + value } else { name + "=" + value }
       }
     }
     @ast.Token::If => "if"
@@ -163,7 +163,8 @@ fn arith_token_to_string(tok : @ast.Token) -> String {
   match tok {
     @ast.Token::Word(s) => s
     @ast.Token::Number(n) => n.to_string()
-    @ast.Token::AssignmentWord(name, value) => name + "=" + value
+    @ast.Token::AssignmentWord(name, value, append) =>
+      if append { name + "+=" + value } else { name + "=" + value }
     @ast.Token::Pipe => "|"
     @ast.Token::PipeAnd => "|&"
     @ast.Token::And => "&&"
@@ -380,6 +381,10 @@ fn Parser::parse_pipeline(self : Parser) -> @ast.Pipeline raise @ast.BashError {
 
 /// Parse a command: simple, compound, or function definition.
 fn Parser::parse_command(self : Parser) -> @ast.Command raise @ast.BashError {
+  if self.is_double_bracket_start() {
+    return @ast.Command::Simple(self.parse_double_bracket_simple_command())
+  }
+
   match self.peek() {
     // Compound commands
     @ast.Token::If => {
@@ -469,6 +474,66 @@ fn Parser::parse_command(self : Parser) -> @ast.Command raise @ast.BashError {
   }
 }
 
+fn Parser::is_double_bracket_start(self : Parser) -> Bool {
+  match self.peek() {
+    @ast.Token::Word(s) => s == "[["
+    @ast.Token::DoubleBracketOpen => true
+    _ => false
+  }
+}
+
+fn Parser::parse_double_bracket_simple_command(
+  self : Parser
+) -> @ast.SimpleCommand raise @ast.BashError {
+  let assignments : Array[@ast.Assignment] = []
+  let words : Array[@ast.Word] = []
+  let redirections : Array[@ast.Redirection] = []
+
+  let opening = self.advance()
+  let opening_text = match opening {
+    @ast.Token::Word(s) => s
+    @ast.Token::DoubleBracketOpen => "[["
+    tok => raise @ast.BashError("expected [[, got \{tok}")
+  }
+  words.push(parse_word_content(opening_text))
+
+  let mut closed = false
+  while not(self.at_end()) {
+    if self.is_redirection() {
+      redirections.push(self.parse_redirection())
+      continue
+    }
+    match self.peek() {
+      @ast.Token::Newline | @ast.Token::EOF => break
+      _ => ()
+    }
+
+    let tok = self.advance()
+    let token_text = match tok {
+      @ast.Token::DoubleBracketClose => "]]"
+      _ => arith_token_to_string(tok)
+    }
+    if token_text.length() == 0 {
+      raise @ast.BashError("unsupported token in [[ expression")
+    }
+    words.push(parse_word_content(token_text))
+    if token_text == "]]" {
+      closed = true
+      break
+    }
+  }
+
+  if not(closed) {
+    raise @ast.BashError("expected ]] to close conditional expression")
+  }
+
+  while self.is_redirection() {
+    redirections.push(self.parse_redirection())
+  }
+
+  { assignments, words, redirections }
+}
+
 // ============================================================================
 // Simple Command Parsing
 // ============================================================================
@@ -483,14 +548,14 @@ fn Parser::parse_simple_command(self : Parser) -> @ast.SimpleCommand raise @ast.
   // Parse leading assignments
   while true {
     match self.peek() {
-      @ast.Token::AssignmentWord(name, value) => {
+      @ast.Token::AssignmentWord(name, value, append) => {
         self.advance() |> ignore
         let word_value : @ast.Word? = if value.length() > 0 {
           Some(parse_word_content(value))
         } else {
           None
         }
-        assignments.push({ name, value: word_value, append: false })
+        assignments.push({ name, value: word_value, append })
       }
       _ => break
     }
@@ -725,11 +790,12 @@ fn token_line_text(tok : @ast.Token) -> String {
     @ast.Token::RedirectInOut => "<>"
     @ast.Token::RedirectAndOut => "&>"
     @ast.Token::RedirectAndAppend => "&>>"
-    @ast.Token::AssignmentWord(name, value) => {
+    @ast.Token::AssignmentWord(name, value, append) => {
       if value.length() == 0 {
-        name + "="
+        if append { name + "+=" } else { name + "=" }
       } else {
-        name + "=" + strip_single_quote_markers(value)
+        let rendered = strip_single_quote_markers(value)
+        if append { name + "+=" + rendered } else { name + "=" + rendered }
       }
     }
     @ast.Token::FdNumber(n) => n.to_string()

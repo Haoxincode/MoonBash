@@ -46,7 +46,14 @@ fn ExecContext::builtin_read(
   // Split line by current IFS and assign.
   let words = self.word_split(line)
   match array_name {
-    Some(name) => self.store_array_assignment(name, words)
+    Some(name) => {
+      if words.length() > self.limits.max_array_elements {
+        self.stderr_buf.write_string("read: array element limit exceeded\n")
+        self.exit_code = 1
+        return
+      }
+      self.store_array_assignment(name, words)
+    }
     None => {
       for j = 0; j < var_names.length(); j = j + 1 {
         if j < var_names.length() - 1 {

@@ -184,12 +184,17 @@ test "tokenize braces" {
 
 test "tokenize assignment" {
   let tokens = tokenize("VAR=value")
-  assert_eq(tokens[0], @ast.Token::AssignmentWord("VAR", "value"))
+  assert_eq(tokens[0], @ast.Token::AssignmentWord("VAR", "value", false))
 }
 
 test "tokenize assignment empty value" {
   let tokens = tokenize("VAR=")
-  assert_eq(tokens[0], @ast.Token::AssignmentWord("VAR", ""))
+  assert_eq(tokens[0], @ast.Token::AssignmentWord("VAR", "", false))
+}
+
+test "tokenize assignment append" {
+  let tokens = tokenize("VAR+=value")
+  assert_eq(tokens[0], @ast.Token::AssignmentWord("VAR", "value", true))
 }
 
 // ============================================================================

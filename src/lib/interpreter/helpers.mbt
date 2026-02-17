@@ -202,7 +202,7 @@ fn evaluate_test(args : Array[String], ctx : ExecContext) -> Bool {
   // Logical operators inside test/[ ... ].
   // Implement minimal precedence: -a binds tighter than -o.
   for i = 0; i < args.length(); i = i + 1 {
-    if args[i] == "-o" {
+    if args[i] == "-o" || args[i] == "||" {
       let left : Array[String] = []
       let right : Array[String] = []
       for j = 0; j < i; j = j + 1 {
@@ -215,7 +215,7 @@ fn evaluate_test(args : Array[String], ctx : ExecContext) -> Bool {
     }
   }
   for i = 0; i < args.length(); i = i + 1 {
-    if args[i] == "-a" {
+    if args[i] == "-a" || args[i] == "&&" {
       let left : Array[String] = []
       let right : Array[String] = []
       for j = 0; j < i; j = j + 1 {
@@ -237,6 +237,11 @@ fn evaluate_test(args : Array[String], ctx : ExecContext) -> Bool {
       rest.push(args[i])
     }
     return not(evaluate_test(rest, ctx))
+  }
+  if args.length() >= 3 && args[1] == "=~" {
+    let left = args[0]
+    let right = join_test_tokens(args, 2)
+    return ctx.regex_cond_match(left, right)
   }
   if args.length() == 1 {
     // test STRING: true if string is non-empty
@@ -308,6 +313,7 @@ fn evaluate_test(args : Array[String], ctx : ExecContext) -> Bool {
           _ => false
         }
       }
+      "-v" => return test_var_is_set(arg, ctx)
       "!" => return not(evaluate_test([arg], ctx))
       _ => ()
     }
@@ -317,9 +323,9 @@ fn evaluate_test(args : Array[String], ctx : ExecContext) -> Bool {
     let op = args[1]
     let right = args[2]
     match op {
-      "=" | "==" => return left == right
-      "!=" => return left != right
-      "=~" => return test_regex_match(left, right)
+      "=" | "==" => return test_string_compare(left, right)
+      "!=" => return not(test_string_compare(left, right))
+      "=~" => return ctx.regex_cond_match(left, right)
       "-eq" => return parse_int_str(left) == parse_int_str(right)
       "-ne" => return parse_int_str(left) != parse_int_str(right)
       "-lt" => return parse_int_str(left) < parse_int_str(right)
@@ -333,18 +339,33 @@ fn evaluate_test(args : Array[String], ctx : ExecContext) -> Bool {
   false
 }
 
-fn test_regex_match(text : String, pattern : String) -> Bool {
-  let matcher = try {
-    @regex.compile_grep_matcher(
-      pattern,
-      extended=true,
-      fixed=false,
-      ignore_case=false,
-    )
-  } catch {
-    _ => return false
+fn join_test_tokens(args : Array[String], start : Int) -> String {
+  let out = StringBuilder::new()
+  for i = start; i < args.length(); i = i + 1 {
+    out.write_string(args[i])
   }
-  matcher.find_first(text) is Some(_)
+  out.to_string()
+}
+
+fn test_var_is_set(name : String, ctx : ExecContext) -> Bool {
+  match parse_array_reference_name(name) {
+    Some((base, index)) => {
+      if index == "@" || index == "*" {
+        ctx.env.contains(base) || ctx.env.contains(base + "[@]")
+      } else {
+        ctx.env.contains("\{base}[\{index}]")
+      }
+    }
+    None => ctx.env.contains(name)
+  }
+}
+
+fn test_string_compare(left : String, right : String) -> Bool {
+  if has_glob_meta(right) {
+    simple_pattern_match(left, right)
+  } else {
+    left == right
+  }
 }
 
 // ============================================================================
@@ -513,6 +534,7 @@ fn format_printf(format : String, args : Array[String]) -> String {
           let p = precision.unwrap_or(6)
           printf_format_float(arg, p)
         }
+        'q' => printf_shell_quote(arg)
         _ => {
           buf.write_char('%')
           i += 1
@@ -640,6 +662,49 @@ fn printf_format_decimal(value : Int64, precision : Int?) -> String {
       }
     }
   }
+}
+
+fn printf_shell_quote(value : String) -> String {
+  if value.length() == 0 {
+    return "''"
+  }
+
+  let mut safe = true
+  for i = 0; i < value.length(); i = i + 1 {
+    let ch = value[i].to_int().unsafe_to_char()
+    if not(printf_is_shell_safe_char(ch)) {
+      safe = false
+      break
+    }
+  }
+  if safe {
+    return value
+  }
+
+  let out = StringBuilder::new()
+  out.write_char('\'')
+  for i = 0; i < value.length(); i = i + 1 {
+    let ch = value[i].to_int().unsafe_to_char()
+    if ch == '\'' {
+      out.write_string("'\\''")
+    } else {
+      out.write_char(ch)
+    }
+  }
+  out.write_char('\'')
+  out.to_string()
+}
+
+fn printf_is_shell_safe_char(ch : Char) -> Bool {
+  (ch >= 'a' && ch <= 'z') ||
+  (ch >= 'A' && ch <= 'Z') ||
+  (ch >= '0' && ch <= '9') ||
+  ch == '_' ||
+  ch == '-' ||
+  ch == '.' ||
+  ch == '/' ||
+  ch == ':' ||
+  ch == '@'
 }
 
 fn printf_format_float(raw : String, precision : Int) -> String {

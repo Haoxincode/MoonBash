@@ -92,6 +92,10 @@ fn ExecContext::expand_double_quoted_array_words(
     return None
   }
 
+  if is_positional_at_expansion(inner_parts[0]) {
+    return Some(self.expand_positional_parameters_for_words())
+  }
+
   let (base, expand_keys) = match array_reference_base_for_at(inner_parts[0]) {
     Some(pair) => pair
     None => return None
@@ -100,6 +104,15 @@ fn ExecContext::expand_double_quoted_array_words(
     Some(self.collect_array_keys(base))
   } else {
     Some(self.expand_array_elements_for_words(base))
+  }
+}
+
+fn is_positional_at_expansion(part : @ast.WordPart) -> Bool {
+  match part {
+    @ast.WordPart::Variable(name) => name == "@"
+    @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Simple(name)) =>
+      name == "@"
+    _ => false
   }
 }
 
@@ -121,6 +134,20 @@ fn array_reference_base_for_at(part : @ast.WordPart) -> (String, Bool)? {
   }
 }
 
+fn ExecContext::expand_positional_parameters_for_words(
+  self : ExecContext
+) -> Array[String] {
+  let count = match self.env.get("#") {
+    Some(raw) => parse_int32_str(raw)
+    None => 0
+  }
+  let values : Array[String] = []
+  for i = 1; i <= count; i = i + 1 {
+    values.push(self.env.get(i.to_string()).unwrap_or(""))
+  }
+  values
+}
+
 fn ExecContext::expand_array_elements_for_words(
   self : ExecContext,
   base : String
@@ -130,8 +157,14 @@ fn ExecContext::expand_array_elements_for_words(
   for key in keys {
     values.push(self.env.get("\{base}[\{key}]").unwrap_or(""))
   }
-  if values.length() == 0 && self.env.contains(base) {
-    values.push(self.env.get(base).unwrap_or(""))
+  if values.length() == 0 {
+    let count_key = "__MOON_BASH_ARRAY_COUNT__" + base
+    if self.env.contains(count_key) {
+      return values
+    }
+    if self.env.contains(base) {
+      values.push(self.env.get(base).unwrap_or(""))
+    }
   }
   values
 }

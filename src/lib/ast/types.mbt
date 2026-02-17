@@ -9,7 +9,7 @@ pub(all) enum Token {
   // Literals
   Word(String)
   Number(Int64)
-  AssignmentWord(String, String) // name, value
+  AssignmentWord(String, String, Bool) // name, value, append
 
   // Operators
   Pipe // |

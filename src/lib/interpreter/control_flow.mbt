@@ -451,6 +451,13 @@ fn ExecContext::eval_cond(self : ExecContext, cond : @ast.CondExpr) -> Bool {
           }
           self.fs.exists(path)
         }
+        "-v" => {
+          if value.length() == 0 {
+            false
+          } else {
+            self.env.contains(value)
+          }
+        }
         _ => false
       }
     }
@@ -477,12 +484,16 @@ fn ExecContext::eval_cond(self : ExecContext, cond : @ast.CondExpr) -> Bool {
     @ast.CondExpr::Regex(left_word, right_word) => {
       let left = self.expand_word_to_string(left_word)
       let right = self.expand_word_to_string(right_word)
-      regex_cond_match(left, right)
+      self.regex_cond_match(left, right)
     }
   }
 }
 
-fn regex_cond_match(text : String, pattern : String) -> Bool {
+fn ExecContext::regex_cond_match(
+  self : ExecContext,
+  text : String,
+  pattern : String
+) -> Bool {
   let matcher = try {
     @regex.compile_grep_matcher(
       pattern,
@@ -491,9 +502,26 @@ fn regex_cond_match(text : String, pattern : String) -> Bool {
       ignore_case=false,
     )
   } catch {
-    _ => return false
+    _ => {
+      self.store_array_assignment("BASH_REMATCH", [])
+      return false
+    }
   }
-  matcher.find_first(text) is Some(_)
+  match matcher.find_first_with_groups(text) {
+    Some((start, end, groups)) => {
+      let values : Array[String] = []
+      values.push(text.substring(start=start, end=end))
+      for group in groups {
+        values.push(group)
+      }
+      self.store_array_assignment("BASH_REMATCH", values)
+      true
+    }
+    None => {
+      self.store_array_assignment("BASH_REMATCH", [])
+      false
+    }
+  }
 }
 
 fn cstyle_condition_omitted(expr : @ast.ArithExpr) -> Bool {

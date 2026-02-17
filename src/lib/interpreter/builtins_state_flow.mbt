@@ -63,7 +63,32 @@ fn ExecContext::builtin_set(self : ExecContext, args : Array[String]) -> Unit {
     self.exit_code = 0
     return
   }
-  for arg in args {
+  let mut i = 0
+  let mut positional_start = -1
+  while i < args.length() {
+    let arg = args[i]
+    if arg == "--" {
+      positional_start = i + 1
+      break
+    }
+    if arg == "-o" {
+      if i + 1 < args.length() {
+        self.set_named_shell_option(args[i + 1], true)
+        i += 2
+      } else {
+        i += 1
+      }
+      continue
+    }
+    if arg == "+o" {
+      if i + 1 < args.length() {
+        self.set_named_shell_option(args[i + 1], false)
+        i += 2
+      } else {
+        i += 1
+      }
+      continue
+    }
     if arg.length() >= 2 && arg[0] == '-' {
       let ch = arg.substring(start=1, end=2)
       match ch {
@@ -73,9 +98,9 @@ fn ExecContext::builtin_set(self : ExecContext, args : Array[String]) -> Unit {
         "x" => self.options.xtrace = true
         "C" => self.options.noclobber = true
         "a" => self.options.allexport = true
-        "o" => () // set -o pipefail etc. - check next arg
         _ => ()
       }
+      i += 1
     } else if arg.length() >= 2 && arg[0] == '+' {
       let ch = arg.substring(start=1, end=2)
       match ch {
@@ -87,9 +112,62 @@ fn ExecContext::builtin_set(self : ExecContext, args : Array[String]) -> Unit {
         "a" => self.options.allexport = false
         _ => ()
       }
+      i += 1
+    } else {
+      positional_start = i
+      break
     }
   }
+
+  if positional_start >= 0 {
+    let values : Array[String] = []
+    for j = positional_start; j < args.length(); j = j + 1 {
+      values.push(args[j])
+    }
+    self.set_positional_parameters(values)
+  }
+
   self.exit_code = 0
+}
+
+fn ExecContext::set_named_shell_option(
+  self : ExecContext,
+  name : String,
+  enabled : Bool
+) -> Unit {
+  match name {
+    "pipefail" => self.options.pipefail = enabled
+    "errexit" => self.options.errexit = enabled
+    "nounset" => self.options.nounset = enabled
+    "noglob" => self.options.noglob = enabled
+    "xtrace" => self.options.xtrace = enabled
+    "noclobber" => self.options.noclobber = enabled
+    "allexport" => self.options.allexport = enabled
+    _ => ()
+  }
+}
+
+fn ExecContext::set_positional_parameters(
+  self : ExecContext,
+  values : Array[String]
+) -> Unit {
+  let old_count = match self.env.get("#") {
+    Some(s) => parse_int32_str(s)
+    None => 0
+  }
+  for i = 1; i <= old_count; i = i + 1 {
+    self.env.remove(i.to_string())
+  }
+
+  let joined = values.iter().fold(
+    init="",
+    fn(acc, value) { if acc.length() == 0 { value } else { acc + " " + value } },
+  )
+  self.env["@"] = joined
+  self.env["#"] = values.length().to_string()
+  for i = 0; i < values.length(); i = i + 1 {
+    self.env[(i + 1).to_string()] = values[i]
+  }
 }
 
 fn ExecContext::builtin_shift(
@@ -116,7 +194,16 @@ fn ExecContext::builtin_shift(
   for i = count - n + 1; i <= count; i = i + 1 {
     self.env.remove(i.to_string())
   }
-  self.env["#"] = (count - n).to_string()
+  let remaining = count - n
+  self.env["#"] = remaining.to_string()
+  let values : Array[String] = []
+  for i = 1; i <= remaining; i = i + 1 {
+    values.push(self.env.get(i.to_string()).unwrap_or(""))
+  }
+  self.env["@"] = values.iter().fold(
+    init="",
+    fn(acc, value) { if acc.length() == 0 { value } else { acc + " " + value } },
+  )
   self.exit_code = 0
 }
 
@@ -127,6 +214,20 @@ fn ExecContext::builtin_exit(self : ExecContext, args : Array[String]) -> Unit {
     self.exit_code
   }
   self.should_exit = true
+}
+
+fn ExecContext::builtin_exec(self : ExecContext, args : Array[String]) -> Unit {
+  if args.length() == 0 {
+    self.exit_code = 0
+    return
+  }
+
+  let command = args[0]
+  let cmd_args : Array[String] = []
+  for i = 1; i < args.length(); i = i + 1 {
+    cmd_args.push(args[i])
+  }
+  self.run_command(command, cmd_args)
 }
 
 fn ExecContext::builtin_return(
@@ -290,15 +391,62 @@ fn ExecContext::builtin_declare(
   args : Array[String]
 ) -> Unit {
   let mut nameref = false
+  let mut print_mode = false
+  let mut function_mode = false
   let filtered : Array[String] = []
   for arg in args {
     if arg.length() > 0 && arg[0] == '-' {
       if declare_flag_contains(arg, 'n') {
         nameref = true
       }
+      if declare_flag_contains(arg, 'p') {
+        print_mode = true
+      }
+      if declare_flag_contains(arg, 'f') {
+        function_mode = true
+      }
       continue
     }
     filtered.push(arg)
+  }
+
+  if print_mode {
+    let mut failed = false
+    if function_mode {
+      if filtered.length() == 0 {
+        for name, _f in self.functions {
+          self.stdout_buf.write_string("\{name} ()\n")
+        }
+      } else {
+        for name in filtered {
+          if self.functions.contains(name) {
+            self.stdout_buf.write_string("\{name} ()\n")
+          } else {
+            self.stderr_buf.write_string("moon_bash: declare: \{name}: not found\n")
+            failed = true
+          }
+        }
+      }
+    } else {
+      if filtered.length() == 0 {
+        for name, value in self.env {
+          self.stdout_buf.write_string("declare -- \{name}=\"\{value}\"\n")
+        }
+      } else {
+        for name in filtered {
+          match self.env.get(name) {
+            Some(value) =>
+              self.stdout_buf.write_string("declare -- \{name}=\"\{value}\"\n")
+            None => {
+              self.stderr_buf.write_string("moon_bash: declare: \{name}: not found\n")
+              failed = true
+            }
+          }
+        }
+      }
+    }
+    self.exit_code = if failed { 1 } else { 0 }
+    return
   }
 
   if nameref {

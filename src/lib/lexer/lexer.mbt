@@ -726,8 +726,8 @@ fn Lexer::scan_word(self : Lexer) -> Unit raise @ast.BashError {
 
   // Check for assignment: NAME=VALUE or NAME+=VALUE
   match try_split_assignment(word) {
-    Some((name, value, _append)) => {
-      self.emit(@ast.Token::AssignmentWord(name, value))
+    Some((name, value, append)) => {
+      self.emit(@ast.Token::AssignmentWord(name, value, append))
       return
     }
     None => ()

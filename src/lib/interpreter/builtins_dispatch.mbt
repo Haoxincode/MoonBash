@@ -23,6 +23,10 @@ fn ExecContext::run_builtin(
       self.builtin_shift(args)
       true
     }
+    "exec" => {
+      self.builtin_exec(args)
+      true
+    }
     "exit" => {
       self.builtin_exit(args)
       true

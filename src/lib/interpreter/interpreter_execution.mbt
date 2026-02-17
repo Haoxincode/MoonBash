@@ -157,7 +157,17 @@ fn ExecContext::execute_pipeline(
     saved_stdout.write_string(pipe_input)
     self.stdout_buf = saved_stdout
     self.stdin_buf = saved_stdin
-    self.exit_code = parse_int32_str(pipeline_statuses[pipeline_statuses.length() - 1])
+    let mut pipeline_exit = parse_int32_str(pipeline_statuses[pipeline_statuses.length() - 1])
+    if self.options.pipefail {
+      pipeline_exit = 0
+      for status in pipeline_statuses {
+        let code = parse_int32_str(status)
+        if code != 0 {
+          pipeline_exit = code
+        }
+      }
+    }
+    self.exit_code = pipeline_exit
     self.enforce_output_size_limit()
   }
 
@@ -184,37 +194,101 @@ fn ExecContext::execute_command(self : ExecContext, cmd : @ast.Command) -> Unit 
   match cmd {
     @ast.Command::Simple(simple) => self.execute_simple(simple)
     @ast.Command::Compound(compound, redirs) => {
-      // Save and apply redirections
       let saved_stdout = self.stdout_buf
       let saved_stderr = self.stderr_buf
+      let saved_stdin = self.stdin_buf
       let mut redirected_file : String? = None
       let mut redirect_append = false
-      self.apply_redirections(redirs, saved_stdout, saved_stderr)
-      // Check if we redirected to a file
+      let mut null_output = false
+      let mut stdout_to_stderr = false
+      let mut stderr_to_stdout = false
+      let mut input_from_file = false
+
       for redir in redirs {
         match redir.op {
           @ast.RedirectOp::Output => {
             let target = self.expand_word_to_string(redir.target)
-            if target != "/dev/null" && target != "/dev/stdout" && target != "/dev/stderr" {
+            if target == "/dev/null" {
+              null_output = true
+              self.stdout_buf = StringBuilder::new()
+            } else if target == "/dev/stderr" {
+              stdout_to_stderr = true
+              self.stdout_buf = StringBuilder::new()
+            } else if target != "/dev/stdout" {
               redirected_file = Some(target)
               redirect_append = false
+              self.stdout_buf = StringBuilder::new()
             }
           }
           @ast.RedirectOp::Append => {
             let target = self.expand_word_to_string(redir.target)
-            if target != "/dev/null" && target != "/dev/stdout" && target != "/dev/stderr" {
+            if target == "/dev/null" {
+              null_output = true
+              self.stdout_buf = StringBuilder::new()
+            } else if target != "/dev/stdout" && target != "/dev/stderr" {
               redirected_file = Some(target)
               redirect_append = true
+              self.stdout_buf = StringBuilder::new()
+            }
+          }
+          @ast.RedirectOp::Input => {
+            let target = self.expand_word_to_string(redir.target)
+            let resolved = try {
+              @fs.resolve_path(self.cwd, target)
+            } catch {
+              _ => target
+            }
+            let content = try {
+              self.fs.read_file(resolved)
+            } catch {
+              @fs.FsError(msg) => {
+                self.stderr_buf.write_string("moon_bash: \{msg}\n")
+                self.exit_code = 1
+                return
+              }
+            }
+            self.stdin_buf = content
+            input_from_file = true
+          }
+          @ast.RedirectOp::HereString => {
+            let content = self.expand_word_to_string(redir.target)
+            self.stdin_buf = content + "\n"
+            input_from_file = true
+          }
+          @ast.RedirectOp::HereDoc(_strip_tabs) => {
+            let content = self.expand_word_to_string(redir.target)
+            self.stdin_buf = content
+            input_from_file = true
+          }
+          @ast.RedirectOp::DupOutput => {
+            let target = self.expand_word_to_string(redir.target)
+            let source_fd = match redir.fd {
+              Some(fd) => fd
+              None => 1
+            }
+            if source_fd == 1 && (target == "2" || target == "/dev/stderr") {
+              stdout_to_stderr = true
+              self.stdout_buf = StringBuilder::new()
+            } else if source_fd == 2 && (target == "1" || target == "/dev/stdout") {
+              stderr_to_stdout = true
+              self.stderr_buf = StringBuilder::new()
+            } else if source_fd == 1 && target == "-" {
+              null_output = true
+              self.stdout_buf = StringBuilder::new()
             }
           }
           _ => ()
         }
       }
+
       self.execute_compound(compound)
-      // Flush redirected output to file if needed
+
       match redirected_file {
         Some(path) => {
-          let output = self.stdout_buf.to_string()
+          let mut output = self.stdout_buf.to_string()
+          if stderr_to_stdout {
+            output = output + self.stderr_buf.to_string()
+          }
           let resolved = try {
             @fs.resolve_path(self.cwd, path)
           } catch {
@@ -228,11 +302,31 @@ fn ExecContext::execute_command(self : ExecContext, cmd : @ast.Command) -> Unit 
             }
           } catch {
             @fs.FsError(msg) =>
-              self.stderr_buf.write_string("moon_bash: \{msg}\n")
+              saved_stderr.write_string("moon_bash: \{msg}\n")
           }
           self.stdout_buf = saved_stdout
+          if stderr_to_stdout {
+            self.stderr_buf = saved_stderr
+          }
         }
-        None => ()
+        None => {
+          if stdout_to_stderr {
+            let output = self.stdout_buf.to_string()
+            saved_stderr.write_string(output)
+            self.stdout_buf = saved_stdout
+          } else if null_output {
+            self.stdout_buf = saved_stdout
+          }
+          if stderr_to_stdout {
+            let output = self.stderr_buf.to_string()
+            saved_stdout.write_string(output)
+            self.stderr_buf = saved_stderr
+          }
+        }
+      }
+
+      if input_from_file {
+        self.stdin_buf = saved_stdin
       }
     }
     @ast.Command::FunctionDef(fndef) =>
@@ -256,7 +350,7 @@ fn ExecContext::execute_simple(
     for assign in cmd.assignments {
       match assign.value {
         Some(word) => {
-          if self.try_store_array_assignment(assign.name, word) {
+          if self.try_store_array_assignment(assign.name, word, assign.append) {
             continue
           }
           let value = self.expand_word_to_string(word)
@@ -273,11 +367,14 @@ fn ExecContext::execute_simple(
           let target_name = self.env.get("__MOON_BASH_NAMEREF__" + assign.name).unwrap_or(
             assign.name,
           )
-          if assign.append {
+          let next_value = if assign.append {
             let existing = self.env.get(target_name).unwrap_or("")
-            self.env[target_name] = existing + value
+            existing + value
           } else {
-            self.env[target_name] = value
+            value
+          }
+          if not(self.store_scalar_assignment(target_name, next_value)) {
+            return
           }
         }
         None => {
@@ -291,11 +388,13 @@ fn ExecContext::execute_simple(
           let target_name = self.env.get("__MOON_BASH_NAMEREF__" + assign.name).unwrap_or(
             assign.name,
           )
-          if assign.append {
-            let existing = self.env.get(target_name).unwrap_or("")
-            self.env[target_name] = existing
+          let next_value = if assign.append {
+            self.env.get(target_name).unwrap_or("")
           } else {
-            self.env[target_name] = ""
+            ""
+          }
+          if not(self.store_scalar_assignment(target_name, next_value)) {
+            return
           }
         }
       }
@@ -408,11 +507,23 @@ fn ExecContext::execute_simple(
   let mut null_output = false
   let mut stdout_to_stderr = false
   let mut input_from_file = false
+  let exec_builtin = cmd_name == "exec"
 
   for redir in cmd.redirections {
     match redir.op {
       @ast.RedirectOp::Output => {
         let target = self.expand_word_to_string(redir.target)
+        let source_fd = match redir.fd {
+          Some(fd) => fd
+          None => 1
+        }
+        if exec_builtin && source_fd != 1 {
+          self.store_fd_output_mapping(source_fd, target, false)
+          continue
+        }
+        if source_fd != 1 {
+          continue
+        }
         if target == "/dev/null" {
           null_output = true
           self.stdout_buf = StringBuilder::new()
@@ -427,6 +538,17 @@ fn ExecContext::execute_simple(
       }
       @ast.RedirectOp::Append => {
         let target = self.expand_word_to_string(redir.target)
+        let source_fd = match redir.fd {
+          Some(fd) => fd
+          None => 1
+        }
+        if exec_builtin && source_fd != 1 {
+          self.store_fd_output_mapping(source_fd, target, true)
+          continue
+        }
+        if source_fd != 1 {
+          continue
+        }
         if target == "/dev/null" {
           null_output = true
           self.stdout_buf = StringBuilder::new()
@@ -475,6 +597,41 @@ fn ExecContext::execute_simple(
         let source_fd = match redir.fd {
           Some(fd) => fd
           None => 1
+        }
+        if exec_builtin {
+          if target == "-" {
+            self.env.remove(fd_output_key(source_fd))
+            continue
+          }
+          match parse_fd_target_number(target) {
+            Some(target_fd) => {
+              match self.env.get(fd_output_key(target_fd)) {
+                Some(spec) => self.env[fd_output_key(source_fd)] = spec
+                None => self.env.remove(fd_output_key(source_fd))
+              }
+              continue
+            }
+            None => ()
+          }
+        }
+        if source_fd == 1 {
+          match self.load_fd_output_mapping(target) {
+            Some((path, append_mode)) => {
+              if path == "/dev/null" {
+                null_output = true
+                self.stdout_buf = StringBuilder::new()
+              } else if path == "/dev/stderr" {
+                stdout_to_stderr = true
+                self.stdout_buf = StringBuilder::new()
+              } else {
+                redirected_file = Some(path)
+                redirect_append = append_mode
+                self.stdout_buf = StringBuilder::new()
+              }
+              continue
+            }
+            None => ()
+          }
         }
         if source_fd == 1 && (target == "2" || target == "/dev/stderr") {
           stdout_to_stderr = true
@@ -543,10 +700,89 @@ fn is_grep_like_command(cmd_name : String) -> Bool {
   cmd_name == "rg"
 }
 
+fn ExecContext::store_scalar_assignment(
+  self : ExecContext,
+  name : String,
+  value : String
+) -> Bool {
+  if value.length() > self.limits.max_string_length {
+    self.fail_execution_limit("string length limit exceeded")
+    return false
+  }
+  self.env[name] = value
+  true
+}
+
+fn fd_output_key(fd : Int) -> String {
+  "__MOON_BASH_FD_OUT__" + fd.to_string()
+}
+
+fn parse_fd_target_number(text : String) -> Int? {
+  if text.length() == 0 {
+    return None
+  }
+  let mut value = 0
+  for i = 0; i < text.length(); i = i + 1 {
+    let ch = text[i].to_int().unsafe_to_char()
+    if ch < '0' || ch > '9' {
+      return None
+    }
+    value = value * 10 + (ch.to_int() - '0'.to_int())
+  }
+  Some(value)
+}
+
+fn encode_fd_output_mapping(path : String, append : Bool) -> String {
+  if append { "A:" + path } else { "W:" + path }
+}
+
+fn decode_fd_output_mapping(spec : String) -> (String, Bool)? {
+  if spec.length() < 3 {
+    return None
+  }
+  let mode = spec[0].to_int().unsafe_to_char()
+  if spec[1].to_int().unsafe_to_char() != ':' {
+    return None
+  }
+  let path = spec.substring(start=2)
+  if mode == 'A' {
+    Some((path, true))
+  } else if mode == 'W' {
+    Some((path, false))
+  } else {
+    None
+  }
+}
+
+fn ExecContext::store_fd_output_mapping(
+  self : ExecContext,
+  fd : Int,
+  target : String,
+  append : Bool
+) -> Unit {
+  self.env[fd_output_key(fd)] = encode_fd_output_mapping(target, append)
+}
+
+fn ExecContext::load_fd_output_mapping(
+  self : ExecContext,
+  target : String
+) -> (String, Bool)? {
+  match parse_fd_target_number(target) {
+    Some(fd) => {
+      match self.env.get(fd_output_key(fd)) {
+        Some(spec) => decode_fd_output_mapping(spec)
+        None => None
+      }
+    }
+    None => None
+  }
+}
+
 fn ExecContext::try_store_array_assignment(
   self : ExecContext,
   name : String,
-  raw_value : @ast.Word
+  raw_value : @ast.Word,
+  append : Bool
 ) -> Bool {
   let items = match split_array_assignment_items(raw_value.parts) {
     Some(parsed) => parsed
@@ -567,7 +803,27 @@ fn ExecContext::try_store_array_assignment(
       return true
     }
   }
-  self.store_array_assignment(name, values)
+  if append {
+    let merged : Array[String] = []
+    let existing = self.expand_array_elements_for_words(name)
+    for existing_value in existing {
+      merged.push(existing_value)
+      if merged.length() > self.limits.max_array_elements {
+        self.fail_execution_limit("array element limit exceeded")
+        return true
+      }
+    }
+    for value in values {
+      merged.push(value)
+      if merged.length() > self.limits.max_array_elements {
+        self.fail_execution_limit("array element limit exceeded")
+        return true
+      }
+    }
+    self.store_array_assignment(name, merged)
+  } else {
+    self.store_array_assignment(name, values)
+  }
   true
 }
 
