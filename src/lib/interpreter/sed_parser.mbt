@@ -11,6 +11,14 @@ fn trim_ascii_left(s : String) -> String {
   }
 }
 
+priv struct SedSubstituteFlags {
+  global : Bool
+  ignore_case : Bool
+  occurrence : Int
+  print_on_subst : Bool
+  write_file : String?
+}
+
 fn parse_sed_command(
   expr : String,
   extended~ : Bool = false
@@ -227,6 +235,36 @@ fn parse_sed_substitute_command(
   extended~ : Bool = false,
   negated~ : Bool = false
 ) -> SedCommand? {
+  guard parse_sed_substitute_parts(expr, op_idx) is Some((pattern, replacement, flags_text, delim)) else {
+    return None
+  }
+  guard parse_sed_substitute_flags(flags_text) is Some(flags) else {
+    return None
+  }
+  let matcher = parse_sed_substitute_matcher(pattern, extended~, ignore_case=flags.ignore_case)
+  if pattern.length() > 0 && matcher is None {
+    return None
+  }
+
+  Some({
+    address,
+    kind: Substitute({
+      matcher,
+      replacement,
+      global: flags.global,
+      occurrence: flags.occurrence,
+      literal_ampersand: delim == '&',
+      print_on_subst: flags.print_on_subst,
+      write_file: flags.write_file,
+    }),
+    negated,
+  })
+}
+
+fn parse_sed_substitute_parts(
+  expr : String,
+  op_idx : Int
+) -> (String, String, String, Char)? {
   let mut i = op_idx + 1
   if i >= expr.length() {
     return None
@@ -242,6 +280,10 @@ fn parse_sed_substitute_command(
   }
 
   let flags_text = trim_ascii_space(substring_slice(expr, flags_start, expr.length()))
+  Some((pattern, replacement, flags_text, delim))
+}
+
+fn parse_sed_substitute_flags(flags_text : String) -> SedSubstituteFlags? {
   let mut global = false
   let mut ignore_case = false
   let mut occurrence = 1
@@ -284,36 +326,34 @@ fn parse_sed_substitute_command(
     }
     j += 1
   }
-
-  let matcher = if pattern.length() == 0 {
-    None
-  } else {
-    let compiled = try {
-      @regex.compile_grep_matcher(
-        pattern,
-        extended~,
-        fixed=false,
-        ignore_case=ignore_case,
-      )
-    } catch {
-      _ => return None
-    }
-    Some(compiled)
-  }
-
   Some({
-    address,
-    kind: Substitute({
-      matcher,
-      replacement,
-      global,
-      occurrence,
-      literal_ampersand: delim == '&',
-      print_on_subst,
-      write_file,
-    }),
-    negated,
+    global,
+    ignore_case,
+    occurrence,
+    print_on_subst,
+    write_file,
   })
+}
+
+fn parse_sed_substitute_matcher(
+  pattern : String,
+  extended~ : Bool = false,
+  ignore_case~ : Bool = false
+) -> @regex.GrepMatcher? {
+  if pattern.length() == 0 {
+    return None
+  }
+  let compiled = try {
+    @regex.compile_grep_matcher(
+      pattern,
+      extended~,
+      fixed=false,
+      ignore_case~,
+    )
+  } catch {
+    _ => return None
+  }
+  Some(compiled)
 }
 
 fn parse_sed_address_prefix(
@@ -325,31 +365,7 @@ fn parse_sed_address_prefix(
     return None
   }
   let first = expr[i].to_int().unsafe_to_char()
-  if first == 's' ||
-    first == 'd' ||
-    first == 'D' ||
-    first == 'N' ||
-    first == 'n' ||
-    first == 'y' ||
-    first == '=' ||
-    first == 'p' ||
-    first == 'P' ||
-    first == 'h' ||
-    first == 'H' ||
-    first == 'g' ||
-    first == 'G' ||
-    first == 'x' ||
-    first == 'q' ||
-    first == 'a' ||
-    first == 'i' ||
-    first == 'c' ||
-    first == 'w' ||
-    first == ':' ||
-    first == 'b' ||
-    first == 't' ||
-    first == 'T' ||
-    first == 'v' ||
-    first == '{' {
+  if is_sed_command_start_char(first) {
     return Some((None, i))
   }
 
@@ -380,6 +396,34 @@ fn parse_sed_address_prefix(
       j,
     ))
   }
+}
+
+fn is_sed_command_start_char(ch : Char) -> Bool {
+  ch == 's' ||
+  ch == 'd' ||
+  ch == 'D' ||
+  ch == 'N' ||
+  ch == 'n' ||
+  ch == 'y' ||
+  ch == '=' ||
+  ch == 'p' ||
+  ch == 'P' ||
+  ch == 'h' ||
+  ch == 'H' ||
+  ch == 'g' ||
+  ch == 'G' ||
+  ch == 'x' ||
+  ch == 'q' ||
+  ch == 'a' ||
+  ch == 'i' ||
+  ch == 'c' ||
+  ch == 'w' ||
+  ch == ':' ||
+  ch == 'b' ||
+  ch == 't' ||
+  ch == 'T' ||
+  ch == 'v' ||
+  ch == '{'
 }
 
 fn parse_sed_address(
@@ -681,51 +725,12 @@ fn parse_sed_group_commands(
   expr : String,
   extended~ : Bool = false
 ) -> Array[SedCommand]? {
-  guard parse_sed_address_prefix(expr, extended~) is Some((address, cmd_idx)) else {
+  guard parse_sed_group_open(expr, extended~) is Some((address, outer_negated, open_idx)) else {
     return None
   }
-
-  let mut open_idx = skip_ascii_space(expr, cmd_idx)
-  let mut outer_negated = false
-  if open_idx < expr.length() && expr[open_idx].to_int().unsafe_to_char() == '!' {
-    outer_negated = true
-    open_idx = skip_ascii_space(expr, open_idx + 1)
-  }
-  if outer_negated && address is None {
+  guard parse_sed_group_close_index(expr, open_idx) is Some(close_idx) else {
     return None
   }
-  if open_idx >= expr.length() || expr[open_idx].to_int().unsafe_to_char() != '{' {
-    return None
-  }
-
-  let mut depth = 1
-  let mut i = open_idx + 1
-  while i < expr.length() {
-    let ch = expr[i].to_int().unsafe_to_char()
-    if ch == '\\' {
-      i += 2
-      continue
-    }
-    if ch == '{' {
-      depth += 1
-      i += 1
-      continue
-    }
-    if ch == '}' {
-      depth -= 1
-      if depth == 0 {
-        break
-      }
-      i += 1
-      continue
-    }
-    i += 1
-  }
-  if depth != 0 {
-    return None
-  }
-
-  let close_idx = i
   if skip_ascii_space(expr, close_idx + 1) != expr.length() {
     return None
   }
@@ -750,6 +755,57 @@ fn parse_sed_group_commands(
     negated: false,
   })
   Some(wrapped)
+}
+
+fn parse_sed_group_open(
+  expr : String,
+  extended~ : Bool = false
+) -> (SedAddressRange?, Bool, Int)? {
+  guard parse_sed_address_prefix(expr, extended~) is Some((address, cmd_idx)) else {
+    return None
+  }
+
+  let mut open_idx = skip_ascii_space(expr, cmd_idx)
+  let mut outer_negated = false
+  if open_idx < expr.length() && expr[open_idx].to_int().unsafe_to_char() == '!' {
+    outer_negated = true
+    open_idx = skip_ascii_space(expr, open_idx + 1)
+  }
+  if outer_negated && address is None {
+    return None
+  }
+  if open_idx >= expr.length() || expr[open_idx].to_int().unsafe_to_char() != '{' {
+    return None
+  }
+
+  Some((address, outer_negated, open_idx))
+}
+
+fn parse_sed_group_close_index(expr : String, open_idx : Int) -> Int? {
+  let mut depth = 1
+  let mut i = open_idx + 1
+  while i < expr.length() {
+    let ch = expr[i].to_int().unsafe_to_char()
+    if ch == '\\' {
+      i += 2
+      continue
+    }
+    if ch == '{' {
+      depth += 1
+      i += 1
+      continue
+    }
+    if ch == '}' {
+      depth -= 1
+      if depth == 0 {
+        return Some(i)
+      }
+      i += 1
+      continue
+    }
+    i += 1
+  }
+  None
 }
 
 fn split_sed_top_level_parts(expr : String) -> (Array[String], Array[String]) {
