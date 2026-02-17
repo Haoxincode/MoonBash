@@ -438,6 +438,11 @@ fn ExecContext::execute_simple(
       }
       @ast.RedirectOp::Input => {
         let target = self.expand_word_to_string(redir.target)
+        if target == "/dev/null" {
+          self.stdin_buf = ""
+          input_from_file = true
+          continue
+        }
         let resolved = try {
           @fs.resolve_path(self.cwd, target)
         } catch {

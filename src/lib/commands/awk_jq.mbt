@@ -222,8 +222,16 @@ priv struct AwkProgram {
   range_end : String?
 }
 
+let awk_ctrl_next_key = "__moon_bash_awk_ctrl_next"
+let awk_ctrl_exit_key = "__moon_bash_awk_ctrl_exit"
+let awk_ctrl_error_key = "__moon_bash_awk_ctrl_error"
+
 fn awk_is_space(ch : Char) -> Bool {
   ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r'
+}
+
+fn awk_current_fs(default_fs : String, vars : Map[String, String]) -> String {
+  vars.get("FS").unwrap_or(default_fs)
 }
 
 fn awk_is_identifier_char(ch : Char) -> Bool {
@@ -456,10 +464,6 @@ fn awk_split_fields(line : String, fs : String) -> Array[String] {
   aj_split_by_delim(line, fs)
 }
 
-fn awk_array_key(name : String, index : Int) -> String {
-  name + "#" + index.to_string()
-}
-
 fn awk_is_numeric_string(s : String) -> Bool {
   let t = aj_trim(s)
   if t.length() == 0 {
@@ -546,6 +550,217 @@ fn awk_number_to_string(n : Double) -> String {
   } else {
     n.to_string()
   }
+}
+
+fn awk_normalize_array_index(index : String) -> String {
+  let trimmed = aj_trim(index)
+  if trimmed.length() == 0 {
+    return ""
+  }
+  if awk_is_numeric_string(trimmed) {
+    return awk_number_to_string(awk_parse_number(trimmed))
+  }
+  trimmed
+}
+
+fn awk_array_key(name : String, index : String) -> String {
+  name + "#" + awk_normalize_array_index(index)
+}
+
+fn awk_parse_array_ref(expr : String) -> (String, String)? {
+  let t = aj_trim(expr)
+  if t.length() < 3 {
+    return None
+  }
+  let open_bracket = aj_index_of(t, '[')
+  if open_bracket <= 0 || t[t.length() - 1].to_int().unsafe_to_char() != ']' {
+    return None
+  }
+  let arr_name = aj_trim(aj_substr(t, 0, open_bracket))
+  if not(awk_is_identifier(arr_name)) {
+    return None
+  }
+  let idx_expr = aj_trim(aj_substr(t, open_bracket + 1, t.length() - 1))
+  if idx_expr.length() == 0 {
+    return None
+  }
+  Some((arr_name, idx_expr))
+}
+
+fn awk_join_fields(fields : Array[String], sep : String) -> String {
+  let out = StringBuilder::new()
+  for i = 0; i < fields.length(); i = i + 1 {
+    if i > 0 {
+      out.write_string(sep)
+    }
+    out.write_string(fields[i])
+  }
+  out.to_string()
+}
+
+fn awk_split_chars(input : String) -> Array[String] {
+  let parts : Array[String] = []
+  for i = 0; i < input.length(); i = i + 1 {
+    parts.push(aj_substr(input, i, i + 1))
+  }
+  parts
+}
+
+fn awk_split_for_split_builtin(source : String, delim : String) -> Array[String] {
+  if delim.length() == 0 {
+    return awk_split_chars(source)
+  }
+  if delim == " " {
+    return awk_split_fields(source, " ")
+  }
+  aj_split_by_delim(source, delim)
+}
+
+fn awk_eval_split_delim(
+  expr : String,
+  line : String,
+  fields : Array[String],
+  nr : Int,
+  nf : Int,
+  vars : Map[String, String],
+  array_vars : Map[String, String]
+) -> String {
+  let text = aj_trim(expr)
+  if aj_starts_with(text, "/") && aj_ends_with(text, "/") && text.length() >= 2 {
+    return aj_substr(text, 1, text.length() - 1)
+  }
+  awk_eval_expr(text, line, fields, nr, nf, vars, array_vars)
+}
+
+fn awk_is_wrapped_in_parens(expr : String) -> Bool {
+  if expr.length() < 2 ||
+    expr[0].to_int().unsafe_to_char() != '(' ||
+    expr[expr.length() - 1].to_int().unsafe_to_char() != ')' {
+    return false
+  }
+  let mut depth = 0
+  let mut quote : Char? = None
+  for i = 0; i < expr.length(); i = i + 1 {
+    let ch = expr[i].to_int().unsafe_to_char()
+    match quote {
+      Some(q) => {
+        if ch == '\\' && i + 1 < expr.length() {
+          continue
+        }
+        if ch == q {
+          quote = None
+        }
+      }
+      None => {
+        if ch == '"' || ch == '\'' {
+          quote = Some(ch)
+        } else if ch == '(' {
+          depth += 1
+        } else if ch == ')' {
+          depth -= 1
+          if depth == 0 && i < expr.length() - 1 {
+            return false
+          }
+        }
+      }
+    }
+  }
+  depth == 0
+}
+
+fn awk_strip_outer_parens(expr : String) -> String {
+  let mut current = aj_trim(expr)
+  while awk_is_wrapped_in_parens(current) {
+    current = aj_trim(aj_substr(current, 1, current.length() - 1))
+  }
+  current
+}
+
+fn awk_find_top_level_ternary_colon(expr : String, start_idx : Int) -> Int {
+  let mut quote : Char? = None
+  let mut paren_depth = 0
+  let mut bracket_depth = 0
+  let mut ternary_depth = 0
+  for i = start_idx; i < expr.length(); i = i + 1 {
+    let ch = expr[i].to_int().unsafe_to_char()
+    match quote {
+      Some(q) => {
+        if ch == '\\' && i + 1 < expr.length() {
+          continue
+        }
+        if ch == q {
+          quote = None
+        }
+      }
+      None => {
+        if ch == '"' || ch == '\'' {
+          quote = Some(ch)
+        } else if ch == '(' {
+          paren_depth += 1
+        } else if ch == ')' && paren_depth > 0 {
+          paren_depth -= 1
+        } else if ch == '[' {
+          bracket_depth += 1
+        } else if ch == ']' && bracket_depth > 0 {
+          bracket_depth -= 1
+        } else if paren_depth == 0 && bracket_depth == 0 {
+          if ch == '?' {
+            ternary_depth += 1
+          } else if ch == ':' {
+            if ternary_depth == 0 {
+              return i
+            }
+            ternary_depth -= 1
+          }
+        }
+      }
+    }
+  }
+  -1
+}
+
+fn awk_replace_first_literal(
+  source : String,
+  pattern : String,
+  replacement : String
+) -> (String, Int) {
+  if pattern.length() == 0 {
+    return (source, 0)
+  }
+  let idx = aj_find_substring(source, pattern)
+  if idx < 0 {
+    return (source, 0)
+  }
+  let updated = aj_substr(source, 0, idx) +
+    replacement +
+    aj_substr(source, idx + pattern.length(), source.length())
+  (updated, 1)
+}
+
+fn awk_replace_all_literal(
+  source : String,
+  pattern : String,
+  replacement : String
+) -> (String, Int) {
+  if pattern.length() == 0 {
+    return (source, 0)
+  }
+  let out = StringBuilder::new()
+  let mut cursor = 0
+  let mut count = 0
+  while cursor <= source.length() {
+    let rest = aj_substr(source, cursor, source.length())
+    let rel_idx = aj_find_substring(rest, pattern)
+    if rel_idx < 0 {
+      out.write_string(rest)
+      break
+    }
+    out.write_string(aj_substr(rest, 0, rel_idx))
+    out.write_string(replacement)
+    cursor += rel_idx + pattern.length()
+    count += 1
+  }
+  (out.to_string(), count)
 }
 
 fn awk_find_top_level_token(expr : String, token : String) -> Int {
@@ -666,10 +881,25 @@ fn awk_eval_atom(
   }
 
   if t == "NR" {
-    return nr.to_string()
+    return vars.get("NR").unwrap_or(nr.to_string())
   }
   if t == "NF" {
-    return nf.to_string()
+    return vars.get("NF").unwrap_or(nf.to_string())
+  }
+  if t == "FNR" {
+    return vars.get("FNR").unwrap_or(nr.to_string())
+  }
+  if t == "FILENAME" {
+    return vars.get("FILENAME").unwrap_or("")
+  }
+  if t == "RSTART" {
+    return vars.get("RSTART").unwrap_or("0")
+  }
+  if t == "RLENGTH" {
+    return vars.get("RLENGTH").unwrap_or("-1")
+  }
+  if t == "FS" {
+    return vars.get("FS").unwrap_or("")
   }
 
   if aj_starts_with(t, "$") {
@@ -689,15 +919,20 @@ fn awk_eval_atom(
     }
   }
 
-  let open_bracket = aj_index_of(t, '[')
-  if open_bracket > 0 &&
-    t[t.length() - 1].to_int().unsafe_to_char() == ']' {
-    let arr_name = aj_trim(aj_substr(t, 0, open_bracket))
-    let idx_text = aj_trim(aj_substr(t, open_bracket + 1, t.length() - 1))
-    let idx = aj_parse_int(idx_text)
-    if idx >= 1 {
+  match awk_parse_array_ref(t) {
+    Some((arr_name, idx_expr)) => {
+      let idx = awk_eval_expr(
+        idx_expr,
+        line,
+        fields,
+        nr,
+        nf,
+        vars,
+        array_vars,
+      )
       return array_vars.get(awk_array_key(arr_name, idx)).unwrap_or("")
     }
+    None => ()
   }
 
   if awk_is_numeric_string(t) {
@@ -715,6 +950,8 @@ fn awk_tokenize_expr(expr : String) -> Array[String] {
   let tokens : Array[String] = []
   let buf = StringBuilder::new()
   let mut quote : Char? = None
+  let mut paren_depth = 0
+  let mut bracket_depth = 0
   for i = 0; i < expr.length(); i = i + 1 {
     let ch = expr[i].to_int().unsafe_to_char()
     match quote {
@@ -728,11 +965,31 @@ fn awk_tokenize_expr(expr : String) -> Array[String] {
         if ch == '"' || ch == '\'' {
           quote = Some(ch)
           buf.write_char(ch)
+        } else if ch == '(' {
+          paren_depth += 1
+          buf.write_char(ch)
+        } else if ch == ')' {
+          if paren_depth > 0 {
+            paren_depth -= 1
+          }
+          buf.write_char(ch)
+        } else if ch == '[' {
+          bracket_depth += 1
+          buf.write_char(ch)
+        } else if ch == ']' {
+          if bracket_depth > 0 {
+            bracket_depth -= 1
+          }
+          buf.write_char(ch)
         } else if ch == ' ' || ch == '\t' {
-          let tok = buf.to_string()
-          if tok.length() > 0 {
-            tokens.push(tok)
-            buf.reset()
+          if paren_depth == 0 && bracket_depth == 0 {
+            let tok = buf.to_string()
+            if tok.length() > 0 {
+              tokens.push(tok)
+              buf.reset()
+            }
+          } else {
+            buf.write_char(ch)
           }
         } else {
           buf.write_char(ch)
@@ -775,12 +1032,88 @@ fn awk_eval_expr(
     return ""
   }
 
-  if tokens.length() > 1 {
-    let out = StringBuilder::new()
-    for tok in tokens {
-      out.write_string(awk_eval_expr(tok, line, fields, nr, nf, vars, array_vars))
+  if aj_starts_with(t, "sprintf(") && aj_ends_with(t, ")") {
+    let inner = aj_substr(t, 8, t.length() - 1)
+    let args = awk_split_csv_args(inner)
+    if args.length() == 0 {
+      return ""
     }
-    return out.to_string()
+    let format = awk_eval_expr(
+      args[0],
+      line,
+      fields,
+      nr,
+      nf,
+      vars,
+      array_vars,
+    )
+    let format_args : Array[String] = []
+    for i = 1; i < args.length(); i = i + 1 {
+      format_args.push(
+        awk_eval_expr(
+          args[i],
+          line,
+          fields,
+          nr,
+          nf,
+          vars,
+          array_vars,
+        ),
+      )
+    }
+    return awk_format_printf(format, format_args)
+  }
+
+  if aj_starts_with(t, "split(") && aj_ends_with(t, ")") {
+    let inner = aj_substr(t, 6, t.length() - 1)
+    let args = awk_split_csv_args(inner)
+    if args.length() >= 2 {
+      let source = awk_eval_expr(
+        args[0],
+        line,
+        fields,
+        nr,
+        nf,
+        vars,
+        array_vars,
+      )
+      let arr_name = aj_trim(args[1])
+      let delim = if args.length() >= 3 {
+        awk_eval_split_delim(
+          args[2],
+          line,
+          fields,
+          nr,
+          nf,
+          vars,
+          array_vars,
+        )
+      } else {
+        awk_current_fs(vars.get("FS").unwrap_or(" "), vars)
+      }
+      let pieces = awk_split_for_split_builtin(source, delim)
+      for i = 0; i < pieces.length(); i = i + 1 {
+        array_vars[awk_array_key(arr_name, (i + 1).to_string())] = pieces[i]
+      }
+      vars[arr_name] = pieces.length().to_string()
+      return pieces.length().to_string()
+    }
+    return "0"
+  }
+
+  let question_idx = awk_find_top_level_token(t, "?")
+  if question_idx > 0 {
+    let colon_idx = awk_find_top_level_ternary_colon(t, question_idx + 1)
+    if colon_idx > question_idx {
+      let cond_expr = aj_substr(t, 0, question_idx)
+      let true_expr = aj_substr(t, question_idx + 1, colon_idx)
+      let false_expr = aj_substr(t, colon_idx + 1, t.length())
+      if awk_eval_condition(cond_expr, line, fields, nr, nf, vars, array_vars) {
+        return awk_eval_expr(true_expr, line, fields, nr, nf, vars, array_vars)
+      } else {
+        return awk_eval_expr(false_expr, line, fields, nr, nf, vars, array_vars)
+      }
+    }
   }
 
   let add_sub_idx = awk_find_top_level_operator(t, "+-")
@@ -838,6 +1171,14 @@ fn awk_eval_expr(
     return (left / right).to_string()
   }
 
+  if tokens.length() > 1 {
+    let out = StringBuilder::new()
+    for tok in tokens {
+      out.write_string(awk_eval_expr(tok, line, fields, nr, nf, vars, array_vars))
+    }
+    return out.to_string()
+  }
+
   awk_eval_atom(t, line, fields, nr, nf, vars, array_vars)
 }
 
@@ -845,6 +1186,8 @@ fn awk_split_csv_args(s : String) -> Array[String] {
   let parts : Array[String] = []
   let buf = StringBuilder::new()
   let mut quote : Char? = None
+  let mut paren_depth = 0
+  let mut bracket_depth = 0
   for i = 0; i < s.length(); i = i + 1 {
     let ch = s[i].to_int().unsafe_to_char()
     match quote {
@@ -858,7 +1201,23 @@ fn awk_split_csv_args(s : String) -> Array[String] {
         if ch == '"' || ch == '\'' {
           quote = Some(ch)
           buf.write_char(ch)
-        } else if ch == ',' {
+        } else if ch == '(' {
+          paren_depth += 1
+          buf.write_char(ch)
+        } else if ch == ')' {
+          if paren_depth > 0 {
+            paren_depth -= 1
+          }
+          buf.write_char(ch)
+        } else if ch == '[' {
+          bracket_depth += 1
+          buf.write_char(ch)
+        } else if ch == ']' {
+          if bracket_depth > 0 {
+            bracket_depth -= 1
+          }
+          buf.write_char(ch)
+        } else if ch == ',' && paren_depth == 0 && bracket_depth == 0 {
           parts.push(aj_trim(buf.to_string()))
           buf.reset()
         } else {
@@ -874,38 +1233,35 @@ fn awk_split_csv_args(s : String) -> Array[String] {
   parts
 }
 
-fn awk_parse_printf(action : String) -> (String, String?) {
+fn awk_parse_printf(action : String) -> (String, Array[String]) {
   let rest = aj_trim(aj_substr(action, 6, action.length()))
   if rest.length() == 0 {
-    return ("", None)
+    return ("", [])
   }
-  let quote = rest[0].to_int().unsafe_to_char()
-  if quote != '"' && quote != '\'' {
-    return (rest, None)
+  let args = awk_split_csv_args(rest)
+  if args.length() == 0 {
+    return ("", [])
   }
-  let mut i = 1
-  while i < rest.length() {
-    if rest[i].to_int().unsafe_to_char() == quote {
-      break
-    }
-    i += 1
+  let tail : Array[String] = []
+  for i = 1; i < args.length(); i = i + 1 {
+    tail.push(args[i])
   }
-  let format = aj_substr(rest, 1, i)
-  let tail = aj_trim(aj_substr(rest, i + 1, rest.length()))
-  if aj_starts_with(tail, ",") {
-    (format, Some(aj_trim(aj_substr(tail, 1, tail.length()))))
-  } else {
-    (format, None)
-  }
+  (args[0], tail)
 }
 
-fn awk_format_printf(format : String, arg : String) -> String {
+fn awk_format_printf(format : String, args : Array[String]) -> String {
   let decoded = aj_decode_c_escapes(format)
   let out = StringBuilder::new()
+  let mut arg_idx = 0
   let mut i = 0
   while i < decoded.length() {
     let ch = decoded[i].to_int().unsafe_to_char()
     if ch == '%' {
+      if i + 1 < decoded.length() && decoded[i + 1].to_int().unsafe_to_char() == '%' {
+        out.write_char('%')
+        i += 2
+        continue
+      }
       let mut j = i + 1
       let mut width = 0
       let mut has_width = false
@@ -929,7 +1285,8 @@ fn awk_format_printf(format : String, arg : String) -> String {
       }
       let spec = decoded[j].to_int().unsafe_to_char()
       if spec == 's' {
-        let value = arg
+        let value = if arg_idx < args.length() { args[arg_idx] } else { "" }
+        arg_idx += 1
         if has_width {
           let mut pad = width - value.length()
           while pad > 0 {
@@ -942,7 +1299,9 @@ fn awk_format_printf(format : String, arg : String) -> String {
         continue
       }
       if spec == 'd' {
-        let value = aj_parse_int(arg).to_string()
+        let raw = if arg_idx < args.length() { args[arg_idx] } else { "0" }
+        arg_idx += 1
+        let value = aj_parse_int(raw).to_string()
         if has_width {
           let mut pad = width - value.length()
           while pad > 0 {
@@ -958,6 +1317,181 @@ fn awk_format_printf(format : String, arg : String) -> String {
     out.write_char(ch)
     i += 1
   }
+  out.to_string()
+}
+
+fn awk_find_regex_match_range(pattern_expr : String, input : String) -> (Int, Int) {
+  let mut pat = aj_trim(pattern_expr)
+  if aj_starts_with(pat, "/") && aj_ends_with(pat, "/") && pat.length() >= 2 {
+    pat = aj_substr(pat, 1, pat.length() - 1)
+  }
+  if pat.length() == 0 {
+    return (1, 0)
+  }
+  if aj_starts_with(pat, "^") && aj_ends_with(pat, "$") {
+    let inner = aj_substr(pat, 1, pat.length() - 1)
+    if input == inner {
+      return (1, inner.length())
+    }
+    return (0, -1)
+  }
+  if aj_starts_with(pat, "^") {
+    let prefix = aj_substr(pat, 1, pat.length())
+    if aj_starts_with(input, prefix) {
+      return (1, prefix.length())
+    }
+    return (0, -1)
+  }
+  if aj_ends_with(pat, "$") {
+    let suffix = aj_substr(pat, 0, pat.length() - 1)
+    if aj_ends_with(input, suffix) {
+      return (input.length() - suffix.length() + 1, suffix.length())
+    }
+    return (0, -1)
+  }
+  let idx = aj_find_substring(input, pat)
+  if idx >= 0 {
+    (idx + 1, pat.length())
+  } else {
+    (0, -1)
+  }
+}
+
+fn awk_parse_if_statement(stmt : String) -> (String, String)? {
+  let text = aj_trim(stmt)
+  if not(aj_starts_with(text, "if")) {
+    return None
+  }
+  if text.length() > 2 {
+    let boundary = text[2].to_int().unsafe_to_char()
+    if not(awk_is_space(boundary)) && boundary != '(' {
+      return None
+    }
+  }
+
+  let mut i = 2
+  while i < text.length() && awk_is_space(text[i].to_int().unsafe_to_char()) {
+    i += 1
+  }
+  if i >= text.length() || text[i].to_int().unsafe_to_char() != '(' {
+    return None
+  }
+
+  let mut depth = 1
+  let mut j = i + 1
+  let mut quote : Char? = None
+  while j < text.length() {
+    let ch = text[j].to_int().unsafe_to_char()
+    match quote {
+      Some(q) => {
+        if ch == '\\' && j + 1 < text.length() {
+          j += 2
+          continue
+        }
+        if ch == q {
+          quote = None
+        }
+      }
+      None => {
+        if ch == '"' || ch == '\'' {
+          quote = Some(ch)
+        } else if ch == '(' {
+          depth += 1
+        } else if ch == ')' {
+          depth -= 1
+          if depth == 0 {
+            break
+          }
+        }
+      }
+    }
+    j += 1
+  }
+  if j >= text.length() || depth != 0 {
+    return None
+  }
+
+  let cond = aj_trim(aj_substr(text, i + 1, j))
+  let mut body = aj_trim(aj_substr(text, j + 1, text.length()))
+  if body.length() == 0 {
+    return None
+  }
+  if body.length() >= 2 &&
+    body[0].to_int().unsafe_to_char() == '{' &&
+    body[body.length() - 1].to_int().unsafe_to_char() == '}' {
+    body = aj_trim(aj_substr(body, 1, body.length() - 1))
+  }
+  Some((cond, body))
+}
+
+fn awk_parse_print_redirection(expr : String) -> (String, String, Bool)? {
+  let text = aj_trim(expr)
+  let append_idx = awk_find_top_level_token(text, ">>")
+  if append_idx >= 0 {
+    let left = aj_trim(aj_substr(text, 0, append_idx))
+    let right = aj_trim(aj_substr(text, append_idx + 2, text.length()))
+    if right.length() > 0 {
+      return Some((left, right, true))
+    }
+  }
+
+  let idx = awk_find_top_level_token(text, ">")
+  if idx >= 0 {
+    let left = aj_trim(aj_substr(text, 0, idx))
+    let right = aj_trim(aj_substr(text, idx + 1, text.length()))
+    if right.length() > 0 {
+      return Some((left, right, false))
+    }
+  }
+  None
+}
+
+fn awk_render_print_output(
+  expr : String,
+  line : String,
+  fields : Array[String],
+  nr : Int,
+  vars : Map[String, String],
+  array_vars : Map[String, String]
+) -> String {
+  let rest = aj_trim(expr)
+  if rest.length() == 0 {
+    return line + "\n"
+  }
+
+  let parts = awk_split_csv_args(rest)
+  let out = StringBuilder::new()
+  if parts.length() > 1 {
+    for i = 0; i < parts.length(); i = i + 1 {
+      if i > 0 {
+        out.write_char(' ')
+      }
+      out.write_string(
+        awk_eval_expr(
+          parts[i],
+          line,
+          fields,
+          nr,
+          fields.length(),
+          vars,
+          array_vars,
+        ),
+      )
+    }
+  } else {
+    out.write_string(
+      awk_eval_expr(
+        rest,
+        line,
+        fields,
+        nr,
+        fields.length(),
+        vars,
+        array_vars,
+      ),
+    )
+  }
+  out.write_char('\n')
   out.to_string()
 }
 
@@ -989,7 +1523,7 @@ fn awk_eval_condition(
   vars : Map[String, String],
   array_vars : Map[String, String]
 ) -> Bool {
-  let p = aj_trim(expr)
+  let p = awk_strip_outer_parens(expr)
   if p.length() == 0 {
     return true
   }
@@ -1004,6 +1538,24 @@ fn awk_eval_condition(
 
   if aj_starts_with(p, "/") && aj_ends_with(p, "/") {
     return awk_match_regex_pattern(p, line)
+  }
+
+  let in_idx = awk_find_top_level_token(p, " in ")
+  if in_idx > 0 {
+    let left_expr = aj_substr(p, 0, in_idx)
+    let right_expr = aj_trim(aj_substr(p, in_idx + 4, p.length()))
+    if awk_is_identifier(right_expr) {
+      let idx_value = awk_eval_expr(
+        left_expr,
+        line,
+        fields,
+        nr,
+        nf,
+        vars,
+        array_vars,
+      )
+      return array_vars.contains(awk_array_key(right_expr, idx_value))
+    }
   }
 
   let mut idx = awk_find_top_level_token(p, "==")
@@ -1256,7 +1808,9 @@ fn awk_split_statements(action : String) -> Array[String] {
             brace_depth -= 1
           }
           buf.write_char(ch)
-        } else if ch == ';' && paren_depth == 0 && brace_depth == 0 {
+        } else if (ch == ';' || ch == '\n' || ch == '\r') &&
+          paren_depth == 0 &&
+          brace_depth == 0 {
           parts.push(aj_trim(buf.to_string()))
           buf.reset()
         } else {
@@ -1377,7 +1931,91 @@ fn awk_parse_for_statement(stmt : String) -> (String, String, String, String)? {
   Some((parts[0], parts[1], parts[2], body))
 }
 
+fn awk_parse_for_in_statement(stmt : String) -> (String, String, String)? {
+  let text = aj_trim(stmt)
+  if not(aj_starts_with(text, "for")) {
+    return None
+  }
+  let mut i = 3
+  while i < text.length() && awk_is_space(text[i].to_int().unsafe_to_char()) {
+    i += 1
+  }
+  if i >= text.length() || text[i].to_int().unsafe_to_char() != '(' {
+    return None
+  }
+
+  let mut depth = 1
+  let mut j = i + 1
+  let mut quote : Char? = None
+  while j < text.length() {
+    let ch = text[j].to_int().unsafe_to_char()
+    match quote {
+      Some(q) => {
+        if ch == '\\' && j + 1 < text.length() {
+          j += 2
+          continue
+        }
+        if ch == q {
+          quote = None
+        }
+      }
+      None => {
+        if ch == '"' || ch == '\'' {
+          quote = Some(ch)
+        } else if ch == '(' {
+          depth += 1
+        } else if ch == ')' {
+          depth -= 1
+          if depth == 0 {
+            break
+          }
+        }
+      }
+    }
+    j += 1
+  }
+  if j >= text.length() || depth != 0 {
+    return None
+  }
+
+  let header = aj_trim(aj_substr(text, i + 1, j))
+  if awk_find_top_level_token(header, ";") >= 0 {
+    return None
+  }
+  let in_idx = awk_find_top_level_token(header, " in ")
+  if in_idx <= 0 {
+    return None
+  }
+  let var_name = aj_trim(aj_substr(header, 0, in_idx))
+  let arr_name = aj_trim(aj_substr(header, in_idx + 4, header.length()))
+  if not(awk_is_identifier(var_name)) || not(awk_is_identifier(arr_name)) {
+    return None
+  }
+
+  let mut body = aj_trim(aj_substr(text, j + 1, text.length()))
+  if body.length() >= 2 &&
+    body[0].to_int().unsafe_to_char() == '{' &&
+    body[body.length() - 1].to_int().unsafe_to_char() == '}' {
+    body = aj_trim(aj_substr(body, 1, body.length() - 1))
+  }
+  Some((var_name, arr_name, body))
+}
+
+fn awk_parse_var_assignment(spec : String) -> (String, String)? {
+  let eq_idx = aj_index_of(spec, '=')
+  if eq_idx <= 0 {
+    return None
+  }
+  let name = aj_trim(aj_substr(spec, 0, eq_idx))
+  let value = aj_substr(spec, eq_idx + 1, spec.length())
+  if not(awk_is_identifier(name)) {
+    return None
+  }
+  Some((name, value))
+}
+
 fn awk_execute_action(
+  ctx : CommandContext,
   action : String,
   lines : Array[String],
   line_idx : Int,
@@ -1386,10 +2024,12 @@ fn awk_execute_action(
   nr : Int,
   nf : Int,
   fs : String,
+  filename : String,
   vars : Map[String, String],
   array_vars : Map[String, String],
   out : StringBuilder
 ) -> (String, Array[String], Int, Int) {
+  ignore(nf)
   let act = aj_trim(action)
   let mut current_line = line
   let mut current_fields = fields
@@ -1404,15 +2044,60 @@ fn awk_execute_action(
 
   let statements = awk_split_statements(act)
   for stmt_raw in statements {
+    if vars.contains(awk_ctrl_exit_key) || vars.contains(awk_ctrl_next_key) {
+      break
+    }
     let stmt = aj_trim(stmt_raw)
     if stmt.length() == 0 {
       continue
+    }
+
+    match awk_parse_for_in_statement(stmt) {
+      Some((loop_var, arr_name, body_stmt)) => {
+        let key_prefix = arr_name + "#"
+        let indices : Array[String] = []
+        for key, _value in array_vars {
+          if aj_starts_with(key, key_prefix) {
+            indices.push(aj_substr(key, key_prefix.length(), key.length()))
+          }
+        }
+        for idx_value in indices {
+          if vars.contains(awk_ctrl_exit_key) || vars.contains(awk_ctrl_next_key) {
+            break
+          }
+          vars[loop_var] = idx_value
+          if body_stmt.length() > 0 {
+            let (next_line, next_fields, consumed_body, new_nr) = awk_execute_action(
+              ctx,
+              body_stmt,
+              lines,
+              line_idx + consumed,
+              current_line,
+              current_fields,
+              current_nr,
+              current_fields.length(),
+              fs,
+              filename,
+              vars,
+              array_vars,
+              out,
+            )
+            current_line = next_line
+            current_fields = next_fields
+            consumed += consumed_body
+            current_nr = new_nr
+          }
+        }
+        continue
+      }
+      None => ()
     }
 
     match awk_parse_for_statement(stmt) {
       Some((init_stmt, cond_expr, update_stmt, body_stmt)) => {
         if init_stmt.length() > 0 {
           let (next_line, next_fields, consumed_init, new_nr) = awk_execute_action(
+            ctx,
             init_stmt,
             lines,
             line_idx + consumed,
@@ -1421,6 +2106,7 @@ fn awk_execute_action(
             current_nr,
             current_fields.length(),
             fs,
+            filename,
             vars,
             array_vars,
             out,
@@ -1433,6 +2119,9 @@ fn awk_execute_action(
 
         let mut loop_count = 0
         while true {
+          if vars.contains(awk_ctrl_exit_key) || vars.contains(awk_ctrl_next_key) {
+            break
+          }
           if cond_expr.length() > 0 &&
             not(
               awk_eval_condition(
@@ -1450,6 +2139,7 @@ fn awk_execute_action(
 
           if body_stmt.length() > 0 {
             let (next_line, next_fields, consumed_body, new_nr) = awk_execute_action(
+              ctx,
               body_stmt,
               lines,
               line_idx + consumed,
@@ -1458,6 +2148,7 @@ fn awk_execute_action(
               current_nr,
               current_fields.length(),
               fs,
+              filename,
               vars,
               array_vars,
               out,
@@ -1470,6 +2161,7 @@ fn awk_execute_action(
 
           if update_stmt.length() > 0 {
             let (next_line, next_fields, consumed_update, new_nr) = awk_execute_action(
+              ctx,
               update_stmt,
               lines,
               line_idx + consumed,
@@ -1478,6 +2170,7 @@ fn awk_execute_action(
               current_nr,
               current_fields.length(),
               fs,
+              filename,
               vars,
               array_vars,
               out,
@@ -1498,13 +2191,222 @@ fn awk_execute_action(
       None => ()
     }
 
+    match awk_parse_if_statement(stmt) {
+      Some((cond_expr, body_stmt)) => {
+        if awk_eval_condition(
+          cond_expr,
+          current_line,
+          current_fields,
+          current_nr,
+          current_fields.length(),
+          vars,
+          array_vars,
+        ) {
+          let (next_line, next_fields, consumed_if, new_nr) = awk_execute_action(
+            ctx,
+            body_stmt,
+            lines,
+            line_idx + consumed,
+            current_line,
+            current_fields,
+            current_nr,
+            current_fields.length(),
+            fs,
+            filename,
+            vars,
+            array_vars,
+            out,
+          )
+          current_line = next_line
+          current_fields = next_fields
+          consumed += consumed_if
+          current_nr = new_nr
+        }
+        continue
+      }
+      None => ()
+    }
+
+    if stmt == "next" {
+      vars[awk_ctrl_next_key] = "1"
+      break
+    }
+
+    if stmt == "exit" || aj_starts_with(stmt, "exit ") {
+      let code_expr = if stmt.length() > 4 {
+        aj_trim(aj_substr(stmt, 4, stmt.length()))
+      } else {
+        ""
+      }
+      let code = if code_expr.length() == 0 {
+        0
+      } else {
+        awk_eval_number(
+          code_expr,
+          current_line,
+          current_fields,
+          current_nr,
+          current_fields.length(),
+          vars,
+          array_vars,
+        ).to_int()
+      }
+      vars[awk_ctrl_exit_key] = code.to_string()
+      break
+    }
+
+    if aj_starts_with(stmt, "system(") && aj_ends_with(stmt, ")") {
+      vars[awk_ctrl_error_key] = "system() is not supported"
+      vars[awk_ctrl_exit_key] = "1"
+      break
+    }
+
     if stmt == "getline" {
       let next_idx = line_idx + consumed + 1
       if next_idx >= 0 && next_idx < lines.length() {
         consumed += 1
         current_line = lines[next_idx]
-        current_fields = awk_split_fields(current_line, fs)
+        let current_fs = awk_current_fs(fs, vars)
+        current_fields = awk_split_fields(current_line, current_fs)
         current_nr += 1
+        vars["NR"] = current_nr.to_string()
+        vars["FNR"] = current_nr.to_string()
+        vars["NF"] = current_fields.length().to_string()
+        vars["FILENAME"] = filename
+      }
+      continue
+    }
+
+    if aj_starts_with(stmt, "delete ") {
+      let target = aj_trim(aj_substr(stmt, 6, stmt.length()))
+      match awk_parse_array_ref(target) {
+        Some((arr_name, idx_expr)) => {
+          let idx = awk_eval_expr(
+            idx_expr,
+            current_line,
+            current_fields,
+            current_nr,
+            current_fields.length(),
+            vars,
+            array_vars,
+          )
+          array_vars.remove(awk_array_key(arr_name, idx))
+        }
+        None => ()
+      }
+      continue
+    }
+
+    let is_gsub = aj_starts_with(stmt, "gsub(") && aj_ends_with(stmt, ")")
+    let is_sub = aj_starts_with(stmt, "sub(") && aj_ends_with(stmt, ")")
+    if is_gsub || is_sub {
+      let offset = if is_gsub { 5 } else { 4 }
+      let inner = aj_substr(stmt, offset, stmt.length() - 1)
+      let args = awk_split_csv_args(inner)
+      if args.length() >= 2 {
+        let pattern = awk_eval_split_delim(
+          args[0],
+          current_line,
+          current_fields,
+          current_nr,
+          current_fields.length(),
+          vars,
+          array_vars,
+        )
+        let replacement = awk_eval_expr(
+          args[1],
+          current_line,
+          current_fields,
+          current_nr,
+          current_fields.length(),
+          vars,
+          array_vars,
+        )
+        let mut target_expr : String? = None
+        if args.length() >= 3 {
+          target_expr = Some(aj_trim(args[2]))
+        }
+        let source = match target_expr {
+          Some(expr) => awk_eval_expr(
+            expr,
+            current_line,
+            current_fields,
+            current_nr,
+            current_fields.length(),
+            vars,
+            array_vars,
+          )
+          None => current_line
+        }
+        let (updated, _count) = if is_gsub {
+          awk_replace_all_literal(source, pattern, replacement)
+        } else {
+          awk_replace_first_literal(source, pattern, replacement)
+        }
+        match target_expr {
+          Some(expr) => {
+            if awk_is_identifier(expr) {
+              vars[expr] = updated
+            } else {
+              match awk_parse_array_ref(expr) {
+                Some((arr_name, idx_expr)) => {
+                  let idx = awk_eval_expr(
+                    idx_expr,
+                    current_line,
+                    current_fields,
+                    current_nr,
+                    current_fields.length(),
+                    vars,
+                    array_vars,
+                  )
+                  array_vars[awk_array_key(arr_name, idx)] = updated
+                }
+                None => ()
+              }
+            }
+          }
+          None => {
+            current_line = updated
+            let current_fs = awk_current_fs(fs, vars)
+            current_fields = awk_split_fields(current_line, current_fs)
+            vars["NF"] = current_fields.length().to_string()
+          }
+        }
+      }
+      continue
+    }
+
+    if aj_starts_with(stmt, "match(") && aj_ends_with(stmt, ")") {
+      let inner = aj_substr(stmt, 6, stmt.length() - 1)
+      let args = awk_split_csv_args(inner)
+      if args.length() >= 2 {
+        let source = awk_eval_expr(
+          args[0],
+          current_line,
+          current_fields,
+          current_nr,
+          current_fields.length(),
+          vars,
+          array_vars,
+        )
+        let pattern_expr = aj_trim(args[1])
+        let pattern = if aj_starts_with(pattern_expr, "/") &&
+          aj_ends_with(pattern_expr, "/") {
+          pattern_expr
+        } else {
+          awk_eval_expr(
+            pattern_expr,
+            current_line,
+            current_fields,
+            current_nr,
+            current_fields.length(),
+            vars,
+            array_vars,
+          )
+        }
+        let (rstart, rlength) = awk_find_regex_match_range(pattern, source)
+        vars["RSTART"] = rstart.to_string()
+        vars["RLENGTH"] = rlength.to_string()
       }
       continue
     }
@@ -1524,7 +2426,7 @@ fn awk_execute_action(
         )
         let arr_name = aj_trim(args[1])
         let delim = if args.length() >= 3 {
-          awk_eval_expr(
+          awk_eval_split_delim(
             args[2],
             current_line,
             current_fields,
@@ -1534,15 +2436,11 @@ fn awk_execute_action(
             array_vars,
           )
         } else {
-          " "
+          awk_current_fs(fs, vars)
         }
-        let pieces = if delim.length() == 0 {
-          [source]
-        } else {
-          aj_split_by_delim(source, delim)
-        }
+        let pieces = awk_split_for_split_builtin(source, delim)
         for j = 0; j < pieces.length(); j = j + 1 {
-          array_vars[awk_array_key(arr_name, j + 1)] = pieces[j]
+          array_vars[awk_array_key(arr_name, (j + 1).to_string())] = pieces[j]
         }
         vars[arr_name] = pieces.length().to_string()
       }
@@ -1550,53 +2448,21 @@ fn awk_execute_action(
     }
 
     if aj_starts_with(stmt, "printf") {
-      let (fmt, arg_expr) = awk_parse_printf(stmt)
-      let arg_value = match arg_expr {
-        Some(expr) => awk_eval_expr(
-          expr,
-          current_line,
-          current_fields,
-          current_nr,
-          current_fields.length(),
-          vars,
-          array_vars,
-        )
-        None => ""
-      }
-      out.write_string(awk_format_printf(fmt, arg_value))
-      continue
-    }
-
-    if aj_starts_with(stmt, "print") {
-      let rest = aj_trim(aj_substr(stmt, 5, stmt.length()))
-      if rest.length() == 0 {
-        out.write_string(current_line)
-        out.write_char('\n')
-        continue
-      }
-      let parts = awk_split_csv_args(rest)
-      if parts.length() > 1 {
-        for i = 0; i < parts.length(); i = i + 1 {
-          if i > 0 {
-            out.write_char(' ')
-          }
-          out.write_string(
-            awk_eval_expr(
-              parts[i],
-              current_line,
-              current_fields,
-              current_nr,
-              current_fields.length(),
-              vars,
-              array_vars,
-            ),
-          )
-        }
-        out.write_char('\n')
-      } else {
-        out.write_string(
+      let (fmt_expr, arg_exprs) = awk_parse_printf(stmt)
+      let fmt_value = awk_eval_expr(
+        fmt_expr,
+        current_line,
+        current_fields,
+        current_nr,
+        current_fields.length(),
+        vars,
+        array_vars,
+      )
+      let fmt_args : Array[String] = []
+      for expr in arg_exprs {
+        fmt_args.push(
           awk_eval_expr(
-            rest,
+            expr,
             current_line,
             current_fields,
             current_nr,
@@ -1605,7 +2471,77 @@ fn awk_execute_action(
             array_vars,
           ),
         )
-        out.write_char('\n')
+      }
+      out.write_string(awk_format_printf(fmt_value, fmt_args))
+      continue
+    }
+
+    if aj_starts_with(stmt, "print") {
+      let rest = aj_trim(aj_substr(stmt, 5, stmt.length()))
+      if awk_find_top_level_token(rest, "|") >= 0 {
+        vars[awk_ctrl_error_key] = "piping to external commands is not supported"
+        vars[awk_ctrl_exit_key] = "1"
+        break
+      }
+      match awk_parse_print_redirection(rest) {
+        Some((value_expr, target_expr, append)) => {
+          let payload = awk_render_print_output(
+            value_expr,
+            current_line,
+            current_fields,
+            current_nr,
+            vars,
+            array_vars,
+          )
+          let target = awk_eval_expr(
+            target_expr,
+            current_line,
+            current_fields,
+            current_nr,
+            current_fields.length(),
+            vars,
+            array_vars,
+          )
+          let resolved = try {
+            @fs.resolve_path(ctx.cwd, target)
+          } catch {
+            @fs.FsError(msg) => {
+              vars[awk_ctrl_error_key] = msg
+              vars[awk_ctrl_exit_key] = "1"
+              break
+            }
+          }
+          let existing = if append {
+            try {
+              ctx.fs.read_file(resolved)
+            } catch {
+              @fs.FsError(_) => ""
+            }
+          } else {
+            ""
+          }
+          try {
+            ctx.fs.write_file(resolved, existing + payload)
+          } catch {
+            @fs.FsError(msg) => {
+              vars[awk_ctrl_error_key] = msg
+              vars[awk_ctrl_exit_key] = "1"
+              break
+            }
+          }
+        }
+        None => {
+          out.write_string(
+            awk_render_print_output(
+              rest,
+              current_line,
+              current_fields,
+              current_nr,
+              vars,
+              array_vars,
+            ),
+          )
+        }
       }
       continue
     }
@@ -1615,6 +2551,24 @@ fn awk_execute_action(
       if awk_is_identifier(name) {
         let value = awk_parse_number(vars.get(name).unwrap_or(""))
         vars[name] = awk_number_to_string(value + 1.0)
+      } else {
+        match awk_parse_array_ref(name) {
+          Some((arr_name, idx_expr)) => {
+            let idx = awk_eval_expr(
+              idx_expr,
+              current_line,
+              current_fields,
+              current_nr,
+              current_fields.length(),
+              vars,
+              array_vars,
+            )
+            let key = awk_array_key(arr_name, idx)
+            let value = awk_parse_number(array_vars.get(key).unwrap_or(""))
+            array_vars[key] = awk_number_to_string(value + 1.0)
+          }
+          None => ()
+        }
       }
       continue
     }
@@ -1623,18 +2577,152 @@ fn awk_execute_action(
     if plus_eq_idx > 0 {
       let name = aj_trim(aj_substr(stmt, 0, plus_eq_idx))
       let rhs = aj_trim(aj_substr(stmt, plus_eq_idx + 2, stmt.length()))
+      let right = awk_eval_number(
+        rhs,
+        current_line,
+        current_fields,
+        current_nr,
+        current_fields.length(),
+        vars,
+        array_vars,
+      )
       if awk_is_identifier(name) {
         let left = awk_parse_number(vars.get(name).unwrap_or(""))
-        let right = awk_eval_number(
-          rhs,
-          current_line,
-          current_fields,
-          current_nr,
-          current_fields.length(),
-          vars,
-          array_vars,
-        )
         vars[name] = awk_number_to_string(left + right)
+      } else {
+        match awk_parse_array_ref(name) {
+          Some((arr_name, idx_expr)) => {
+            let idx = awk_eval_expr(
+              idx_expr,
+              current_line,
+              current_fields,
+              current_nr,
+              current_fields.length(),
+              vars,
+              array_vars,
+            )
+            let key = awk_array_key(arr_name, idx)
+            let left = awk_parse_number(array_vars.get(key).unwrap_or(""))
+            array_vars[key] = awk_number_to_string(left + right)
+          }
+          None => ()
+        }
+      }
+      continue
+    }
+
+    let minus_eq_idx = awk_find_top_level_token(stmt, "-=")
+    if minus_eq_idx > 0 {
+      let name = aj_trim(aj_substr(stmt, 0, minus_eq_idx))
+      let rhs = aj_trim(aj_substr(stmt, minus_eq_idx + 2, stmt.length()))
+      let right = awk_eval_number(
+        rhs,
+        current_line,
+        current_fields,
+        current_nr,
+        current_fields.length(),
+        vars,
+        array_vars,
+      )
+      if awk_is_identifier(name) {
+        let left = awk_parse_number(vars.get(name).unwrap_or(""))
+        vars[name] = awk_number_to_string(left - right)
+      } else {
+        match awk_parse_array_ref(name) {
+          Some((arr_name, idx_expr)) => {
+            let idx = awk_eval_expr(
+              idx_expr,
+              current_line,
+              current_fields,
+              current_nr,
+              current_fields.length(),
+              vars,
+              array_vars,
+            )
+            let key = awk_array_key(arr_name, idx)
+            let left = awk_parse_number(array_vars.get(key).unwrap_or(""))
+            array_vars[key] = awk_number_to_string(left - right)
+          }
+          None => ()
+        }
+      }
+      continue
+    }
+
+    let mul_eq_idx = awk_find_top_level_token(stmt, "*=")
+    if mul_eq_idx > 0 {
+      let name = aj_trim(aj_substr(stmt, 0, mul_eq_idx))
+      let rhs = aj_trim(aj_substr(stmt, mul_eq_idx + 2, stmt.length()))
+      let right = awk_eval_number(
+        rhs,
+        current_line,
+        current_fields,
+        current_nr,
+        current_fields.length(),
+        vars,
+        array_vars,
+      )
+      if awk_is_identifier(name) {
+        let left = awk_parse_number(vars.get(name).unwrap_or(""))
+        vars[name] = awk_number_to_string(left * right)
+      } else {
+        match awk_parse_array_ref(name) {
+          Some((arr_name, idx_expr)) => {
+            let idx = awk_eval_expr(
+              idx_expr,
+              current_line,
+              current_fields,
+              current_nr,
+              current_fields.length(),
+              vars,
+              array_vars,
+            )
+            let key = awk_array_key(arr_name, idx)
+            let left = awk_parse_number(array_vars.get(key).unwrap_or(""))
+            array_vars[key] = awk_number_to_string(left * right)
+          }
+          None => ()
+        }
+      }
+      continue
+    }
+
+    let div_eq_idx = awk_find_top_level_token(stmt, "/=")
+    if div_eq_idx > 0 {
+      let name = aj_trim(aj_substr(stmt, 0, div_eq_idx))
+      let rhs = aj_trim(aj_substr(stmt, div_eq_idx + 2, stmt.length()))
+      let right = awk_eval_number(
+        rhs,
+        current_line,
+        current_fields,
+        current_nr,
+        current_fields.length(),
+        vars,
+        array_vars,
+      )
+      if awk_is_identifier(name) {
+        let left = awk_parse_number(vars.get(name).unwrap_or(""))
+        let value = if right == 0.0 { 0.0 } else { left / right }
+        vars[name] = awk_number_to_string(value)
+      } else {
+        match awk_parse_array_ref(name) {
+          Some((arr_name, idx_expr)) => {
+            let idx = awk_eval_expr(
+              idx_expr,
+              current_line,
+              current_fields,
+              current_nr,
+              current_fields.length(),
+              vars,
+              array_vars,
+            )
+            let key = awk_array_key(arr_name, idx)
+            let left = awk_parse_number(array_vars.get(key).unwrap_or(""))
+            let value = if right == 0.0 { 0.0 } else { left / right }
+            array_vars[key] = awk_number_to_string(value)
+          }
+          None => ()
+        }
       }
       continue
     }
@@ -1643,16 +2731,59 @@ fn awk_execute_action(
     if eq_idx > 0 {
       let name = aj_trim(aj_substr(stmt, 0, eq_idx))
       let rhs = aj_trim(aj_substr(stmt, eq_idx + 1, stmt.length()))
+      let value = awk_eval_expr(
+        rhs,
+        current_line,
+        current_fields,
+        current_nr,
+        current_fields.length(),
+        vars,
+        array_vars,
+      )
       if awk_is_identifier(name) {
-        vars[name] = awk_eval_expr(
-          rhs,
-          current_line,
-          current_fields,
-          current_nr,
-          current_fields.length(),
-          vars,
-          array_vars,
-        )
+        vars[name] = value
+        if name == "FS" {
+          let current_fs = awk_current_fs(fs, vars)
+          current_fields = awk_split_fields(current_line, current_fs)
+          vars["NF"] = current_fields.length().to_string()
+        }
+      } else if name == "$0" {
+        current_line = value
+        let current_fs = awk_current_fs(fs, vars)
+        current_fields = awk_split_fields(current_line, current_fs)
+        vars["NF"] = current_fields.length().to_string()
+      } else if aj_starts_with(name, "$") {
+        let field_idx = aj_parse_int(aj_substr(name, 1, name.length()))
+        if field_idx == 0 {
+          current_line = value
+          let current_fs = awk_current_fs(fs, vars)
+          current_fields = awk_split_fields(current_line, current_fs)
+          vars["NF"] = current_fields.length().to_string()
+        } else if field_idx > 0 {
+          while current_fields.length() < field_idx {
+            current_fields.push("")
+          }
+          current_fields[field_idx - 1] = value
+          let ofs = vars.get("OFS").unwrap_or(" ")
+          current_line = awk_join_fields(current_fields, ofs)
+          vars["NF"] = current_fields.length().to_string()
+        }
+      } else {
+        match awk_parse_array_ref(name) {
+          Some((arr_name, idx_expr)) => {
+            let idx = awk_eval_expr(
+              idx_expr,
+              current_line,
+              current_fields,
+              current_nr,
+              current_fields.length(),
+              vars,
+              array_vars,
+            )
+            array_vars[awk_array_key(arr_name, idx)] = value
+          }
+          None => ()
+        }
       }
       continue
     }
@@ -1665,10 +2796,31 @@ fn cmd_awk(ctx : CommandContext) -> @ast.ExecResult {
   let mut fs = " "
   let mut program : String? = None
   let files : Array[String] = []
+  let initial_vars : Array[(String, String)] = []
 
   let mut i = 0
   while i < ctx.args.length() {
     let arg = ctx.args[i]
+    if arg == "-v" {
+      if i + 1 >= ctx.args.length() {
+        return @ast.ExecResult::err("awk: option -v requires an argument\n")
+      }
+      match awk_parse_var_assignment(ctx.args[i + 1]) {
+        Some((name, value)) => initial_vars.push((name, value))
+        None => return @ast.ExecResult::err("awk: invalid -v assignment: \{ctx.args[i + 1]}\n")
+      }
+      i += 2
+      continue
+    }
+    if aj_starts_with(arg, "-v") && arg.length() > 2 {
+      let spec = aj_substr(arg, 2, arg.length())
+      match awk_parse_var_assignment(spec) {
+        Some((name, value)) => initial_vars.push((name, value))
+        None => return @ast.ExecResult::err("awk: invalid -v assignment: \{spec}\n")
+      }
+      i += 1
+      continue
+    }
     if arg == "-F" && i + 1 < ctx.args.length() {
       fs = ctx.args[i + 1]
       i += 2
@@ -1697,19 +2849,27 @@ fn cmd_awk(ctx : CommandContext) -> @ast.ExecResult {
   }
   let prog = awk_parse_program(prog_src)
 
-  let input = if files.length() > 0 {
-    let resolved = try {
-      @fs.resolve_path(ctx.cwd, files[0])
-    } catch {
-      @fs.FsError(msg) => return @ast.ExecResult::err("awk: \{msg}\n")
-    }
-    try {
-      ctx.fs.read_file(resolved)
-    } catch {
-      @fs.FsError(msg) => return @ast.ExecResult::err("awk: \{msg}\n")
+  let (input, filename) = if files.length() > 0 {
+    let path = files[0]
+    if path == "-" {
+      (ctx.stdin_content, "-")
+    } else if path == "/dev/null" {
+      ("", "/dev/null")
+    } else {
+      let resolved = try {
+        @fs.resolve_path(ctx.cwd, path)
+      } catch {
+        @fs.FsError(msg) => return @ast.ExecResult::err("awk: \{msg}\n")
+      }
+      let content = try {
+        ctx.fs.read_file(resolved)
+      } catch {
+        @fs.FsError(msg) => return @ast.ExecResult::err("awk: \{msg}\n")
+      }
+      (content, path)
     }
   } else {
-    ctx.stdin_content
+    (ctx.stdin_content, "-")
   }
 
   let out = StringBuilder::new()
@@ -1717,10 +2877,21 @@ fn cmd_awk(ctx : CommandContext) -> @ast.ExecResult {
   let array_vars : Map[String, String] = {}
   let lines = aj_split_lines_records(input)
   let mut nr = 0
+  vars["FS"] = fs
+  vars["FILENAME"] = filename
+  vars["NR"] = "0"
+  vars["FNR"] = "0"
+  vars["NF"] = "0"
+  vars["RSTART"] = "0"
+  vars["RLENGTH"] = "-1"
+  for pair in initial_vars {
+    vars[pair.0] = pair.1
+  }
 
   match prog.begin_action {
     Some(action) => {
       let (_, _, _, new_nr) = awk_execute_action(
+        ctx,
         action,
         lines,
         -1,
@@ -1729,6 +2900,7 @@ fn cmd_awk(ctx : CommandContext) -> @ast.ExecResult {
         nr,
         0,
         fs,
+        filename,
         vars,
         array_vars,
         out,
@@ -1741,10 +2913,19 @@ fn cmd_awk(ctx : CommandContext) -> @ast.ExecResult {
   let mut line_idx = 0
   let mut in_range = false
   while line_idx < lines.length() {
+    if vars.contains(awk_ctrl_exit_key) {
+      break
+    }
     let line = lines[line_idx]
     nr += 1
-    let fields = awk_split_fields(line, fs)
+    vars["NR"] = nr.to_string()
+    vars["FNR"] = nr.to_string()
+    vars["FILENAME"] = filename
+    let current_fs = awk_current_fs(fs, vars)
+    let fields = awk_split_fields(line, current_fs)
     let nf = fields.length()
+    vars["NF"] = nf.to_string()
+    vars.remove(awk_ctrl_next_key)
     let (matched, next_range) = awk_pattern_match_program(
       prog,
       line,
@@ -1758,6 +2939,7 @@ fn cmd_awk(ctx : CommandContext) -> @ast.ExecResult {
     in_range = next_range
     if matched {
       let (_, _, consumed, new_nr) = awk_execute_action(
+        ctx,
         prog.action,
         lines,
         line_idx,
@@ -1766,38 +2948,54 @@ fn cmd_awk(ctx : CommandContext) -> @ast.ExecResult {
         nr,
         nf,
         fs,
+        filename,
         vars,
         array_vars,
         out,
       )
       nr = new_nr
+      vars["NR"] = nr.to_string()
+      vars["FNR"] = nr.to_string()
+      vars.remove(awk_ctrl_next_key)
       line_idx += consumed + 1
     } else {
       line_idx += 1
     }
   }
 
-  match prog.end_action {
-    Some(action) => {
-      let end_idx = if lines.length() > 0 { lines.length() - 1 } else { -1 }
-      let (_, _, _, _) = awk_execute_action(
-        action,
-        lines,
-        end_idx,
-        "",
-        [],
-        nr,
-        0,
-        fs,
-        vars,
-        array_vars,
-        out,
-      )
+  if not(vars.contains(awk_ctrl_error_key)) {
+    match prog.end_action {
+      Some(action) => {
+        let end_idx = if lines.length() > 0 { lines.length() - 1 } else { -1 }
+        let (_, _, _, _) = awk_execute_action(
+          ctx,
+          action,
+          lines,
+          end_idx,
+          "",
+          [],
+          nr,
+          0,
+          fs,
+          filename,
+          vars,
+          array_vars,
+          out,
+        )
+      }
+      None => ()
     }
-    None => ()
   }
 
-  @ast.ExecResult::ok(out.to_string())
+  let exit_code = match vars.get(awk_ctrl_exit_key) {
+    Some(code) => aj_parse_int(code)
+    None => 0
+  }
+  let stderr = match vars.get(awk_ctrl_error_key) {
+    Some(msg) => "awk: \{msg}\n"
+    None => ""
+  }
+  @ast.ExecResult::new(stdout=out.to_string(), stderr=stderr, exit_code=exit_code)
 }
 
 // ============================================================================
