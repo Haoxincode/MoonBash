@@ -55,6 +55,7 @@ pub fn ExecContext::new(
   default_env["PWD"] = cwd
   default_env["IFS"] = " \t\n"
   default_env["SHELL"] = "/bin/bash"
+  default_env["BASH_VERSION"] = "5.1.0(1)-release"
   // Merge user-provided env over defaults
   for k, v in env {
     default_env[k] = v

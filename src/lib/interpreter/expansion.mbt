@@ -24,6 +24,11 @@ fn ExecContext::expand_word_internal(
   word : @ast.Word,
   allow_glob : Bool
 ) -> Array[String] {
+  match self.expand_double_quoted_array_words(word.parts) {
+    Some(values) => return values
+    None => ()
+  }
+
   let expanded_candidates = self.expand_word_parts_with_brace(word.parts)
   if expanded_candidates.length() == 0 {
     return [""]
@@ -69,6 +74,66 @@ fn ExecContext::expand_word_internal(
   } else {
     parts
   }
+}
+
+fn ExecContext::expand_double_quoted_array_words(
+  self : ExecContext,
+  parts : Array[@ast.WordPart]
+) -> Array[String]? {
+  if parts.length() != 1 {
+    return None
+  }
+
+  let inner_parts = match parts[0] {
+    @ast.WordPart::DoubleQuoted(inner) => inner
+    _ => return None
+  }
+  if inner_parts.length() != 1 {
+    return None
+  }
+
+  let (base, expand_keys) = match array_reference_base_for_at(inner_parts[0]) {
+    Some(pair) => pair
+    None => return None
+  }
+  if expand_keys {
+    Some(self.collect_array_keys(base))
+  } else {
+    Some(self.expand_array_elements_for_words(base))
+  }
+}
+
+fn array_reference_base_for_at(part : @ast.WordPart) -> (String, Bool)? {
+  let name = match part {
+    @ast.WordPart::Variable(raw) => raw
+    @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Simple(raw)) => raw
+    @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Indirection(raw)) => {
+      match indirection_array_keys_name(raw) {
+        Some(base) => return Some((base, true))
+        None => return None
+      }
+    }
+    _ => return None
+  }
+  match parse_array_reference_name(name) {
+    Some((base, index)) => if index == "@" { Some((base, false)) } else { None }
+    None => None
+  }
+}
+
+fn ExecContext::expand_array_elements_for_words(
+  self : ExecContext,
+  base : String
+) -> Array[String] {
+  let keys = self.collect_array_keys(base)
+  let values : Array[String] = []
+  for key in keys {
+    values.push(self.env.get("\{base}[\{key}]").unwrap_or(""))
+  }
+  if values.length() == 0 && self.env.contains(base) {
+    values.push(self.env.get(base).unwrap_or(""))
+  }
+  values
 }
 
 /// Expand word parts into a single string (no word splitting).
@@ -170,7 +235,12 @@ fn ExecContext::expand_variable(self : ExecContext, name : String) -> String {
 fn ExecContext::expand_named_variable(self : ExecContext, name : String) -> String {
   match parse_array_reference_name(name) {
     Some((base, index_expr)) => self.expand_array_element_reference(base, index_expr)
-    None => self.env.get(name).unwrap_or("")
+    None => {
+      match self.env.get("__MOON_BASH_NAMEREF__" + name) {
+        Some(target) => self.env.get(target).unwrap_or("")
+        None => self.env.get(name).unwrap_or("")
+      }
+    }
   }
 }
 
@@ -200,8 +270,26 @@ fn ExecContext::expand_array_element_reference(
     None => ()
   }
 
+  let expanded_index = self.expand_word_to_string(@parser.parse_word_content(trimmed))
+  if expanded_index.length() > 0 {
+    let expanded_lookup = "\{base}[\{expanded_index}]"
+    if self.env.contains(expanded_lookup) {
+      return self.env.get(expanded_lookup).unwrap_or("")
+    }
+  }
+
   let numeric_index = self.eval_arith(@ast.ArithExpr::Raw(trimmed))
-  let numeric_lookup = "\{base}[\{numeric_index.to_string()}]"
+  let resolved_numeric_index = if numeric_index < 0 {
+    let count_key = "__MOON_BASH_ARRAY_COUNT__" + base
+    let count = parse_int_str(self.env.get(count_key).unwrap_or("0"))
+    count + numeric_index
+  } else {
+    numeric_index
+  }
+  if resolved_numeric_index < 0 {
+    return ""
+  }
+  let numeric_lookup = "\{base}[\{resolved_numeric_index.to_string()}]"
   if self.env.contains(numeric_lookup) {
     return self.env.get(numeric_lookup).unwrap_or("")
   }
@@ -327,27 +415,24 @@ fn ExecContext::expand_param(
       if all { to_lower(value) } else { lower_first(value) }
     }
     @ast.ParamExpansion::Substring(name, offset_expr, length_expr) => {
-      let value = self.expand_variable(name)
       let offset = self.eval_arith(offset_expr)
       let len = match length_expr {
-        Some(le) => self.eval_arith(le)
-        None => value.length()
+        Some(le) => Some(self.eval_arith(le))
+        None => None
       }
-      let actual_offset = if offset < 0 {
-        let o = value.length() + offset
-        if o < 0 { 0 } else { o }
-      } else {
-        offset
-      }
-      let end = if actual_offset + len > value.length() {
-        value.length()
-      } else {
-        actual_offset + len
-      }
-      if actual_offset >= value.length() {
-        ""
-      } else {
-        value.substring(start=actual_offset, end=end)
+      match parse_array_reference_name(name) {
+        Some((base, index_expr)) if index_expr == "@" || index_expr == "*" => {
+          let values = self.expand_array_elements_for_words(base)
+          let sliced = slice_array_values(values, offset, len)
+          sliced.iter().fold(
+            init="",
+            fn(acc, value) { if acc.length() == 0 { value } else { acc + " " + value } },
+          )
+        }
+        _ => {
+          let value = self.expand_variable(name)
+          expand_scalar_substring(value, offset, len)
+        }
       }
     }
     @ast.ParamExpansion::Indirection(name) => {
@@ -367,9 +452,90 @@ fn ExecContext::expand_param(
   }
 }
 
+fn expand_scalar_substring(value : String, offset : Int, len : Int?) -> String {
+  let actual_offset = if offset < 0 {
+    let o = value.length() + offset
+    if o < 0 { 0 } else { o }
+  } else {
+    offset
+  }
+  let actual_len = match len {
+    Some(length) => length
+    None => value.length()
+  }
+  let end = if actual_offset + actual_len > value.length() {
+    value.length()
+  } else {
+    actual_offset + actual_len
+  }
+  if actual_offset >= value.length() || actual_len <= 0 {
+    ""
+  } else {
+    value.substring(start=actual_offset, end=end)
+  }
+}
+
+fn slice_array_values(values : Array[String], offset : Int, len : Int?) -> Array[String] {
+  let out : Array[String] = []
+  let mut start = if offset < 0 {
+    values.length() + offset
+  } else {
+    offset
+  }
+  if start < 0 {
+    start = 0
+  }
+  if start >= values.length() {
+    return out
+  }
+  let mut end_ = values.length()
+  match len {
+    Some(length) => {
+      if length <= 0 {
+        return out
+      }
+      end_ = start + length
+      if end_ > values.length() {
+        end_ = values.length()
+      }
+    }
+    None => ()
+  }
+  for i = start; i < end_; i = i + 1 {
+    out.push(values[i])
+  }
+  out
+}
+
 // ============================================================================
 // Command Substitution
 // ============================================================================
+
+fn clone_string_map(source : Map[String, String]) -> Map[String, String] {
+  let copied : Map[String, String] = {}
+  for key, value in source {
+    copied[key] = value
+  }
+  copied
+}
+
+fn clone_bool_map(source : Map[String, Bool]) -> Map[String, Bool] {
+  let copied : Map[String, Bool] = {}
+  for key, value in source {
+    copied[key] = value
+  }
+  copied
+}
+
+fn clone_function_map(
+  source : Map[String, @ast.FunctionDef]
+) -> Map[String, @ast.FunctionDef] {
+  let copied : Map[String, @ast.FunctionDef] = {}
+  for key, value in source {
+    copied[key] = value
+  }
+  copied
+}
 
 fn ExecContext::expand_command_sub(
   self : ExecContext,
@@ -384,12 +550,15 @@ fn ExecContext::expand_command_sub(
   // Save current I/O state
   let saved_stdout = self.stdout_buf
   let saved_stdin = self.stdin_buf
-  let saved_env = self.env
-  let saved_exported = self.exported
-  let saved_functions = self.functions
+  let saved_env = clone_string_map(self.env)
+  let saved_exported = clone_bool_map(self.exported)
+  let saved_functions = clone_function_map(self.functions)
 
   // Execute in a sub-context
   self.stdout_buf = StringBuilder::new()
+  self.env = clone_string_map(saved_env)
+  self.exported = clone_bool_map(saved_exported)
+  self.functions = clone_function_map(saved_functions)
 
   let parsed = try {
     @parser.parse(script_str)

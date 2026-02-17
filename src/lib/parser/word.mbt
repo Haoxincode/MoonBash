@@ -17,7 +17,27 @@ pub fn parse_word_parts(s : String) -> Array[@ast.WordPart] {
   while i < len {
     let ch = wchar_at(s, i)
 
-    if ch == '\u0001' && i + 1 < len {
+    if ch == '\u0002' {
+      // Marker emitted by lexer for double-quoted content.
+      let lit = buf.to_string()
+      if lit.length() > 0 {
+        parts.push(@ast.WordPart::Literal(lit))
+        buf.reset()
+      }
+
+      i += 1
+      let quoted = StringBuilder::new()
+      while i < len && wchar_at(s, i) != '\u0003' {
+        quoted.write_char(wchar_at(s, i))
+        i += 1
+      }
+      let inner_parts = parse_word_parts(quoted.to_string())
+      parts.push(@ast.WordPart::DoubleQuoted(inner_parts))
+      if i < len && wchar_at(s, i) == '\u0003' {
+        i += 1
+      }
+      continue
+    } else if ch == '\u0001' && i + 1 < len {
       // Marker emitted by lexer for single-quoted content.
       // Preserve quote semantics as dedicated SingleQuoted parts.
       let lit = buf.to_string()
@@ -320,8 +340,12 @@ fn parse_param_expansion_content(content : String) -> @ast.WordPart {
         '?' => @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Error(name, Some(word), true))
         '+' => @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Alternative(name, word, true))
         _ => {
-          // ${VAR:offset} or ${VAR:offset:length} - substring
-          @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Simple(name))
+          // ${VAR:offset} or ${VAR:offset:length}
+          let spec = wsubstr(content, rest_start, len)
+          let (offset_expr, length_expr) = parse_substring_spec(spec)
+          @ast.WordPart::ParameterExpansion(
+            @ast.ParamExpansion::Substring(name, offset_expr, length_expr),
+          )
         }
       }
     }
@@ -416,6 +440,54 @@ fn parse_param_expansion_content(content : String) -> @ast.WordPart {
       @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Simple(name))
     }
   }
+}
+
+fn parse_substring_spec(spec : String) -> (@ast.ArithExpr, @ast.ArithExpr?) {
+  let trimmed = trim_ascii_space_word(spec)
+  let mut colon_pos = -1
+  for i = 0; i < trimmed.length(); i = i + 1 {
+    if wchar_at(trimmed, i) == ':' {
+      colon_pos = i
+      break
+    }
+  }
+
+  if colon_pos < 0 {
+    let offset_text = if trimmed.length() == 0 { "0" } else { trimmed }
+    return (@ast.ArithExpr::Raw(offset_text), None)
+  }
+
+  let left = trim_ascii_space_word(wsubstr(trimmed, 0, colon_pos))
+  let right = trim_ascii_space_word(wsubstr(trimmed, colon_pos + 1, trimmed.length()))
+  let offset_expr = @ast.ArithExpr::Raw(if left.length() == 0 { "0" } else { left })
+  let length_expr = if right.length() == 0 {
+    None
+  } else {
+    Some(@ast.ArithExpr::Raw(right))
+  }
+  (offset_expr, length_expr)
+}
+
+fn trim_ascii_space_word(s : String) -> String {
+  let mut start = 0
+  let mut end_ = s.length()
+  while start < end_ {
+    let ch = wchar_at(s, start)
+    if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+      start += 1
+    } else {
+      break
+    }
+  }
+  while end_ > start {
+    let ch = wchar_at(s, end_ - 1)
+    if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+      end_ -= 1
+    } else {
+      break
+    }
+  }
+  wsubstr(s, start, end_)
 }
 
 // ============================================================================

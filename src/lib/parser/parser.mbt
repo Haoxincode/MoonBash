@@ -795,6 +795,10 @@ fn strip_single_quote_markers(s : String) -> String {
       i += 2
       continue
     }
+    if ch == '\u0002' || ch == '\u0003' {
+      i += 1
+      continue
+    }
     out.write_char(ch)
     i += 1
   }

@@ -308,6 +308,7 @@ fn evaluate_test(args : Array[String], ctx : ExecContext) -> Bool {
     match op {
       "=" | "==" => return left == right
       "!=" => return left != right
+      "=~" => return test_regex_match(left, right)
       "-eq" => return parse_int_str(left) == parse_int_str(right)
       "-ne" => return parse_int_str(left) != parse_int_str(right)
       "-lt" => return parse_int_str(left) < parse_int_str(right)
@@ -324,6 +325,20 @@ fn evaluate_test(args : Array[String], ctx : ExecContext) -> Bool {
   false
 }
 
+fn test_regex_match(text : String, pattern : String) -> Bool {
+  let matcher = try {
+    @regex.compile_grep_matcher(
+      pattern,
+      extended=true,
+      fixed=false,
+      ignore_case=false,
+    )
+  } catch {
+    _ => return false
+  }
+  matcher.find_first(text) is Some(_)
+}
+
 // ============================================================================
 // Printf Implementation
 // ============================================================================
@@ -337,12 +352,52 @@ fn format_printf(format : String, args : Array[String]) -> String {
     let ch = format[i].to_int().unsafe_to_char()
     if ch == '\\' && i + 1 < format.length() {
       let next = format[i + 1].to_int().unsafe_to_char()
+      if next == 'x' {
+        let mut j = i + 2
+        let mut value = 0
+        let mut digits = 0
+        while j < format.length() && digits < 2 {
+          let hex_ch = format[j].to_int().unsafe_to_char()
+          match printf_hex_digit_value(hex_ch) {
+            Some(hex_value) => {
+              value = value * 16 + hex_value
+              digits += 1
+              j += 1
+            }
+            None => break
+          }
+        }
+        if digits > 0 {
+          buf.write_char(value.unsafe_to_char())
+          i = j
+        } else {
+          buf.write_char('x')
+          i += 2
+        }
+        continue
+      }
+      if printf_is_octal_digit(next) {
+        let mut j = i + 1
+        let mut value = 0
+        let mut digits = 0
+        while j < format.length() && digits < 3 {
+          let oct_ch = format[j].to_int().unsafe_to_char()
+          if not(printf_is_octal_digit(oct_ch)) {
+            break
+          }
+          value = value * 8 + (oct_ch.to_int() - '0'.to_int())
+          digits += 1
+          j += 1
+        }
+        buf.write_char(value.unsafe_to_char())
+        i = j
+        continue
+      }
       match next {
         'n' => { buf.write_char('\n'); i += 2 }
         't' => { buf.write_char('\t'); i += 2 }
         '\\' => { buf.write_char('\\'); i += 2 }
         '"' => { buf.write_char('"'); i += 2 }
-        '0' => { buf.write_char('\u0000'); i += 2 }
         _ => { buf.write_char('\\'); buf.write_char(next); i += 2 }
       }
     } else if ch == '%' {
@@ -479,6 +534,23 @@ fn format_printf(format : String, args : Array[String]) -> String {
 
 fn printf_is_digit(ch : Char) -> Bool {
   ch >= '0' && ch <= '9'
+}
+
+fn printf_is_octal_digit(ch : Char) -> Bool {
+  ch >= '0' && ch <= '7'
+}
+
+fn printf_hex_digit_value(ch : Char) -> Int? {
+  if ch >= '0' && ch <= '9' {
+    return Some(ch.to_int() - '0'.to_int())
+  }
+  if ch >= 'a' && ch <= 'f' {
+    return Some(10 + (ch.to_int() - 'a'.to_int()))
+  }
+  if ch >= 'A' && ch <= 'F' {
+    return Some(10 + (ch.to_int() - 'A'.to_int()))
+  }
+  None
 }
 
 fn printf_repeat_char(ch : Char, count : Int) -> String {

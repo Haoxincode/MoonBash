@@ -277,18 +277,43 @@ fn ExecContext::execute_subshell(
   self : ExecContext,
   script : @ast.Script
 ) -> Unit {
-  // Save environment - subshell modifications are discarded
+  // Save shell state - subshell modifications are discarded.
   let saved_env : Map[String, String] = {}
   for k, v in self.env {
     saved_env[k] = v
   }
+  let saved_exported : Map[String, Bool] = {}
+  for k, v in self.exported {
+    saved_exported[k] = v
+  }
+  let saved_functions : Map[String, @ast.FunctionDef] = {}
+  for k, v in self.functions {
+    saved_functions[k] = v
+  }
   let saved_cwd = self.cwd
+  let saved_should_exit = self.should_exit
+  let saved_return_requested = self.return_requested
+  let saved_break_count = self.break_count
+  let saved_continue_count = self.continue_count
 
+  // Run subshell body in isolated control-flow scope.
+  self.should_exit = false
+  self.return_requested = false
+  self.break_count = 0
+  self.continue_count = 0
   self.execute_script(script)
+  let subshell_exit_code = self.exit_code
 
-  // Restore environment (exit code persists)
+  // Restore parent scope, but keep subshell exit status.
   self.env = saved_env
+  self.exported = saved_exported
+  self.functions = saved_functions
   self.cwd = saved_cwd
+  self.should_exit = saved_should_exit
+  self.return_requested = saved_return_requested
+  self.break_count = saved_break_count
+  self.continue_count = saved_continue_count
+  self.exit_code = subshell_exit_code
 }
 
 // ============================================================================

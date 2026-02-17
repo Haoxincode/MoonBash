@@ -554,54 +554,72 @@ fn Lexer::scan_parenthesized_assignment_value(
   let mut depth = 0
   let mut in_single = false
   let mut in_double = false
-  let mut escaped = false
 
   while not(self.at_end()) {
-    let ch = self.advance()
-    buf.write_char(ch)
-
-    if escaped {
-      escaped = false
-      continue
-    }
-
     if in_single {
+      let ch = self.advance()
       if ch == '\'' {
         in_single = false
+      } else {
+        // Reuse single-quote marker encoding.
+        buf.write_char('\u0001')
+        buf.write_char(ch)
       }
       continue
     }
 
     if in_double {
+      let ch = self.advance()
       if ch == '"' {
         in_double = false
-      } else if ch == '\\' {
-        escaped = true
+        buf.write_char('\u0003')
+        continue
+      }
+      if ch == '\\' {
+        if not(self.at_end()) {
+          let next = self.peek()
+          if next == '$' || next == '`' || next == '"' || next == '\\' || next == '\n' {
+            buf.write_char(self.advance())
+          } else {
+            buf.write_char('\\')
+          }
+        } else {
+          buf.write_char('\\')
+        }
+      } else {
+        buf.write_char(ch)
       }
       continue
     }
 
-    if ch == '\\' {
-      escaped = true
-      continue
-    }
-
-    if ch == '\'' {
-      in_single = true
-      continue
-    }
-
-    if ch == '"' {
-      in_double = true
-      continue
-    }
-
-    if ch == '(' {
-      depth += 1
-    } else if ch == ')' {
-      depth -= 1
-      if depth == 0 {
-        return
+    let ch = self.peek()
+    match ch {
+      '\'' => {
+        self.pos += 1
+        in_single = true
+      }
+      '"' => {
+        self.pos += 1
+        in_double = true
+        buf.write_char('\u0002')
+      }
+      '\\' => {
+        self.pos += 1
+        if not(self.at_end()) {
+          buf.write_char(self.advance())
+        }
+      }
+      _ => {
+        self.pos += 1
+        buf.write_char(ch)
+        if ch == '(' {
+          depth += 1
+        } else if ch == ')' {
+          depth -= 1
+          if depth == 0 {
+            return
+          }
+        }
       }
     }
   }
@@ -744,10 +762,15 @@ fn Lexer::scan_single_quote(self : Lexer, buf : StringBuilder) -> Unit raise @as
 
 fn Lexer::scan_double_quote(self : Lexer, buf : StringBuilder) -> Unit raise @ast.BashError {
   self.pos += 1 // skip opening quote
+  // Mark double-quoted region so parser can preserve quote context.
+  buf.write_char('\u0002')
   while not(self.at_end()) {
     let ch = self.advance()
     match ch {
-      '"' => return
+      '"' => {
+        buf.write_char('\u0003')
+        return
+      }
       '\\' => {
         if not(self.at_end()) {
           let next = self.peek()

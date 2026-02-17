@@ -10,10 +10,16 @@ fn Parser::parse_if(self : Parser) -> @ast.IfClause raise @ast.BashError {
   self.expect(@ast.Token::If)
   self.skip_newlines()
   let condition = self.parse_script()
+  if condition.statements.length() == 0 {
+    raise @ast.BashError("if: missing condition command")
+  }
   self.skip_newlines()
   self.expect(@ast.Token::Then)
   self.skip_newlines()
   let then_branch = self.parse_script()
+  if then_branch.statements.length() == 0 {
+    raise @ast.BashError("if: missing then command")
+  }
 
   let elif_branches : Array[(@ast.Script, @ast.Script)] = []
   let mut else_branch : @ast.Script? = None

@@ -609,12 +609,12 @@ export class Bash {
     }
 
     this.options = normalizedOptions;
-    this.baseCwd = options.cwd && options.cwd.length > 0
-      ? options.cwd
-      : (options.files ? "/" : "/home/user");
-    this.baseEnv = { ...(options.env ?? {}) };
-    this.useDefaultLayout = options.files === undefined && !options.cwd;
-    const initialFs = this.normalizeInitialFiles(options.files);
+    this.baseCwd = normalizedOptions.cwd && normalizedOptions.cwd.length > 0
+      ? normalizedOptions.cwd
+      : (normalizedOptions.files ? "/" : "/home/user");
+    this.baseEnv = { ...(normalizedOptions.env ?? {}) };
+    this.useDefaultLayout = normalizedOptions.files === undefined && !normalizedOptions.cwd;
+    const initialFs = this.normalizeInitialFiles(normalizedOptions.files);
     this.files = initialFs.files;
     this.dirs = {};
     this.links = {};
@@ -627,7 +627,7 @@ export class Bash {
     this.sqlJsRuntimePromise = null;
     this.pyodideTrackedFiles = new Set();
 
-    for (const customCommand of options.customCommands ?? []) {
+    for (const customCommand of normalizedOptions.customCommands ?? []) {
       if (isLazyCommand(customCommand)) {
         this.lazyCustomCommands.set(customCommand.name, customCommand);
       } else {

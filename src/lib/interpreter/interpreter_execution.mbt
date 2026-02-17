@@ -102,28 +102,66 @@ fn ExecContext::execute_pipeline(
     return
   }
 
+  let pipeline_statuses : Array[String] = []
   if commands.length() == 1 {
     // Single command, no piping needed
     self.execute_command(commands[0])
+    pipeline_statuses.push(self.exit_code.to_string())
   } else {
-    // Multi-command pipeline: chain stdout -> stdin
+    // Multi-command pipeline: chain stdout -> stdin.
+    // Each stage runs in an isolated scope (like a subshell).
     let saved_stdin = self.stdin_buf
     let saved_stdout = self.stdout_buf
 
     let mut pipe_input = self.stdin_buf
     for i = 0; i < commands.length(); i = i + 1 {
+      let stage_env : Map[String, String] = {}
+      for key, value in self.env {
+        stage_env[key] = value
+      }
+      let stage_exported : Map[String, Bool] = {}
+      for key, value in self.exported {
+        stage_exported[key] = value
+      }
+      let stage_functions : Map[String, @ast.FunctionDef] = {}
+      for key, value in self.functions {
+        stage_functions[key] = value
+      }
+      let stage_cwd = self.cwd
+      let stage_should_exit = self.should_exit
+      let stage_return_requested = self.return_requested
+      let stage_break_count = self.break_count
+      let stage_continue_count = self.continue_count
+
+      self.should_exit = false
+      self.return_requested = false
+      self.break_count = 0
+      self.continue_count = 0
       self.stdin_buf = pipe_input
       self.stdout_buf = StringBuilder::new()
       self.execute_command(commands[i])
+      pipeline_statuses.push(self.exit_code.to_string())
       pipe_input = self.stdout_buf.to_string()
+
+      self.env = stage_env
+      self.exported = stage_exported
+      self.functions = stage_functions
+      self.cwd = stage_cwd
+      self.should_exit = stage_should_exit
+      self.return_requested = stage_return_requested
+      self.break_count = stage_break_count
+      self.continue_count = stage_continue_count
     }
 
     // Write final command output to the original stdout
     saved_stdout.write_string(pipe_input)
     self.stdout_buf = saved_stdout
     self.stdin_buf = saved_stdin
+    self.exit_code = parse_int_str(pipeline_statuses[pipeline_statuses.length() - 1])
     self.enforce_output_size_limit()
   }
+
+  self.store_array_assignment("PIPESTATUS", pipeline_statuses)
 
   // Handle negation
   if pipeline.negated {
@@ -218,12 +256,12 @@ fn ExecContext::execute_simple(
     for assign in cmd.assignments {
       match assign.value {
         Some(word) => {
+          if self.try_store_array_assignment(assign.name, word) {
+            continue
+          }
           let value = self.expand_word_to_string(word)
           if self.should_exit {
             return
-          }
-          if self.try_store_array_assignment(assign.name, value) {
-            continue
           }
           match parse_array_element_assignment_name(assign.name) {
             Some((base, index)) => {
@@ -232,11 +270,14 @@ fn ExecContext::execute_simple(
             }
             None => ()
           }
+          let target_name = self.env.get("__MOON_BASH_NAMEREF__" + assign.name).unwrap_or(
+            assign.name,
+          )
           if assign.append {
-            let existing = self.env.get(assign.name).unwrap_or("")
-            self.env[assign.name] = existing + value
+            let existing = self.env.get(target_name).unwrap_or("")
+            self.env[target_name] = existing + value
           } else {
-            self.env[assign.name] = value
+            self.env[target_name] = value
           }
         }
         None => {
@@ -247,11 +288,14 @@ fn ExecContext::execute_simple(
             }
             None => ()
           }
+          let target_name = self.env.get("__MOON_BASH_NAMEREF__" + assign.name).unwrap_or(
+            assign.name,
+          )
           if assign.append {
-            let existing = self.env.get(assign.name).unwrap_or("")
-            self.env[assign.name] = existing
+            let existing = self.env.get(target_name).unwrap_or("")
+            self.env[target_name] = existing
           } else {
-            self.env[assign.name] = ""
+            self.env[target_name] = ""
           }
         }
       }
@@ -497,19 +541,16 @@ fn is_grep_like_command(cmd_name : String) -> Bool {
 fn ExecContext::try_store_array_assignment(
   self : ExecContext,
   name : String,
-  raw_value : String
+  raw_value : @ast.Word
 ) -> Bool {
-  if raw_value.length() < 2 ||
-    raw_value[0] != '(' ||
-    raw_value[raw_value.length() - 1] != ')' {
-    return false
+  let items = match split_array_assignment_items(raw_value.parts) {
+    Some(parsed) => parsed
+    None => return false
   }
 
-  let inner = raw_value.substring(start=1, end=raw_value.length() - 1)
   let values : Array[String] = []
-  let tokens = split_array_assignment_words(inner)
-  for token in tokens {
-    let expanded = self.expand_word(@parser.parse_word_content(token))
+  for item_word in items {
+    let expanded = self.expand_word(item_word)
     for item in expanded {
       values.push(item)
       if values.length() > self.limits.max_array_elements {
@@ -517,78 +558,101 @@ fn ExecContext::try_store_array_assignment(
         return true
       }
     }
+    if self.should_exit {
+      return true
+    }
   }
   self.store_array_assignment(name, values)
   true
 }
 
-fn split_array_assignment_words(inner : String) -> Array[String] {
-  let words : Array[String] = []
-  let buf = StringBuilder::new()
-  let mut in_single = false
-  let mut in_double = false
-  let mut escaped = false
+fn split_array_assignment_items(
+  parts : Array[@ast.WordPart]
+) -> Array[@ast.Word]? {
+  let items : Array[@ast.Word] = []
+  let mut current_parts : Array[@ast.WordPart] = []
+  let literal_buf = StringBuilder::new()
+  let mut started = false
+  let mut ended = false
 
-  for i = 0; i < inner.length(); i = i + 1 {
-    let ch = inner[i].to_int().unsafe_to_char()
-    if escaped {
-      buf.write_char(ch)
-      escaped = false
-      continue
-    }
+  for part in parts {
+    match part {
+      @ast.WordPart::Literal(text) => {
+        for i = 0; i < text.length(); i = i + 1 {
+          let ch = text[i].to_int().unsafe_to_char()
+          if not(started) {
+            if array_assignment_is_space(ch) {
+              continue
+            }
+            if ch == '(' {
+              started = true
+              continue
+            }
+            return None
+          }
 
-    if in_single {
-      if ch == '\'' {
-        in_single = false
-      } else {
-        buf.write_char(ch)
+          if ended {
+            if array_assignment_is_space(ch) {
+              continue
+            }
+            return None
+          }
+
+          if ch == ')' {
+            split_array_assignment_flush_literal(current_parts, literal_buf)
+            if current_parts.length() > 0 {
+              items.push({ parts: current_parts })
+              current_parts = []
+            }
+            ended = true
+            continue
+          }
+
+          if array_assignment_is_space(ch) {
+            split_array_assignment_flush_literal(current_parts, literal_buf)
+            if current_parts.length() > 0 {
+              items.push({ parts: current_parts })
+              current_parts = []
+            }
+            continue
+          }
+
+          literal_buf.write_char(ch)
+        }
       }
-      continue
-    }
-
-    if in_double {
-      if ch == '"' {
-        in_double = false
-      } else if ch == '\\' {
-        escaped = true
-      } else {
-        buf.write_char(ch)
+      _ => {
+        if not(started) || ended {
+          return None
+        }
+        split_array_assignment_flush_literal(current_parts, literal_buf)
+        current_parts.push(part)
       }
-      continue
     }
-
-    if ch == '\'' {
-      in_single = true
-      continue
-    }
-
-    if ch == '"' {
-      in_double = true
-      continue
-    }
-
-    if ch == '\\' {
-      escaped = true
-      continue
-    }
-
-    if ch == ' ' || ch == '\t' || ch == '\n' {
-      let token = buf.to_string()
-      if token.length() > 0 {
-        words.push(token)
-        buf.reset()
-      }
-      continue
-    }
-
-    buf.write_char(ch)
   }
 
-  let last = buf.to_string()
-  if last.length() > 0 {
-    words.push(last)
+  if not(started) || not(ended) {
+    return None
   }
-  words
+  if current_parts.length() > 0 || literal_buf.to_string().length() > 0 {
+    return None
+  }
+
+  Some(items)
+}
+
+fn split_array_assignment_flush_literal(
+  current_parts : Array[@ast.WordPart],
+  literal_buf : StringBuilder
+) -> Unit {
+  let lit = literal_buf.to_string()
+  if lit.length() > 0 {
+    current_parts.push(@ast.WordPart::Literal(lit))
+    literal_buf.reset()
+  }
+}
+
+fn array_assignment_is_space(ch : Char) -> Bool {
+  ch == ' ' || ch == '\t' || ch == '\n'
 }
 
 fn ExecContext::store_array_assignment(
@@ -710,12 +774,68 @@ fn parse_array_element_assignment_name(name : String) -> (String, String)? {
     return None
   }
 
-  let index = name.substring(start=bracket + 1, end=name.length() - 1)
+  let raw_index = name.substring(start=bracket + 1, end=name.length() - 1)
+  let index = normalize_array_assignment_index(raw_index)
   if index.length() == 0 {
     return None
   }
 
   Some((base, index))
+}
+
+fn normalize_array_assignment_index(raw_index : String) -> String {
+  let trimmed = trim_ascii_space_for_array_index(raw_index)
+  let cleaned = strip_array_assignment_index_markers(trimmed)
+  if cleaned.length() >= 2 {
+    let first = cleaned[0].to_int().unsafe_to_char()
+    let last = cleaned[cleaned.length() - 1].to_int().unsafe_to_char()
+    if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
+      return cleaned.substring(start=1, end=cleaned.length() - 1)
+    }
+  }
+  cleaned
+}
+
+fn trim_ascii_space_for_array_index(s : String) -> String {
+  let mut start = 0
+  let mut end_ = s.length()
+  while start < end_ {
+    let ch = s[start].to_int().unsafe_to_char()
+    if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+      start += 1
+    } else {
+      break
+    }
+  }
+  while end_ > start {
+    let ch = s[end_ - 1].to_int().unsafe_to_char()
+    if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+      end_ -= 1
+    } else {
+      break
+    }
+  }
+  s.substring(start=start, end=end_)
+}
+
+fn strip_array_assignment_index_markers(s : String) -> String {
+  let out = StringBuilder::new()
+  let mut i = 0
+  while i < s.length() {
+    let ch = s[i].to_int().unsafe_to_char()
+    if ch == '\u0001' && i + 1 < s.length() {
+      out.write_char(s[i + 1].to_int().unsafe_to_char())
+      i += 2
+      continue
+    }
+    if ch == '\u0002' || ch == '\u0003' {
+      i += 1
+      continue
+    }
+    out.write_char(ch)
+    i += 1
+  }
+  out.to_string()
 }
 
 fn is_valid_shell_name(name : String) -> Bool {
@@ -809,6 +929,59 @@ fn ExecContext::enforce_output_size_limit(self : ExecContext) -> Unit {
   }
 }
 
+fn snapshot_array_env_entries(
+  env : Map[String, String],
+  name : String
+) -> Map[String, String] {
+  let saved : Map[String, String] = {}
+  let prefix = name + "["
+  let count_key = "__MOON_BASH_ARRAY_COUNT__" + name
+  for key, value in env {
+    if key == name ||
+      key == name + "[@]" ||
+      key == name + "[*]" ||
+      key == count_key ||
+      string_has_prefix(key, prefix) {
+      saved[key] = value
+    }
+  }
+  saved
+}
+
+fn ExecContext::restore_array_env_entries(
+  self : ExecContext,
+  name : String,
+  saved : Map[String, String]
+) -> Unit {
+  let prefix = name + "["
+  let count_key = "__MOON_BASH_ARRAY_COUNT__" + name
+  let to_remove : Array[String] = []
+  for key, _value in self.env {
+    if key == name ||
+      key == name + "[@]" ||
+      key == name + "[*]" ||
+      key == count_key ||
+      string_has_prefix(key, prefix) {
+      to_remove.push(key)
+    }
+  }
+  for key in to_remove {
+    self.env.remove(key)
+  }
+  for key, value in saved {
+    self.env[key] = value
+  }
+}
+
+fn ExecContext::collect_array_values(self : ExecContext, name : String) -> Array[String] {
+  let keys = self.collect_array_keys(name)
+  let values : Array[String] = []
+  for key in keys {
+    values.push(self.env.get("\{name}[\{key}]").unwrap_or(""))
+  }
+  values
+}
+
 // ============================================================================
 // Command Dispatch
 // ============================================================================
@@ -853,6 +1026,13 @@ fn ExecContext::run_command(
         self.call_depth -= 1
         return
       }
+      let saved_funcname_entries = snapshot_array_env_entries(self.env, "FUNCNAME")
+      let previous_func_stack = self.collect_array_values("FUNCNAME")
+      let current_func_stack : Array[String] = [dispatch_name]
+      for fn_name in previous_func_stack {
+        current_func_stack.push(fn_name)
+      }
+      self.store_array_assignment("FUNCNAME", current_func_stack)
       // Save positional params
       let saved_args = self.env.get("@").unwrap_or("")
       let saved_argc = self.env.get("#").unwrap_or("")
@@ -874,6 +1054,7 @@ fn ExecContext::run_command(
       // Restore
       self.env["@"] = saved_args
       self.env["#"] = saved_argc
+      self.restore_array_env_entries("FUNCNAME", saved_funcname_entries)
       self.call_depth -= 1
       return
     }

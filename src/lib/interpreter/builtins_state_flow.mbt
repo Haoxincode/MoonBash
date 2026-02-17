@@ -33,8 +33,22 @@ fn ExecContext::builtin_export(self : ExecContext, args : Array[String]) -> Unit
 }
 
 fn ExecContext::builtin_unset(self : ExecContext, args : Array[String]) -> Unit {
+  let mut unset_functions = false
   for arg in args {
+    if arg == "-f" {
+      unset_functions = true
+      continue
+    }
+    if arg == "-v" {
+      unset_functions = false
+      continue
+    }
+    if unset_functions {
+      self.functions.remove(arg)
+      continue
+    }
     self.env.remove(arg)
+    self.env.remove("__MOON_BASH_NAMEREF__" + arg)
     self.exported.remove(arg)
   }
   self.exit_code = 0
@@ -119,6 +133,14 @@ fn ExecContext::builtin_return(
   self : ExecContext,
   args : Array[String]
 ) -> Unit {
+  if self.call_depth <= 0 {
+    self.stderr_buf.write_string(
+      "moon_bash: return: can only `return` from a function or sourced script\n",
+    )
+    self.exit_code = 1
+    self.return_requested = false
+    return
+  }
   self.exit_code = if args.length() > 0 {
     parse_int_str(args[0])
   } else {
@@ -267,14 +289,55 @@ fn ExecContext::builtin_declare(
   self : ExecContext,
   args : Array[String]
 ) -> Unit {
-  // Simplified: treat like local/assignment
+  let mut nameref = false
   let filtered : Array[String] = []
   for arg in args {
-    // Skip flags like -r, -i, -a, etc.
     if arg.length() > 0 && arg[0] == '-' {
+      if declare_flag_contains(arg, 'n') {
+        nameref = true
+      }
       continue
     }
     filtered.push(arg)
   }
+
+  if nameref {
+    for spec in filtered {
+      let mut eq_pos = -1
+      for i = 0; i < spec.length(); i = i + 1 {
+        if spec[i] == '=' {
+          eq_pos = i
+          break
+        }
+      }
+      if eq_pos > 0 {
+        let name = spec.substring(start=0, end=eq_pos)
+        let target = spec.substring(start=eq_pos + 1)
+        self.capture_local_binding(name)
+        self.env[name] = target
+        self.env["__MOON_BASH_NAMEREF__" + name] = target
+      } else {
+        self.capture_local_binding(spec)
+        if not(self.env.contains(spec)) {
+          self.env[spec] = ""
+        }
+      }
+    }
+    self.exit_code = 0
+    return
+  }
+
   self.builtin_local(filtered)
+}
+
+fn declare_flag_contains(flag : String, needle : Char) -> Bool {
+  if flag.length() <= 1 {
+    return false
+  }
+  for i = 1; i < flag.length(); i = i + 1 {
+    if flag[i].to_int().unsafe_to_char() == needle {
+      return true
+    }
+  }
+  false
 }
