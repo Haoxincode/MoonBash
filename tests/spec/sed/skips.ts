@@ -24,7 +24,6 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   ],
   ["busybox-sed.tests:sed NUL in command", "NUL bytes in command file"],
   ["busybox-sed.tests:sed subst+write", "w command with multiple files"],
-  ["busybox-sed.tests:sed clusternewline", "insert/p command output ordering"],
   [
     "busybox-sed.tests:sed selective matches noinsert newline",
     "trailing newline with matches only in first file",
@@ -34,15 +33,6 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
     "$ address with -i and multi-file",
   ],
   ["busybox-sed.tests:sed lie-to-autoconf", "--version output"],
-  [
-    "busybox-sed.tests:sed a cmd ended by double backslash",
-    "backslash escaping in a command",
-  ],
-  [
-    "busybox-sed.tests:sed special char as s/// delimiter, in replacement 2",
-    "special delimiter with backreference",
-  ],
-  ["busybox-sed.tests:sed 's///w FILE'", "w flag with file path syntax"],
 
   // ============================================================
   // PythonSed unit tests
@@ -75,19 +65,10 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
     "pythonsed-unit.suite:regexp extended: back reference before num in address",
     "\\10 backreference in address with ERE",
   ],
-  ["pythonsed-unit.suite:avoid python extension - 2", "BRE grouping edge case"],
   ["pythonsed-unit.suite:(^){2}", "#r comment and ^ quantified"],
   [
     "pythonsed-unit.suite:substitution: back reference before num in regexp",
     "\\10 parsed as \\1 + 0",
-  ],
-  [
-    "pythonsed-unit.suite:regexp: ** BRE (multiple quantifier)",
-    "multiple quantifier error handling",
-  ],
-  [
-    "pythonsed-unit.suite:regexp: ** ERE (multiple quantifier)",
-    "multiple quantifier error handling",
   ],
   [
     "pythonsed-unit.suite:regexp: *\\\\? BRE (multiple quantifier)",
@@ -106,14 +87,6 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
     "\\10 parsing with extended regex",
   ],
   [
-    "pythonsed-unit.suite:empty regexp: case modifier propagation",
-    "empty regex reuse and /I flag",
-  ],
-  [
-    "pythonsed-unit.suite:empty regexp: same empty regexp, different case status",
-    "empty regex reuse and /I flag",
-  ],
-  [
     "pythonsed-unit.suite:empty regexp: case modifier propagation for addresses",
     "empty regex reuse and /I flag",
   ],
@@ -127,14 +100,6 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   // PythonSed chang.suite - complex N/D/P scripts
   // ============================================================
   [
-    "pythonsed-chang.suite:Delete two consecutive lines if the first one contains PAT1 and the second one contains PAT2.",
-    "N/P/D commands",
-  ],
-  [
-    "pythonsed-chang.suite:Get the line following a line containing PAT - Case 1 - 1.",
-    "N/D commands",
-  ],
-  [
     "pythonsed-chang.suite:Remove comments (/* ... */, maybe multi-line) of a C program. - 1",
     "N command behavior",
   ],
@@ -144,48 +109,12 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   ],
   ["pythonsed-chang.suite:test at line 1516", "** not a valid command"],
   [
-    "pythonsed-chang.suite:Remove almost identical lines.",
-    "N/D/P commands with hold space",
-  ],
-  [
-    'pythonsed-chang.suite:For consecutive "almost identical" lines, print only the first one.',
-    "N/D/P commands with hold space",
-  ],
-  [
-    "pythonsed-chang.suite:Remove consecutive duplicate lines.",
-    "N/D commands with pattern matching",
-  ],
-  [
-    "pythonsed-chang.suite:Retrieve the first line among consecutive lines of the same key - 1.",
-    "N/D commands with complex branching",
-  ],
-  [
     "pythonsed-chang.suite:Delete the LAST N-th line through the LAST M-th line of a datafile, where N is greater than M - 1.",
     "complex N/D branching",
   ],
   [
-    "pythonsed-chang.suite:Get every Nth line of a file - 1.",
-    "complex N/D branching",
-  ],
-  [
-    "pythonsed-chang.suite:Join every N lines to one - 1.",
-    "complex N/D branching",
-  ],
-  [
-    'pythonsed-chang.suite:Extract "Received:" header(s) from a mailbox.',
-    "complex N/D branching",
-  ],
-  [
-    "pythonsed-chang.suite:Extract every IMG elements from an HTML file.",
-    "complex branching",
-  ],
-  [
     "pythonsed-chang.suite:Find failed instances without latter successful ones.",
     "complex N/D branching",
-  ],
-  [
-    "pythonsed-chang.suite:Change the first quote of every single-quoted string to backquote(`). - 1",
-    "complex pattern manipulation",
   ],
   ["pythonsed-chang.suite:1 cat chicken", "test name parsing issue"],
   [
