@@ -25,6 +25,7 @@ just-bash (87 commands) -> MoonBash (pure MoonBit) 的完整实现分层。
 | **`base64`** | `gmlewis/base64` | 高性能字节流转字符串。边缘计算（Edge）就算缺失 `atob` 也能完美运行 |
 | **`md5sum`** | `gmlewis/md5` | 纯手写位运算 Hash，结果在任何异构硬件和 JS 引擎下绝对一致 |
 | **`sha1sum`**, **`sha256sum`** | `shu-kitamura/sha256` 或 `gmlewis/sha256` | 摆脱 `crypto` 模块依赖，Edge 环境稳定运行 |
+| **`jq`** (JSON 查询) | `bobzhang/moonjq` | MoonBit 创始人亲写的完整 jq 解释器。lexer → parser → 流式求值器，支持管道、filter、内建函数、变量绑定，415+ 测试覆盖。可完全替代手写 jq 引擎 |
 | **`find`**, **`ls *.txt`** 通配符 | `justjavac/glob` | 完美支持文件路径通配符（`*`, `**`, `?`）的跨目录模式匹配 |
 
 ---
@@ -36,7 +37,7 @@ Unix 文本处理的灵魂。过去用 JS/TS 写极其容易引发 ReDoS（正�
 | `just-bash` 命令 | MoonBit 标准库 | 降维打击点 |
 |---|---|---|
 | **`grep`**, **`rg`**, **`sed`** 正则匹配 | `core/regexp` | 基于 VM 虚拟机的正则引擎。绝对免疫大模型生成的恶意正则回溯攻击 |
-| **`jq`** (JSON) | `core/json` | 官方强类型 JSON 解析。直接构建 `JsonValue` AST，配合模式匹配安全提取 |
+| **`jq`** (JSON) | `core/json` + `bobzhang/moonjq` | 官方强类型 JSON 解析 + 社区完整 jq 解释器（可替代手写引擎） |
 | **`sort`**, **`uniq`** | `core/array`, `core/hashset` | 原生高效泛型排序（`Array::sort`）和 O(1) 内存去重 |
 | **`head`**, **`tail`**, **`wc`** | `core/string`, `core/array` | 纯净的数组切片与字符串统计，按行切分 `lines[0:n]` |
 | **`cut`**, **`split`**, **`paste`** | `core/string`, `core/iter` | 利用原生迭代器 `Iter::zip` 进行双向流合并与分割，零额外内存开销 |
@@ -69,7 +70,7 @@ Unix 文本处理的灵魂。过去用 JS/TS 写极其容易引发 ReDoS（正�
 | **Shell Interpreter** (展开引擎 + 执行器) | 展开顺序 (brace→tilde→param→cmd subst→arith→word split→glob→quote) 的正确实现 | Tree-walking evaluator，8 阶段展开管线，`ExecContext` 状态机 |
 | **`awk`** (微型数据提取语言) | 原版只支持极简分割，无法执行 `awk '{s+=$1} END {print s}'` 带状态累加 | 手搓精简求值器，支持 `BEGIN/END`、字段分割、模式匹配、内建函数、控制流 |
 | **`sed`** (流编辑器) | 地址匹配、hold space 等高级特性实现复杂 | 地址类型（行号/正则/范围）+ 命令执行器 + pattern/hold space 双缓冲 |
-| **`jq`** (JSON 查询引擎) | 完整的 filter 语法需要独立解析器 | Filter parser + 求值器，基于 `core/json` 的 `JsonValue` AST |
+| **`jq`** (JSON 查询引擎) | 完整的 filter 语法需要独立解析器 | ⚡ 现可直接使用 `bobzhang/moonjq` 社区包替代手写。若需深度定制仍可手搓 filter parser + 求值器 |
 | **`expr`** (表达式求值) | 运算符优先级处理 | Pratt Parser（算符优先解析器），递归下降处理括号优先级 |
 | **参数解析** (所有命令的 `-h`, `-n`, `-v`) | TS 中的参数位置判断极其混乱 | 引入社区库 `TheWaWaR/clap` 或 `Yoorkin/ArgParser`，强类型 Struct 映射 |
 
@@ -102,6 +103,7 @@ Unix 文本处理的灵魂。过去用 JS/TS 写极其容易引发 ReDoS（正�
 | `shu-kitamura/sha256` 或 `gmlewis/sha256` | SHA-256 哈希 | `crypto.createHash('sha256')` |
 | `moonbit-community/yaml` | YAML 解析（从 Rust yaml-rust2 移植） | `js-yaml` |
 | `xunyoyo/NyaCSV` | CSV 解析 | `csv-parse` |
+| `bobzhang/moonjq` | 完整 jq 解释器（MoonBit 创始人亲写，415+ 测试） | 手写 jq 引擎 |
 | `justjavac/glob` | 通配符路径匹配 | `minimatch` |
 | `TheWaWaR/clap` 或 `Yoorkin/ArgParser` | CLI 参数解析 | `commander` |
 | `justjavac/btoi` | ASCII 字节数组与整数互转 | 手写 parseInt |
@@ -114,7 +116,7 @@ Unix 文本处理的灵魂。过去用 JS/TS 写极其容易引发 ReDoS（正�
 2. **Shell Interpreter** — tree-walking evaluator + 8 阶段展开引擎
 3. **`awk` 解释器** — 模式/动作 + 字段计算 + 内建函数
 4. **`sed` 执行器** — 地址匹配 + 命令执行 + hold/pattern space
-5. **`jq` 引擎** — filter parser + JSON 求值器
+5. **`jq` 引擎** — filter parser + JSON 求值器（⚡ 现可用 `bobzhang/moonjq` 社区包替代）
 6. **`expr` 解析器** — Pratt Parser 算符优先
 
 `diff`、`tar`、`gzip`、`base64`、`md5sum`、`sha256sum`、`yq`、`xan` 全部通过社区包实现，无需手写算法。其余所有命令 = 标准库拼装 + 状态管理 + VFS 操作。

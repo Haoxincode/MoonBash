@@ -77,7 +77,7 @@
 | 命令 | 必须使用的包 |
 |---|---|
 | `grep`, `sed` 正则匹配 | `@moonbitlang/core/regexp` |
-| `jq` | `@moonbitlang/core/json` |
+| `jq` | `bobzhang/moonjq`（完整 jq 解释器）+ `@moonbitlang/core/json` |
 | `sort` | `@moonbitlang/core/array` 的 `sort_by` |
 | `tar` | `bobzhang/tar` |
 | `diff` | `moonbit-community/piediff` |
@@ -94,7 +94,7 @@
 2. Shell Interpreter（tree-walking evaluator + 展开引擎）
 3. `awk` 解释器
 4. `sed` 执行器
-5. `jq` 引擎（基于 `core/json`）
+5. `jq` 引擎（⚡ 现可用 `bobzhang/moonjq` 社区包替代；若需深度定制仍可基于 `core/json` 手搓）
 6. `expr` 解析器（Pratt Parser）
 
 ### 禁止事项

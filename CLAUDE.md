@@ -65,7 +65,7 @@ All in `docs/`:
 | 命令 | 必须使用的包 |
 |---|---|
 | `grep`, `sed` 的正则匹配 | `@moonbitlang/core/regexp` |
-| `jq` | `@moonbitlang/core/json` |
+| `jq` | `bobzhang/moonjq`（完整 jq 解释器，MoonBit 创始人亲写）+ `@moonbitlang/core/json` |
 | `sort` | `@moonbitlang/core/array` 的 `sort_by` |
 | `tar` | `bobzhang/tar`（MoonBit 创始人亲写，纯内存字节流） |
 | `diff` | `moonbit-community/piediff`（Myers + Patience 算法） |
@@ -86,7 +86,7 @@ All in `docs/`:
 2. Shell Interpreter（tree-walking evaluator + 展开引擎）
 3. `awk` 解释器（模式/动作 + 字段计算 + 内建函数）
 4. `sed` 执行器（地址匹配 + 命令执行 + hold/pattern space）
-5. `jq` 引擎（filter parser + JSON 求值器，基于 `core/json`）
+5. `jq` 引擎（⚡ 现可用 `bobzhang/moonjq` 社区包替代手写；若需深度定制仍可基于 `core/json` 手搓）
 6. `expr` 解析器（Pratt Parser 算符优先）
 
 ### FFI 终极红线：仅 4 个系统原语
