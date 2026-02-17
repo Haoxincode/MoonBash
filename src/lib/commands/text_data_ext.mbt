@@ -391,7 +391,7 @@ fn cmd_base64(ctx : CommandContext) -> @ast.ExecResult {
       i += 1
     } else if arg == "-w" {
       if i + 1 < ctx.args.length() {
-        wrap_col = cmd_parse_int(ctx.args[i + 1])
+        wrap_col = cmd_parse_int(ctx.args[i + 1]).to_int()
         i += 2
       } else {
         return @ast.ExecResult::err(
@@ -399,7 +399,7 @@ fn cmd_base64(ctx : CommandContext) -> @ast.ExecResult {
         )
       }
     } else if arg.has_prefix("-w") && arg.length() > 2 {
-      wrap_col = cmd_parse_int(cmd_substr_from(arg, 2))
+      wrap_col = cmd_parse_int(cmd_substr_from(arg, 2)).to_int()
       i += 1
     } else {
       files.push(arg)
@@ -472,7 +472,7 @@ fn ExprParser::set_error(self : ExprParser, msg : String) -> Unit {
 }
 
 /// Try to parse a string as integer.
-fn expr_try_int(s : String) -> Int? {
+fn expr_try_int(s : String) -> Int64? {
   if s.length() == 0 {
     return None
   }
@@ -487,11 +487,11 @@ fn expr_try_int(s : String) -> Int? {
   if start >= s.length() {
     return None
   }
-  let mut result = 0
+  let mut result = 0L
   for i = start; i < s.length(); i = i + 1 {
     let ch = s[i].to_int().unsafe_to_char()
     if ch >= '0' && ch <= '9' {
-      result = result * 10 + (ch.to_int() - 48)
+      result = result * 10L + (ch.to_int() - 48).to_int64()
     } else {
       return None
     }
@@ -505,7 +505,7 @@ fn expr_is_truthy(s : String) -> Bool {
     return false
   }
   match expr_try_int(s) {
-    Some(n) => n != 0
+    Some(n) => n != 0L
     None => true
   }
 }
@@ -681,13 +681,13 @@ fn expr_parse_mul(p : ExprParser) -> String {
           if op == "*" {
             left = (l * r).to_string()
           } else if op == "/" {
-            if r == 0 {
+            if r == 0L {
               p.set_error("expr: division by zero\n")
               return "0"
             }
             left = (l / r).to_string()
           } else {
-            if r == 0 {
+            if r == 0L {
               p.set_error("expr: division by zero\n")
               return "0"
             }
@@ -773,9 +773,9 @@ fn expr_parse_primary(p : ExprParser) -> String {
             return "0"
           }
         }
-        let start = if pos < 1 { 0 } else { pos - 1 }
+        let start = if pos < 1L { 0L } else { pos - 1L }
         let end_ = start + len
-        cmd_substr_slice(s, start, end_)
+        cmd_substr_slice(s, start.to_int(), end_.to_int())
       } else if tok == "match" {
         ignore(p.advance())
         let _s = match p.advance() {

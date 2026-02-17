@@ -168,7 +168,7 @@ fn vm_json_get_int(
 ) -> Int {
   match obj.get(key) {
     Some(Json::Number(n, ..)) => n.to_int()
-    Some(Json::String(s)) => cmd_parse_int(s)
+    Some(Json::String(s)) => cmd_parse_int(s).to_int()
     _ => default_value
   }
 }

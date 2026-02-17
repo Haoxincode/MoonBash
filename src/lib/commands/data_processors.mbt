@@ -31,7 +31,7 @@ fn yq_apply_filter(
         // Check if it's an array index like [N]
         if seg.has_prefix("[") && seg.has_suffix("]") {
           let idx_str = cmd_substr_slice(seg, 1, seg.length() - 1)
-          let idx = cmd_parse_int(idx_str)
+          let idx = cmd_parse_int(idx_str).to_int()
           match current {
             @yaml.Yaml::Array(arr) =>
               if idx >= 0 && idx < arr.length() {
@@ -361,10 +361,10 @@ fn xan_slice(ctx : CommandContext) -> @ast.ExecResult {
   let mut i = 1
   while i < ctx.args.length() {
     if ctx.args[i] == "-i" && i + 1 < ctx.args.length() {
-      start = cmd_parse_int(ctx.args[i + 1])
+      start = cmd_parse_int(ctx.args[i + 1]).to_int()
       i += 2
     } else if ctx.args[i] == "-l" && i + 1 < ctx.args.length() {
-      length = Some(cmd_parse_int(ctx.args[i + 1]))
+      length = Some(cmd_parse_int(ctx.args[i + 1]).to_int())
       i += 2
     } else if not(ctx.args[i].has_prefix("-")) {
       file_idx = i

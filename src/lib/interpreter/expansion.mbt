@@ -452,56 +452,58 @@ fn ExecContext::expand_param(
   }
 }
 
-fn expand_scalar_substring(value : String, offset : Int, len : Int?) -> String {
-  let actual_offset = if offset < 0 {
-    let o = value.length() + offset
-    if o < 0 { 0 } else { o }
+fn expand_scalar_substring(value : String, offset : Int64, len : Int64?) -> String {
+  let value_len = value.length().to_int64()
+  let actual_offset = if offset < 0L {
+    let o = value_len + offset
+    if o < 0L { 0L } else { o }
   } else {
     offset
   }
   let actual_len = match len {
     Some(length) => length
-    None => value.length()
+    None => value_len
   }
-  let end = if actual_offset + actual_len > value.length() {
-    value.length()
+  let end = if actual_offset + actual_len > value_len {
+    value_len
   } else {
     actual_offset + actual_len
   }
-  if actual_offset >= value.length() || actual_len <= 0 {
+  if actual_offset >= value_len || actual_len <= 0L {
     ""
   } else {
-    value.substring(start=actual_offset, end=end)
+    value.substring(start=actual_offset.to_int(), end=end.to_int())
   }
 }
 
-fn slice_array_values(values : Array[String], offset : Int, len : Int?) -> Array[String] {
+fn slice_array_values(values : Array[String], offset : Int64, len : Int64?) -> Array[String] {
   let out : Array[String] = []
-  let mut start = if offset < 0 {
-    values.length() + offset
+  let values_len = values.length().to_int64()
+  let mut start = if offset < 0L {
+    values_len + offset
   } else {
     offset
   }
-  if start < 0 {
-    start = 0
+  if start < 0L {
+    start = 0L
   }
-  if start >= values.length() {
+  if start >= values_len {
     return out
   }
-  let mut end_ = values.length()
+  let mut end_ = values_len
   match len {
     Some(length) => {
-      if length <= 0 {
+      if length <= 0L {
         return out
       }
       end_ = start + length
-      if end_ > values.length() {
-        end_ = values.length()
+      if end_ > values_len {
+        end_ = values_len
       }
     }
     None => ()
   }
-  for i = start; i < end_; i = i + 1 {
+  for i = start.to_int(); i < end_.to_int(); i = i + 1 {
     out.push(values[i])
   }
   out
@@ -613,11 +615,11 @@ fn ExecContext::expand_tilde(self : ExecContext, user : String) -> String {
 priv enum ArithTarget {
   NoTarget
   Var(String)
-  ArrayElem(String, Int)
+  ArrayElem(String, Int64)
 }
 
 priv struct ArithValue {
-  value : Int
+  value : Int64
   target : ArithTarget
 }
 
@@ -626,11 +628,11 @@ priv struct ArithParser {
   mut pos : Int
 }
 
-fn arith_plain(value : Int) -> ArithValue {
+fn arith_plain(value : Int64) -> ArithValue {
   { value, target: NoTarget }
 }
 
-fn arith_with_target(value : Int, target : ArithTarget) -> ArithValue {
+fn arith_with_target(value : Int64, target : ArithTarget) -> ArithValue {
   { value, target }
 }
 
@@ -737,17 +739,17 @@ fn arith_is_identifier_text(s : String) -> Bool {
   true
 }
 
-fn arith_parse_decimal_str(s : String) -> Int? {
+fn arith_parse_decimal_str(s : String) -> Int64? {
   if s.length() == 0 {
     return None
   }
-  let mut value = 0
+  let mut value = 0L
   for i = 0; i < s.length(); i = i + 1 {
     let ch = s[i].to_int().unsafe_to_char()
     if not(arith_is_digit(ch)) {
       return None
     }
-    value = value * 10 + (ch.to_int() - 48)
+    value = value * 10L + (ch.to_int() - 48).to_int64()
   }
   Some(value)
 }
@@ -768,11 +770,11 @@ fn arith_digit_value(ch : Char) -> Int? {
   }
 }
 
-fn arith_parse_base_digits(digits : String, base : Int) -> Int? {
+fn arith_parse_base_digits(digits : String, base : Int) -> Int64? {
   if digits.length() == 0 {
     return None
   }
-  let mut value = 0
+  let mut value = 0L
   for i = 0; i < digits.length(); i = i + 1 {
     let ch = digits[i].to_int().unsafe_to_char()
     match arith_digit_value(ch) {
@@ -780,7 +782,7 @@ fn arith_parse_base_digits(digits : String, base : Int) -> Int? {
         if d >= base {
           return None
         }
-        value = value * base + d
+        value = value * base.to_int64() + d.to_int64()
       }
       None => return None
     }
@@ -788,17 +790,17 @@ fn arith_parse_base_digits(digits : String, base : Int) -> Int? {
   Some(value)
 }
 
-fn arith_parse_number_literal(token : String) -> Int? {
+fn arith_parse_number_literal(token : String) -> Int64? {
   if token.length() == 0 {
     return None
   }
 
   let mut start = 0
-  let mut sign = 1
+  let mut sign = 1L
   if token[0] == '+' {
     start = 1
   } else if token[0] == '-' {
-    sign = -1
+    sign = -1L
     start = 1
   }
   if start >= token.length() {
@@ -829,10 +831,10 @@ fn arith_parse_number_literal(token : String) -> Int? {
     let digits = body.substring(start=hash_pos + 1)
     match arith_parse_decimal_str(base_text) {
       Some(base) => {
-        if base < 2 || base > 64 {
+        if base < 2L || base > 64L {
           return None
         }
-        match arith_parse_base_digits(digits, base) {
+        match arith_parse_base_digits(digits, base.to_int()) {
           Some(v) => return Some(v * sign)
           None => return None
         }
@@ -993,26 +995,30 @@ fn arith_is_assignment_op(op : String) -> Bool {
   op == ">>="
 }
 
-fn arith_shift_left(v : Int, amount : Int) -> Int {
-  if amount < 0 {
+fn arith_shift_left(v : Int64, amount : Int64) -> Int64 {
+  if amount < 0L {
     v
+  } else if amount >= 64L {
+    0L
   } else {
-    v << amount
+    v << amount.to_int()
   }
 }
 
-fn arith_shift_right(v : Int, amount : Int) -> Int {
-  if amount < 0 {
+fn arith_shift_right(v : Int64, amount : Int64) -> Int64 {
+  if amount < 0L {
     v
+  } else if amount >= 64L {
+    if v < 0L { -1L } else { 0L }
   } else {
-    v >> amount
+    v >> amount.to_int()
   }
 }
 
-fn ExecContext::arith_parse_value_text(self : ExecContext, text : String) -> Int {
+fn ExecContext::arith_parse_value_text(self : ExecContext, text : String) -> Int64 {
   let trimmed = arith_trim(text)
   if trimmed.length() == 0 {
-    return 0
+    return 0L
   }
 
   if trimmed.length() >= 2 &&
@@ -1021,7 +1027,7 @@ fn ExecContext::arith_parse_value_text(self : ExecContext, text : String) -> Int
     let inner = trimmed.substring(start=1, end=trimmed.length() - 1)
     let parts = split_by_whitespace(inner)
     if parts.length() == 0 {
-      return 0
+      return 0L
     }
     return self.arith_parse_value_text(parts[0])
   }
@@ -1032,7 +1038,7 @@ fn ExecContext::arith_parse_value_text(self : ExecContext, text : String) -> Int
   }
 }
 
-fn ExecContext::arith_get_var_value(self : ExecContext, name : String) -> Int {
+fn ExecContext::arith_get_var_value(self : ExecContext, name : String) -> Int64 {
   let mut current = name
   let mut depth = 0
 
@@ -1040,7 +1046,7 @@ fn ExecContext::arith_get_var_value(self : ExecContext, name : String) -> Int {
     let raw = self.env.get(current).unwrap_or("")
     let trimmed = arith_trim(raw)
     if trimmed.length() == 0 {
-      return 0
+      return 0L
     }
 
     if arith_is_identifier_text(trimmed) && trimmed != current {
@@ -1052,16 +1058,16 @@ fn ExecContext::arith_get_var_value(self : ExecContext, name : String) -> Int {
     return self.arith_parse_value_text(trimmed)
   }
 
-  0
+  0L
 }
 
 fn ExecContext::arith_get_array_elem(
   self : ExecContext,
   name : String,
-  index : Int
-) -> Int {
-  if index < 0 {
-    return 0
+  index : Int64
+) -> Int64 {
+  if index < 0L {
+    return 0L
   }
 
   let key = name + "[" + index.to_string() + "]"
@@ -1077,18 +1083,18 @@ fn ExecContext::arith_get_array_elem(
     trimmed[trimmed.length() - 1] == ')' {
     let inner = trimmed.substring(start=1, end=trimmed.length() - 1)
     let parts = split_by_whitespace(inner)
-    if index < parts.length() {
-      return self.arith_parse_value_text(parts[index])
+    if index < parts.length().to_int64() {
+      return self.arith_parse_value_text(parts[index.to_int()])
     }
   }
 
-  0
+  0L
 }
 
 fn ExecContext::arith_set_target(
   self : ExecContext,
   target : ArithTarget,
-  value : Int,
+  value : Int64,
   execute : Bool
 ) -> Unit {
   if not(execute) {
@@ -1099,12 +1105,12 @@ fn ExecContext::arith_set_target(
     NoTarget => ()
     Var(name) => self.env[name] = value.to_string()
     ArrayElem(name, index) => {
-      if index < 0 {
+      if index < 0L {
         return
       }
       let key = name + "[" + index.to_string() + "]"
       self.env[key] = value.to_string()
-      if index == 0 {
+      if index == 0L {
         self.env[name] = value.to_string()
       }
     }
@@ -1144,7 +1150,7 @@ fn ExecContext::arith_parse_primary(
         None => arith_plain(parse_int_str(tok))
       }
     }
-    None => arith_plain(0)
+    None => arith_plain(0L)
   }
 }
 
@@ -1158,14 +1164,14 @@ fn ExecContext::arith_parse_postfix(
   while true {
     if p.match_tok("++") {
       let old = value.value
-      let newv = old + 1
+      let newv = old + 1L
       self.arith_set_target(value.target, newv, execute)
       value = arith_plain(old)
       continue
     }
     if p.match_tok("--") {
       let old = value.value
-      let newv = old - 1
+      let newv = old - 1L
       self.arith_set_target(value.target, newv, execute)
       value = arith_plain(old)
       continue
@@ -1189,10 +1195,10 @@ fn ExecContext::arith_parse_unary(
         match op {
           "+" => arith_plain(operand.value)
           "-" => arith_plain(-operand.value)
-          "!" => arith_plain(if operand.value == 0 { 1 } else { 0 })
+          "!" => arith_plain(if operand.value == 0L { 1L } else { 0L })
           "~" => arith_plain(operand.value.lnot())
           "++" => {
-            let newv = operand.value + 1
+            let newv = operand.value + 1L
             match operand.target {
               NoTarget => arith_plain(operand.value)
               _ => {
@@ -1202,7 +1208,7 @@ fn ExecContext::arith_parse_unary(
             }
           }
           "--" => {
-            let newv = operand.value - 1
+            let newv = operand.value - 1L
             match operand.target {
               NoTarget => arith_plain(operand.value)
               _ => {
@@ -1236,8 +1242,8 @@ fn ExecContext::arith_parse_mul(
           let right = self.arith_parse_unary(p, execute)
           let value = match op {
             "*" => left.value * right.value
-            "/" => if right.value == 0 { 0 } else { left.value / right.value }
-            "%" => if right.value == 0 { 0 } else { left.value % right.value }
+            "/" => if right.value == 0L { 0L } else { left.value / right.value }
+            "%" => if right.value == 0L { 0L } else { left.value % right.value }
             _ => left.value
           }
           left = arith_plain(value)
@@ -1334,7 +1340,7 @@ fn ExecContext::arith_parse_rel(
           } else {
             left.value >= right.value
           }
-          left = arith_plain(if ok { 1 } else { 0 })
+          left = arith_plain(if ok { 1L } else { 0L })
         } else {
           break
         }
@@ -1364,7 +1370,7 @@ fn ExecContext::arith_parse_eq(
           } else {
             left.value != right.value
           }
-          left = arith_plain(if ok { 1 } else { 0 })
+          left = arith_plain(if ok { 1L } else { 0L })
         } else {
           break
         }
@@ -1423,12 +1429,12 @@ fn ExecContext::arith_parse_logand(
   let mut left = self.arith_parse_bitor(p, execute)
 
   while p.match_tok("&&") {
-    if left.value != 0 {
+    if left.value != 0L {
       let right = self.arith_parse_bitor(p, execute)
-      left = arith_plain(if right.value != 0 { 1 } else { 0 })
+      left = arith_plain(if right.value != 0L { 1L } else { 0L })
     } else {
       ignore(self.arith_parse_bitor(p, false))
-      left = arith_plain(0)
+      left = arith_plain(0L)
     }
   }
 
@@ -1443,12 +1449,12 @@ fn ExecContext::arith_parse_logor(
   let mut left = self.arith_parse_logand(p, execute)
 
   while p.match_tok("||") {
-    if left.value != 0 {
+    if left.value != 0L {
       ignore(self.arith_parse_logand(p, false))
-      left = arith_plain(1)
+      left = arith_plain(1L)
     } else {
       let right = self.arith_parse_logand(p, execute)
-      left = arith_plain(if right.value != 0 { 1 } else { 0 })
+      left = arith_plain(if right.value != 0L { 1L } else { 0L })
     }
   }
 
@@ -1465,7 +1471,7 @@ fn ExecContext::arith_parse_ternary(
     return cond
   }
 
-  if cond.value != 0 {
+  if cond.value != 0L {
     let then_v = self.arith_parse_comma(p, execute)
     if p.match_tok(":") {
       ignore(self.arith_parse_ternary(p, false))
@@ -1477,7 +1483,7 @@ fn ExecContext::arith_parse_ternary(
       let else_v = self.arith_parse_ternary(p, execute)
       arith_plain(else_v.value)
     } else {
-      arith_plain(0)
+      arith_plain(0L)
     }
   }
 }
@@ -1504,8 +1510,8 @@ fn ExecContext::arith_parse_assignment(
     "+=" => left.value + right.value
     "-=" => left.value - right.value
     "*=" => left.value * right.value
-    "/=" => if right.value == 0 { 0 } else { left.value / right.value }
-    "%=" => if right.value == 0 { 0 } else { left.value % right.value }
+    "/=" => if right.value == 0L { 0L } else { left.value / right.value }
+    "%=" => if right.value == 0L { 0L } else { left.value % right.value }
     "&=" => left.value.land(right.value)
     "|=" => left.value.lor(right.value)
     "^=" => left.value.lxor(right.value)
@@ -1580,18 +1586,18 @@ fn ExecContext::arith_expand_dollar_refs(self : ExecContext, raw : String) -> St
   out.to_string()
 }
 
-fn ExecContext::eval_arith_raw(self : ExecContext, raw : String) -> Int {
+fn ExecContext::eval_arith_raw(self : ExecContext, raw : String) -> Int64 {
   let expanded = self.arith_expand_dollar_refs(raw)
   let tokens = arith_tokenize(expanded)
   if tokens.length() == 0 {
-    return 0
+    return 0L
   }
   let parser : ArithParser = { tokens, pos: 0 }
   let result = self.arith_parse_comma(parser, true)
   result.value
 }
 
-fn ExecContext::eval_arith(self : ExecContext, expr : @ast.ArithExpr) -> Int {
+fn ExecContext::eval_arith(self : ExecContext, expr : @ast.ArithExpr) -> Int64 {
   match expr {
     @ast.ArithExpr::Num(n) => n
     @ast.ArithExpr::Var(name) => self.arith_get_var_value(name)
@@ -1602,21 +1608,21 @@ fn ExecContext::eval_arith(self : ExecContext, expr : @ast.ArithExpr) -> Int {
         @ast.ArithBinOp::Add => l + r
         @ast.ArithBinOp::Sub => l - r
         @ast.ArithBinOp::Mul => l * r
-        @ast.ArithBinOp::Div => if r == 0 { 0 } else { l / r }
-        @ast.ArithBinOp::Mod => if r == 0 { 0 } else { l % r }
-        @ast.ArithBinOp::Eq => if l == r { 1 } else { 0 }
-        @ast.ArithBinOp::Ne => if l != r { 1 } else { 0 }
-        @ast.ArithBinOp::Lt => if l < r { 1 } else { 0 }
-        @ast.ArithBinOp::Le => if l <= r { 1 } else { 0 }
-        @ast.ArithBinOp::Gt => if l > r { 1 } else { 0 }
-        @ast.ArithBinOp::Ge => if l >= r { 1 } else { 0 }
-        @ast.ArithBinOp::LogicalAnd => if l != 0 && r != 0 { 1 } else { 0 }
-        @ast.ArithBinOp::LogicalOr => if l != 0 || r != 0 { 1 } else { 0 }
+        @ast.ArithBinOp::Div => if r == 0L { 0L } else { l / r }
+        @ast.ArithBinOp::Mod => if r == 0L { 0L } else { l % r }
+        @ast.ArithBinOp::Eq => if l == r { 1L } else { 0L }
+        @ast.ArithBinOp::Ne => if l != r { 1L } else { 0L }
+        @ast.ArithBinOp::Lt => if l < r { 1L } else { 0L }
+        @ast.ArithBinOp::Le => if l <= r { 1L } else { 0L }
+        @ast.ArithBinOp::Gt => if l > r { 1L } else { 0L }
+        @ast.ArithBinOp::Ge => if l >= r { 1L } else { 0L }
+        @ast.ArithBinOp::LogicalAnd => if l != 0L && r != 0L { 1L } else { 0L }
+        @ast.ArithBinOp::LogicalOr => if l != 0L || r != 0L { 1L } else { 0L }
         @ast.ArithBinOp::BitwiseAnd => l.land(r)
         @ast.ArithBinOp::BitwiseOr => l.lor(r)
         @ast.ArithBinOp::BitwiseXor => l.lxor(r)
-        @ast.ArithBinOp::ShiftLeft => l << r
-        @ast.ArithBinOp::ShiftRight => l >> r
+        @ast.ArithBinOp::ShiftLeft => arith_shift_left(l, r)
+        @ast.ArithBinOp::ShiftRight => arith_shift_right(l, r)
         @ast.ArithBinOp::Pow => int_pow(l, r)
       }
     }
@@ -1624,10 +1630,10 @@ fn ExecContext::eval_arith(self : ExecContext, expr : @ast.ArithExpr) -> Int {
       let v = self.eval_arith(operand)
       match op {
         @ast.ArithUnaryOp::Negate => -v
-        @ast.ArithUnaryOp::LogicalNot => if v == 0 { 1 } else { 0 }
+        @ast.ArithUnaryOp::LogicalNot => if v == 0L { 1L } else { 0L }
         @ast.ArithUnaryOp::BitwiseNot => v.lnot()
-        @ast.ArithUnaryOp::PreIncr | @ast.ArithUnaryOp::PostIncr => v + 1
-        @ast.ArithUnaryOp::PreDecr | @ast.ArithUnaryOp::PostDecr => v - 1
+        @ast.ArithUnaryOp::PreIncr | @ast.ArithUnaryOp::PostIncr => v + 1L
+        @ast.ArithUnaryOp::PreDecr | @ast.ArithUnaryOp::PostDecr => v - 1L
       }
     }
     @ast.ArithExpr::Assign(name, value_expr) => {
@@ -1637,7 +1643,7 @@ fn ExecContext::eval_arith(self : ExecContext, expr : @ast.ArithExpr) -> Int {
     }
     @ast.ArithExpr::Ternary(cond, then_expr, else_expr) => {
       let c = self.eval_arith(cond)
-      if c != 0 {
+      if c != 0L {
         self.eval_arith(then_expr)
       } else {
         self.eval_arith(else_expr)
@@ -1814,9 +1820,9 @@ fn parse_brace_range(content : String) -> Array[String] {
     (Some(start_num), Some(end_num)) => {
       let step = match step_opt {
         Some(v) => v
-        None => if end_num >= start_num { 1 } else { -1 }
+        None => if end_num >= start_num { 1L } else { -1L }
       }
-      if step == 0 {
+      if step == 0L {
         return []
       }
       return generate_numeric_range(start_num, end_num, step)
@@ -1827,13 +1833,14 @@ fn parse_brace_range(content : String) -> Array[String] {
   if parts[0].length() == 1 && parts[1].length() == 1 {
     let start_ch = parts[0][0].to_int()
     let end_ch = parts[1][0].to_int()
-    let step = match step_opt {
+    let step_i64 = match step_opt {
       Some(v) => v
-      None => if end_ch >= start_ch { 1 } else { -1 }
+      None => if end_ch >= start_ch { 1L } else { -1L }
     }
-    if step == 0 {
+    if step_i64 == 0L {
       return []
     }
+    let step = step_i64.to_int()
     return generate_char_range(start_ch, end_ch, step)
   }
 
@@ -1857,14 +1864,14 @@ fn split_by_double_dot(content : String) -> Array[String] {
   parts
 }
 
-fn parse_signed_int(text : String) -> Int? {
+fn parse_signed_int(text : String) -> Int64? {
   if text.length() == 0 {
     return None
   }
-  let mut sign = 1
+  let mut sign = 1L
   let mut i = 0
   if text[0] == '-' {
-    sign = -1
+    sign = -1L
     i = 1
   } else if text[0] == '+' {
     i = 1
@@ -1872,26 +1879,26 @@ fn parse_signed_int(text : String) -> Int? {
   if i >= text.length() {
     return None
   }
-  let mut value = 0
+  let mut value = 0L
   while i < text.length() {
     let ch = text[i].to_int().unsafe_to_char()
     if ch < '0' || ch > '9' {
       return None
     }
-    value = value * 10 + (ch.to_int() - '0'.to_int())
+    value = value * 10L + (ch.to_int() - '0'.to_int()).to_int64()
     i += 1
   }
   Some(value * sign)
 }
 
-fn generate_numeric_range(start_num : Int, end_num : Int, step : Int) -> Array[String] {
+fn generate_numeric_range(start_num : Int64, end_num : Int64, step : Int64) -> Array[String] {
   let out : Array[String] = []
   let mut current = start_num
   while true {
     if out.length() >= brace_expansion_result_limit {
       break
     }
-    if step > 0 {
+    if step > 0L {
       if current > end_num {
         break
       }
@@ -2674,12 +2681,12 @@ fn strip_trailing_newlines(s : String) -> String {
   s.substring(start=0, end=end)
 }
 
-fn int_pow(base : Int, exp : Int) -> Int {
-  if exp <= 0 {
-    return 1
+fn int_pow(base : Int64, exp : Int64) -> Int64 {
+  if exp <= 0L {
+    return 1L
   }
-  let mut result = 1
-  for _i = 0; _i < exp; _i = _i + 1 {
+  let mut result = 1L
+  for _i = 0; _i < exp.to_int(); _i = _i + 1 {
     result *= base
   }
   result

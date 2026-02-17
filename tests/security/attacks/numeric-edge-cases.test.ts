@@ -36,27 +36,24 @@ describe("Numeric Edge Cases", () => {
       const result = await bash.exec(`
         echo $((2147483647 + 1))
       `);
-      // Should either wrap around or handle overflow gracefully
       expect(result.exitCode).toBe(0);
-      expect(typeof result.stdout).toBe("string");
+      expect(result.stdout).toBe("2147483648\n");
     });
 
     it("should handle underflow from min int", async () => {
       const result = await bash.exec(`
         echo $((-2147483648 - 1))
       `);
-      // Should either wrap around or handle underflow gracefully
       expect(result.exitCode).toBe(0);
-      expect(typeof result.stdout).toBe("string");
+      expect(result.stdout).toBe("-2147483649\n");
     });
 
     it("should handle multiplication overflow", async () => {
       const result = await bash.exec(`
         echo $((100000 * 100000))
       `);
-      // 10^10 overflows 32-bit - should wrap or handle gracefully
       expect(result.exitCode).toBe(0);
-      expect(typeof result.stdout).toBe("string");
+      expect(result.stdout).toBe("10000000000\n");
     });
 
     it("should handle power of 2 boundary", async () => {
@@ -65,8 +62,24 @@ describe("Numeric Edge Cases", () => {
         echo $((1 << 31))
       `);
       expect(result.exitCode).toBe(0);
-      // 1 << 30 = 1073741824
-      expect(result.stdout).toContain("1073741824");
+      expect(result.stdout).toBe("1073741824\n2147483648\n");
+    });
+
+    it("should handle 64-bit shift beyond 32-bit range", async () => {
+      const result = await bash.exec(`
+        echo $((1 << 40))
+      `);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("1099511627776\n");
+    });
+
+    it("should wrap at 64-bit signed boundaries", async () => {
+      const result = await bash.exec(`
+        echo $((9223372036854775807 + 1))
+        echo $((-9223372036854775808 - 1))
+      `);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("-9223372036854775808\n9223372036854775807\n");
     });
   });
 
@@ -238,10 +251,10 @@ describe("Numeric Edge Cases", () => {
     it("should handle large shift counts", async () => {
       const result = await bash.exec(`
         echo $((1 << 31))
-        echo $((1 << 32)) 2>&1 || echo "shift handled"
+        echo $((1 << 32))
       `);
-      // Behavior varies - should not crash
-      expect(typeof result.exitCode).toBe("number");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("2147483648\n4294967296\n");
     });
 
     it("should handle negative shift counts", async () => {
@@ -545,6 +558,32 @@ describe("Numeric Edge Cases", () => {
       // let returns 1 if last expression is 0, 0 otherwise
       expect(result.stdout).toContain("exit: 1");
       expect(result.stdout).toContain("exit: 0");
+    });
+  });
+
+  describe("Large Values In Commands", () => {
+    it("should support expr with large operands", async () => {
+      const result = await bash.exec(`
+        expr 2147483648 + 2
+      `);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("2147483650\n");
+    });
+
+    it("should support expr 64-bit overflow wrap", async () => {
+      const result = await bash.exec(`
+        expr 9223372036854775807 + 1
+      `);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("-9223372036854775808\n");
+    });
+
+    it("should support seq with values above 32-bit", async () => {
+      const result = await bash.exec(`
+        seq 2147483648 2147483650
+      `);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("2147483648\n2147483649\n2147483650\n");
     });
   });
 

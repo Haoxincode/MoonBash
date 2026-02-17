@@ -182,21 +182,21 @@ fn ExecContext::builtin_grep(
       fixed = true
     } else if arg == "-A" && i + 1 < args.length() {
       i += 1
-      after_context = parse_int_str(args[i])
+      after_context = parse_int32_str(args[i])
     } else if arg == "-B" && i + 1 < args.length() {
       i += 1
-      before_context = parse_int_str(args[i])
+      before_context = parse_int32_str(args[i])
     } else if arg == "-C" && i + 1 < args.length() {
       i += 1
-      let ctx = parse_int_str(args[i])
+      let ctx = parse_int32_str(args[i])
       before_context = ctx
       after_context = ctx
     } else if arg.has_prefix("-A") && arg.length() > 2 {
-      after_context = parse_int_str(arg.substring(start=2))
+      after_context = parse_int32_str(arg.substring(start=2))
     } else if arg.has_prefix("-B") && arg.length() > 2 {
-      before_context = parse_int_str(arg.substring(start=2))
+      before_context = parse_int32_str(arg.substring(start=2))
     } else if arg.has_prefix("-C") && arg.length() > 2 {
-      let ctx = parse_int_str(arg.substring(start=2))
+      let ctx = parse_int32_str(arg.substring(start=2))
       before_context = ctx
       after_context = ctx
     } else if arg.length() > 1 && arg[0] == '-' {
@@ -218,28 +218,28 @@ fn ExecContext::builtin_grep(
           'F' => fixed = true
           'A' => {
             if j + 1 < arg.length() {
-              after_context = parse_int_str(arg.substring(start=j + 1))
+              after_context = parse_int32_str(arg.substring(start=j + 1))
             } else if i + 1 < args.length() {
               i += 1
-              after_context = parse_int_str(args[i])
+              after_context = parse_int32_str(args[i])
             }
             consumed_value = true
           }
           'B' => {
             if j + 1 < arg.length() {
-              before_context = parse_int_str(arg.substring(start=j + 1))
+              before_context = parse_int32_str(arg.substring(start=j + 1))
             } else if i + 1 < args.length() {
               i += 1
-              before_context = parse_int_str(args[i])
+              before_context = parse_int32_str(args[i])
             }
             consumed_value = true
           }
           'C' => {
             let ctx = if j + 1 < arg.length() {
-              parse_int_str(arg.substring(start=j + 1))
+              parse_int32_str(arg.substring(start=j + 1))
             } else if i + 1 < args.length() {
               i += 1
-              parse_int_str(args[i])
+              parse_int32_str(args[i])
             } else {
               0
             }

@@ -869,7 +869,7 @@ fn parse_sed_version_triplet(text : String) -> (Int, Int, Int)? {
           return None
         }
       }
-      parts.push(parse_int_str(segment))
+      parts.push(parse_int32_str(segment))
       if parts.length() > 3 {
         return None
       }

@@ -96,9 +96,9 @@ fn ExecContext::builtin_shift(
   self : ExecContext,
   args : Array[String]
 ) -> Unit {
-  let n = if args.length() > 0 { parse_int_str(args[0]) } else { 1 }
+  let n = if args.length() > 0 { parse_int32_str(args[0]) } else { 1 }
   let count = match self.env.get("#") {
-    Some(s) => parse_int_str(s)
+    Some(s) => parse_int32_str(s)
     None => 0
   }
   if n > count {
@@ -122,7 +122,7 @@ fn ExecContext::builtin_shift(
 
 fn ExecContext::builtin_exit(self : ExecContext, args : Array[String]) -> Unit {
   self.exit_code = if args.length() > 0 {
-    parse_int_str(args[0])
+    parse_int32_str(args[0])
   } else {
     self.exit_code
   }
@@ -142,7 +142,7 @@ fn ExecContext::builtin_return(
     return
   }
   self.exit_code = if args.length() > 0 {
-    parse_int_str(args[0])
+    parse_int32_str(args[0])
   } else {
     self.exit_code
   }
@@ -153,7 +153,7 @@ fn ExecContext::builtin_break(
   self : ExecContext,
   args : Array[String]
 ) -> Unit {
-  let n = if args.length() > 0 { parse_int_str(args[0]) } else { 1 }
+  let n = if args.length() > 0 { parse_int32_str(args[0]) } else { 1 }
   if self.loop_depth > 0 {
     self.break_count = n
   }
@@ -164,7 +164,7 @@ fn ExecContext::builtin_continue(
   self : ExecContext,
   args : Array[String]
 ) -> Unit {
-  let n = if args.length() > 0 { parse_int_str(args[0]) } else { 1 }
+  let n = if args.length() > 0 { parse_int32_str(args[0]) } else { 1 }
   if self.loop_depth > 0 {
     self.continue_count = n
   }

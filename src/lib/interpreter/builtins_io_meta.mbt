@@ -264,11 +264,11 @@ fn ExecContext::builtin_let(
     return
   }
 
-  let mut last = 0
+  let mut last = 0L
   for expr_text in args {
     last = self.eval_arith(@ast.ArithExpr::Raw(expr_text))
   }
-  self.exit_code = if last != 0 { 0 } else { 1 }
+  self.exit_code = if last != 0L { 0 } else { 1 }
 }
 
 fn ExecContext::builtin_source(

@@ -16,8 +16,8 @@ fn is_shell_builtin(name : String) -> Bool {
   }
 }
 
-fn parse_int_str(s : String) -> Int {
-  let mut result = 0
+fn parse_int_str(s : String) -> Int64 {
+  let mut result = 0L
   let mut neg = false
   let mut start = 0
   if s.length() > 0 && s[0] == '-' {
@@ -29,12 +29,16 @@ fn parse_int_str(s : String) -> Int {
   for i = start; i < s.length(); i = i + 1 {
     let ch = s[i].to_int().unsafe_to_char()
     if ch >= '0' && ch <= '9' {
-      result = result * 10 + (ch.to_int() - '0'.to_int())
+      result = result * 10L + (ch.to_int() - '0'.to_int()).to_int64()
     } else {
       break
     }
   }
   if neg { -result } else { result }
+}
+
+fn parse_int32_str(s : String) -> Int {
+  parse_int_str(s).to_int()
 }
 
 fn split_by_whitespace(s : String) -> Array[String] {
@@ -143,14 +147,14 @@ fn parse_field_spec(spec : String) -> Array[Int] {
     if contains_substring(part, "-") {
       let range_parts = split_string_by_delimiter(part, "-")
       if range_parts.length() == 2 {
-        let start = parse_int_str(range_parts[0])
-        let end = parse_int_str(range_parts[1])
+        let start = parse_int32_str(range_parts[0])
+        let end = parse_int32_str(range_parts[1])
         for i = start; i <= end; i = i + 1 {
           fields.push(i)
         }
       }
     } else {
-      fields.push(parse_int_str(part))
+      fields.push(parse_int32_str(part))
     }
   }
   fields
@@ -226,6 +230,13 @@ fn evaluate_test(args : Array[String], ctx : ExecContext) -> Bool {
 
   if args.length() == 0 {
     return false
+  }
+  if args[0] == "!" {
+    let rest : Array[String] = []
+    for i = 1; i < args.length(); i = i + 1 {
+      rest.push(args[i])
+    }
+    return not(evaluate_test(rest, ctx))
   }
   if args.length() == 1 {
     // test STRING: true if string is non-empty
@@ -318,9 +329,6 @@ fn evaluate_test(args : Array[String], ctx : ExecContext) -> Bool {
       "-nt" | "-ot" | "-ef" => return false // File comparison not meaningful in sandbox
       _ => ()
     }
-  }
-  if args.length() == 4 && args[0] == "!" {
-    return not(evaluate_test([args[1], args[2], args[3]], ctx))
   }
   false
 }
@@ -586,31 +594,31 @@ fn printf_apply_width(
   printf_repeat_char(pad_ch, pad_len) + value
 }
 
-fn printf_to_hex(value : Int) -> String {
-  if value == 0 {
+fn printf_to_hex(value : Int64) -> String {
+  if value == 0L {
     return "0"
   }
-  let mut v = if value < 0 { -value } else { value }
+  let mut v = if value < 0L { -value } else { value }
   let out = StringBuilder::new()
-  while v > 0 {
-    let digit = v % 16
-    let ch = if digit < 10 {
-      (digit + '0'.to_int()).unsafe_to_char()
+  while v > 0L {
+    let digit = v % 16L
+    let ch = if digit < 10L {
+      (digit + '0'.to_int().to_int64()).to_int().unsafe_to_char()
     } else {
-      (digit - 10 + 'a'.to_int()).unsafe_to_char()
+      (digit - 10L + 'a'.to_int().to_int64()).to_int().unsafe_to_char()
     }
     out.write_char(ch)
-    v = v / 16
+    v = v / 16L
   }
   let rev = reverse_string(out.to_string())
-  if value < 0 {
+  if value < 0L {
     "-" + rev
   } else {
     rev
   }
 }
 
-fn printf_format_decimal(value : Int, precision : Int?) -> String {
+fn printf_format_decimal(value : Int64, precision : Int?) -> String {
   let text = value.to_string()
   match precision {
     None => text

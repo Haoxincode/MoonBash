@@ -20,7 +20,7 @@ fn ExecContext::execute_compound(
     @ast.CompoundCommand::CStyleFor(clause) => self.execute_cstyle_for(clause)
     @ast.CompoundCommand::ArithmeticCommand(expr) => {
       let result = self.eval_arith(expr)
-      self.exit_code = if result != 0 { 0 } else { 1 }
+      self.exit_code = if result != 0L { 0 } else { 1 }
     }
     @ast.CompoundCommand::ConditionalCommand(cond) =>
       self.execute_conditional(cond)
@@ -347,11 +347,11 @@ fn ExecContext::execute_cstyle_for(
 
     // Check condition
     let cond = if cstyle_condition_omitted(clause.condition) {
-      1
+      1L
     } else {
       self.eval_arith(clause.condition)
     }
-    if cond == 0 {
+    if cond == 0L {
       break
     }
 

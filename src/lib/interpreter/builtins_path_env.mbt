@@ -144,9 +144,9 @@ fn ExecContext::builtin_seq(
     self.exit_code = 1
     return
   }
-  let mut first = 1
-  let mut incr = 1
-  let mut last = 1
+  let mut first = 1L
+  let mut incr = 1L
+  let mut last = 1L
   if args.length() == 1 {
     last = parse_int_str(args[0])
   } else if args.length() == 2 {
@@ -157,14 +157,14 @@ fn ExecContext::builtin_seq(
     incr = parse_int_str(args[1])
     last = parse_int_str(args[2])
   }
-  if incr == 0 {
+  if incr == 0L {
     self.stderr_buf.write_string("seq: zero increment\n")
     self.exit_code = 1
     return
   }
   let mut i = first
   let mut count = 0
-  while (incr > 0 && i <= last) || (incr < 0 && i >= last) {
+  while (incr > 0L && i <= last) || (incr < 0L && i >= last) {
     self.stdout_buf.write_string(i.to_string() + "\n")
     i += incr
     count += 1

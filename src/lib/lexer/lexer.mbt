@@ -738,7 +738,7 @@ fn Lexer::scan_word(self : Lexer) -> Unit raise @ast.BashError {
     Some(tok) => self.emit(tok)
     None => {
       if is_all_digits(word) {
-        self.emit(@ast.Token::Number(parse_int(word)))
+        self.emit(@ast.Token::Number(parse_int64(word)))
       } else {
         self.emit(@ast.Token::Word(word))
       }
@@ -818,6 +818,14 @@ fn parse_int(s : String) -> Int {
   let mut result = 0
   for i = 0; i < s.length(); i = i + 1 {
     result = result * 10 + (char_at(s, i).to_int() - '0'.to_int())
+  }
+  result
+}
+
+fn parse_int64(s : String) -> Int64 {
+  let mut result = 0L
+  for i = 0; i < s.length(); i = i + 1 {
+    result = result * 10L + (char_at(s, i).to_int() - '0'.to_int()).to_int64()
   }
   result
 }

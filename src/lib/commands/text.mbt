@@ -51,8 +51,8 @@ fn cmd_split_lines(s : String) -> Array[String] {
 }
 
 /// Helper to parse an integer from a string
-fn cmd_parse_int(s : String) -> Int {
-  let mut result = 0
+fn cmd_parse_int(s : String) -> Int64 {
+  let mut result = 0L
   let mut neg = false
   let mut start = 0
   if s.length() > 0 && s[0] == '-' {
@@ -64,7 +64,7 @@ fn cmd_parse_int(s : String) -> Int {
   for i = start; i < s.length(); i = i + 1 {
     let ch = s[i].to_int().unsafe_to_char()
     if ch >= '0' && ch <= '9' {
-      result = result * 10 + (ch.to_int() - '0'.to_int())
+      result = result * 10L + (ch.to_int() - '0'.to_int()).to_int64()
     } else {
       break
     }
@@ -80,21 +80,21 @@ fn cmd_head(ctx : CommandContext) -> @ast.ExecResult {
   let mut i = 0
   while i < ctx.args.length() {
     if ctx.args[i] == "-n" && i + 1 < ctx.args.length() {
-      num_lines = cmd_parse_int(ctx.args[i + 1])
+      num_lines = cmd_parse_int(ctx.args[i + 1]).to_int()
       i += 2
     } else if ctx.args[i].has_prefix("-n") && ctx.args[i].length() > 2 {
       // Handle -nN shorthand
-      num_lines = cmd_parse_int(cmd_substr_from(ctx.args[i], 2))
+      num_lines = cmd_parse_int(cmd_substr_from(ctx.args[i], 2)).to_int()
       i += 1
     } else if ctx.args[i] == "-c" && i + 1 < ctx.args.length() {
-      num_bytes = Some(cmd_parse_int(ctx.args[i + 1]))
+      num_bytes = Some(cmd_parse_int(ctx.args[i + 1]).to_int())
       i += 2
     } else if ctx.args[i].has_prefix("-c") && ctx.args[i].length() > 2 {
-      num_bytes = Some(cmd_parse_int(cmd_substr_from(ctx.args[i], 2)))
+      num_bytes = Some(cmd_parse_int(cmd_substr_from(ctx.args[i], 2)).to_int())
       i += 1
     } else if ctx.args[i].has_prefix("-") && ctx.args[i].length() > 1 {
       // Handle -N shorthand
-      num_lines = cmd_parse_int(cmd_substr_from(ctx.args[i], 1))
+      num_lines = cmd_parse_int(cmd_substr_from(ctx.args[i], 1)).to_int()
       i += 1
     } else {
       input_files.push(ctx.args[i])
@@ -172,27 +172,27 @@ fn cmd_tail(ctx : CommandContext) -> @ast.ExecResult {
       let arg = ctx.args[i + 1]
       if arg.has_prefix("+") {
         // tail -n +N means starting from line N
-        num_lines = -(cmd_parse_int(cmd_substr_from(arg, 1)))
+        num_lines = -(cmd_parse_int(cmd_substr_from(arg, 1)).to_int())
       } else {
-        num_lines = cmd_parse_int(arg)
+        num_lines = cmd_parse_int(arg).to_int()
       }
       i += 2
     } else if ctx.args[i].has_prefix("-n") && ctx.args[i].length() > 2 {
       let arg = cmd_substr_from(ctx.args[i], 2)
       if arg.has_prefix("+") {
-        num_lines = -(cmd_parse_int(cmd_substr_from(arg, 1)))
+        num_lines = -(cmd_parse_int(cmd_substr_from(arg, 1)).to_int())
       } else {
-        num_lines = cmd_parse_int(arg)
+        num_lines = cmd_parse_int(arg).to_int()
       }
       i += 1
     } else if ctx.args[i] == "-c" && i + 1 < ctx.args.length() {
-      num_bytes = Some(cmd_parse_int(ctx.args[i + 1]))
+      num_bytes = Some(cmd_parse_int(ctx.args[i + 1]).to_int())
       i += 2
     } else if ctx.args[i].has_prefix("-c") && ctx.args[i].length() > 2 {
-      num_bytes = Some(cmd_parse_int(cmd_substr_from(ctx.args[i], 2)))
+      num_bytes = Some(cmd_parse_int(cmd_substr_from(ctx.args[i], 2)).to_int())
       i += 1
     } else if ctx.args[i].has_prefix("-") && ctx.args[i].length() > 1 {
-      num_lines = cmd_parse_int(cmd_substr_from(ctx.args[i], 1))
+      num_lines = cmd_parse_int(cmd_substr_from(ctx.args[i], 1)).to_int()
       i += 1
     } else {
       input_files.push(ctx.args[i])

@@ -457,7 +457,7 @@ fn compare_version_like(a : String, b : String) -> Int {
     let a_num = is_numeric_token(sa)
     let b_num = is_numeric_token(sb)
     let cmp = if a_num && b_num {
-      compare_ints(parse_int_str(sa), parse_int_str(sb))
+      compare_ints(parse_int32_str(sa), parse_int32_str(sb))
     } else {
       compare_strings(sa, sb)
     }
@@ -502,7 +502,7 @@ fn parse_human_size(s : String) -> Int {
     return 0
   }
 
-  let number = parse_int_str(trimmed.substring(start=0, end=i))
+  let number = parse_int32_str(trimmed.substring(start=0, end=i))
   if i >= trimmed.length() {
     return number
   }

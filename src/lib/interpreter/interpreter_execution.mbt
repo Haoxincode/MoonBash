@@ -157,7 +157,7 @@ fn ExecContext::execute_pipeline(
     saved_stdout.write_string(pipe_input)
     self.stdout_buf = saved_stdout
     self.stdin_buf = saved_stdin
-    self.exit_code = parse_int_str(pipeline_statuses[pipeline_statuses.length() - 1])
+    self.exit_code = parse_int32_str(pipeline_statuses[pipeline_statuses.length() - 1])
     self.enforce_output_size_limit()
   }
 

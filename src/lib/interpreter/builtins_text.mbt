@@ -70,12 +70,12 @@ fn ExecContext::builtin_nl(
       continue
     }
     if arg == "-w" && i + 1 < args.length() {
-      width = parse_int_str(args[i + 1])
+      width = parse_int32_str(args[i + 1])
       i += 2
       continue
     }
     if arg.has_prefix("-w") && arg.length() > 2 {
-      width = parse_int_str(arg.substring(start=2))
+      width = parse_int32_str(arg.substring(start=2))
       i += 1
       continue
     }
@@ -90,22 +90,22 @@ fn ExecContext::builtin_nl(
       continue
     }
     if arg == "-v" && i + 1 < args.length() {
-      current_number = parse_int_str(args[i + 1])
+      current_number = parse_int32_str(args[i + 1])
       i += 2
       continue
     }
     if arg.has_prefix("-v") && arg.length() > 2 {
-      current_number = parse_int_str(arg.substring(start=2))
+      current_number = parse_int32_str(arg.substring(start=2))
       i += 1
       continue
     }
     if arg == "-i" && i + 1 < args.length() {
-      increment = parse_int_str(args[i + 1])
+      increment = parse_int32_str(args[i + 1])
       i += 2
       continue
     }
     if arg.has_prefix("-i") && arg.length() > 2 {
-      increment = parse_int_str(arg.substring(start=2))
+      increment = parse_int32_str(arg.substring(start=2))
       i += 1
       continue
     }
@@ -177,12 +177,12 @@ fn ExecContext::builtin_fold(
       continue
     }
     if arg == "-w" && i + 1 < args.length() {
-      width = parse_int_str(args[i + 1])
+      width = parse_int32_str(args[i + 1])
       i += 2
       continue
     }
     if arg.has_prefix("-w") && arg.length() > 2 {
-      width = parse_int_str(arg.substring(start=2))
+      width = parse_int32_str(arg.substring(start=2))
       i += 1
       continue
     }
@@ -194,10 +194,10 @@ fn ExecContext::builtin_fold(
           's' => break_spaces = true
           'w' => {
             if j + 1 < arg.length() {
-              width = parse_int_str(arg.substring(start=j + 1))
+              width = parse_int32_str(arg.substring(start=j + 1))
             } else if i + 1 < args.length() {
               i += 1
-              width = parse_int_str(args[i])
+              width = parse_int32_str(args[i])
             }
             consumed_value = true
             break
@@ -257,12 +257,12 @@ fn ExecContext::builtin_expand(
   while i < args.length() {
     let arg = args[i]
     if arg == "-t" && i + 1 < args.length() {
-      tab_width = parse_int_str(args[i + 1])
+      tab_width = parse_int32_str(args[i + 1])
       i += 2
       continue
     }
     if arg.has_prefix("-t") && arg.length() > 2 {
-      tab_width = parse_int_str(arg.substring(start=2))
+      tab_width = parse_int32_str(arg.substring(start=2))
       i += 1
       continue
     }
@@ -318,12 +318,12 @@ fn ExecContext::builtin_unexpand(
       continue
     }
     if arg == "-t" && i + 1 < args.length() {
-      tab_width = parse_int_str(args[i + 1])
+      tab_width = parse_int32_str(args[i + 1])
       i += 2
       continue
     }
     if arg.has_prefix("-t") && arg.length() > 2 {
-      tab_width = parse_int_str(arg.substring(start=2))
+      tab_width = parse_int32_str(arg.substring(start=2))
       i += 1
       continue
     }
@@ -334,10 +334,10 @@ fn ExecContext::builtin_unexpand(
           'a' => convert_all = true
           't' => {
             if j + 1 < arg.length() {
-              tab_width = parse_int_str(arg.substring(start=j + 1))
+              tab_width = parse_int32_str(arg.substring(start=j + 1))
             } else if i + 1 < args.length() {
               i += 1
-              tab_width = parse_int_str(args[i])
+              tab_width = parse_int32_str(args[i])
             }
             break
           }
@@ -641,22 +641,22 @@ fn ExecContext::builtin_join(
   while i < args.length() {
     let arg = args[i]
     if arg == "-1" && i + 1 < args.length() {
-      field1 = parse_int_str(args[i + 1])
+      field1 = parse_int32_str(args[i + 1])
       i += 2
       continue
     }
     if arg.has_prefix("-1") && arg.length() > 2 {
-      field1 = parse_int_str(arg.substring(start=2))
+      field1 = parse_int32_str(arg.substring(start=2))
       i += 1
       continue
     }
     if arg == "-2" && i + 1 < args.length() {
-      field2 = parse_int_str(args[i + 1])
+      field2 = parse_int32_str(args[i + 1])
       i += 2
       continue
     }
     if arg.has_prefix("-2") && arg.length() > 2 {
-      field2 = parse_int_str(arg.substring(start=2))
+      field2 = parse_int32_str(arg.substring(start=2))
       i += 1
       continue
     }
@@ -671,7 +671,7 @@ fn ExecContext::builtin_join(
       continue
     }
     if arg == "-a" && i + 1 < args.length() {
-      let side = parse_int_str(args[i + 1])
+      let side = parse_int32_str(args[i + 1])
       if side == 1 {
         include_unpair_1 = true
       } else if side == 2 {
@@ -681,7 +681,7 @@ fn ExecContext::builtin_join(
       continue
     }
     if arg.has_prefix("-a") && arg.length() > 2 {
-      let side = parse_int_str(arg.substring(start=2))
+      let side = parse_int32_str(arg.substring(start=2))
       if side == 1 {
         include_unpair_1 = true
       } else if side == 2 {
@@ -691,7 +691,7 @@ fn ExecContext::builtin_join(
       continue
     }
     if arg == "-v" && i + 1 < args.length() {
-      let side = parse_int_str(args[i + 1])
+      let side = parse_int32_str(args[i + 1])
       if side == 1 || side == 2 {
         only_unpair_file = Some(side)
       }
@@ -699,7 +699,7 @@ fn ExecContext::builtin_join(
       continue
     }
     if arg.has_prefix("-v") && arg.length() > 2 {
-      let side = parse_int_str(arg.substring(start=2))
+      let side = parse_int32_str(arg.substring(start=2))
       if side == 1 || side == 2 {
         only_unpair_file = Some(side)
       }

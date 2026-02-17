@@ -302,7 +302,7 @@ fn parse_sed_substitute_flags(flags_text : String) -> SedSubstituteFlags? {
           break
         }
       }
-      occurrence = parse_int_str(substring_slice(flags_text, start, j))
+      occurrence = parse_int32_str(substring_slice(flags_text, start, j))
       if occurrence <= 0 {
         return None
       }
@@ -453,7 +453,7 @@ fn parse_sed_address(
     if i == start + 1 {
       return None
     }
-    return Some((Relative(parse_int_str(substring_slice(expr, start + 1, i))), i))
+    return Some((Relative(parse_int32_str(substring_slice(expr, start + 1, i))), i))
   }
   if ch == '$' {
     return Some((LastLine, start + 1))
@@ -468,7 +468,7 @@ fn parse_sed_address(
         break
       }
     }
-    return Some((Line(parse_int_str(substring_slice(expr, start, i))), i))
+    return Some((Line(parse_int32_str(substring_slice(expr, start, i))), i))
   }
   if ch == '/' {
     guard parse_sed_until_delim(expr, start + 1, '/', regex_part=true) is Some((pattern, next_idx)) else {

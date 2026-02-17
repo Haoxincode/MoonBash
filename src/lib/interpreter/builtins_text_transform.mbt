@@ -103,12 +103,12 @@ fn ExecContext::builtin_sort(
   while i < args.length() {
     let arg = args[i]
     if arg == "-k" && i + 1 < args.length() {
-      key_field = Some(parse_int_str(args[i + 1]))
+      key_field = Some(parse_int32_str(args[i + 1]))
       i += 2
       continue
     }
     if arg.has_prefix("-k") && arg.length() > 2 {
-      key_field = Some(parse_int_str(arg.substring(start=2)))
+      key_field = Some(parse_int32_str(arg.substring(start=2)))
       i += 1
       continue
     }
@@ -173,7 +173,7 @@ fn ExecContext::builtin_sort(
     } else if human {
       compare_ints(parse_human_size(key_a), parse_human_size(key_b))
     } else if numeric {
-      compare_ints(parse_int_str(key_a), parse_int_str(key_b))
+      compare_ints(parse_int32_str(key_a), parse_int32_str(key_b))
     } else {
       compare_sort_text(key_a, key_b)
     }
@@ -412,14 +412,14 @@ fn parse_cut_char_spec(spec : String) -> Array[(Int, Int)] {
       }
     }
     if dash < 0 {
-      let pos = parse_int_str(raw)
+      let pos = parse_int32_str(raw)
       ranges.push((pos, pos))
       continue
     }
     let left = substring_slice(raw, 0, dash)
     let right = substring_slice(raw, dash + 1, raw.length())
-    let start = if left.length() == 0 { 1 } else { parse_int_str(left) }
-    let end = if right.length() == 0 { -1 } else { parse_int_str(right) }
+    let start = if left.length() == 0 { 1 } else { parse_int32_str(left) }
+    let end = if right.length() == 0 { -1 } else { parse_int32_str(right) }
     ranges.push((start, end))
   }
   ranges

@@ -8,7 +8,7 @@
 pub(all) enum Token {
   // Literals
   Word(String)
-  Number(Int)
+  Number(Int64)
   AssignmentWord(String, String) // name, value
 
   // Operators
@@ -272,7 +272,7 @@ pub(all) struct Assignment {
 // ============================================================================
 
 pub(all) enum ArithExpr {
-  Num(Int)
+  Num(Int64)
   Var(String)
   BinOp(ArithBinOp, ArithExpr, ArithExpr)
   UnaryOp(ArithUnaryOp, ArithExpr)
