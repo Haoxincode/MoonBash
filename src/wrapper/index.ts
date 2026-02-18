@@ -229,6 +229,33 @@ interface SqlJsRuntimeLike {
   Database: new (data?: Uint8Array) => SqlJsDatabaseLike;
 }
 
+interface NodeWorkerLike {
+  postMessage(message: unknown): void;
+  terminate(): Promise<number> | number;
+  unref?(): void;
+  on(event: "message", listener: (message: unknown) => void): this;
+  on(event: "error", listener: (error: unknown) => void): this;
+  off?(event: "message" | "error", listener: (...args: unknown[]) => void): this;
+  removeListener?(
+    event: "message" | "error",
+    listener: (...args: unknown[]) => void,
+  ): this;
+}
+
+interface NodeWorkerBridgeContext {
+  limitsJson: string;
+  layoutMode: "default" | "minimal";
+  fetchBridge?: MoonBashFetchBridge;
+  sleepBridge?: MoonBashSleepBridge;
+  nowBridge?: MoonBashNowBridge;
+  vmBridge?: MoonBashVmBridge;
+}
+
+interface NodeWorkerPendingExec {
+  resolve: (result: StateExecResult) => void;
+  reject: (error: Error) => void;
+}
+
 interface SqlJsInitOptions {
   locateFile?: (file: string) => string;
 }
@@ -389,10 +416,6 @@ function shellSingleQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 function normalizePosixPath(inputPath: string, cwd = "/"): string {
   const base = inputPath.startsWith("/")
     ? inputPath
@@ -431,110 +454,6 @@ function listChildren(paths: string[], dirPath: string): string[] {
   return [...names].sort();
 }
 
-function splitSimplePipeline(script: string): string[] | null {
-  const segments: string[] = [];
-  let buf = "";
-  let inSingle = false;
-  let inDouble = false;
-  let escaped = false;
-
-  for (let i = 0; i < script.length; i += 1) {
-    const ch = script[i];
-    if (escaped) {
-      buf += ch;
-      escaped = false;
-      continue;
-    }
-    if (ch === "\\" && !inSingle) {
-      buf += ch;
-      escaped = true;
-      continue;
-    }
-    if (ch === "'" && !inDouble) {
-      inSingle = !inSingle;
-      buf += ch;
-      continue;
-    }
-    if (ch === "\"" && !inSingle) {
-      inDouble = !inDouble;
-      buf += ch;
-      continue;
-    }
-    if (!inSingle && !inDouble) {
-      if (ch === ";" || ch === "&" || ch === ">" || ch === "<") {
-        return null;
-      }
-      if (ch === "|" && script[i + 1] === "|") {
-        return null;
-      }
-      if (ch === "|") {
-        const segment = buf.trim();
-        if (!segment) {
-          return null;
-        }
-        segments.push(segment);
-        buf = "";
-        continue;
-      }
-    }
-    buf += ch;
-  }
-
-  if (inSingle || inDouble || escaped) {
-    return null;
-  }
-  const last = buf.trim();
-  if (!last) {
-    return null;
-  }
-  segments.push(last);
-  return segments;
-}
-
-function parseSimpleArgs(commandText: string): string[] | null {
-  const args: string[] = [];
-  let buf = "";
-  let inSingle = false;
-  let inDouble = false;
-  let escaped = false;
-
-  for (let i = 0; i < commandText.length; i += 1) {
-    const ch = commandText[i];
-    if (escaped) {
-      buf += ch;
-      escaped = false;
-      continue;
-    }
-    if (ch === "\\" && !inSingle) {
-      escaped = true;
-      continue;
-    }
-    if (ch === "'" && !inDouble) {
-      inSingle = !inSingle;
-      continue;
-    }
-    if (ch === "\"" && !inSingle) {
-      inDouble = !inDouble;
-      continue;
-    }
-    if (!inSingle && !inDouble && /\s/.test(ch)) {
-      if (buf.length > 0) {
-        args.push(buf);
-        buf = "";
-      }
-      continue;
-    }
-    buf += ch;
-  }
-
-  if (inSingle || inDouble || escaped) {
-    return null;
-  }
-  if (buf.length > 0) {
-    args.push(buf);
-  }
-  return args.length > 0 ? args : null;
-}
 
 export function getCommandNames(): string[] {
   return [...DEFAULT_COMMAND_NAMES];
@@ -593,6 +512,14 @@ export class Bash {
   private sqlJsRuntime: SqlJsRuntimeLike | null;
   private sqlJsRuntimePromise: Promise<SqlJsRuntimeLike> | null;
   private pyodideTrackedFiles: Set<string>;
+  private nodeExecWorker: NodeWorkerLike | null;
+  private nodeExecWorkerInitPromise: Promise<NodeWorkerLike> | null;
+  private nodeExecWorkerPendingExec: Map<number, NodeWorkerPendingExec>;
+  private nodeExecWorkerExecSeq: number;
+  private nodeExecWorkerBridgeContext: NodeWorkerBridgeContext | null;
+  private nodeExecWorkerQueue: Promise<void>;
+  private nodeEntryModuleUrlPromise: Promise<string> | null;
+  private nodeExecWorkerIdleTimer: ReturnType<typeof setTimeout> | null;
   readonly fs: FileSystem;
 
   constructor(options: BashOptions = {}) {
@@ -626,6 +553,14 @@ export class Bash {
     this.sqlJsRuntime = null;
     this.sqlJsRuntimePromise = null;
     this.pyodideTrackedFiles = new Set();
+    this.nodeExecWorker = null;
+    this.nodeExecWorkerInitPromise = null;
+    this.nodeExecWorkerPendingExec = new Map();
+    this.nodeExecWorkerExecSeq = 1;
+    this.nodeExecWorkerBridgeContext = null;
+    this.nodeExecWorkerQueue = Promise.resolve();
+    this.nodeEntryModuleUrlPromise = null;
+    this.nodeExecWorkerIdleTimer = null;
 
     for (const customCommand of normalizedOptions.customCommands ?? []) {
       if (isLazyCommand(customCommand)) {
@@ -1239,109 +1174,12 @@ export class Bash {
     const lines: string[] = [];
     for (const name of names) {
       // Custom command names are sourced from trusted host code.
-      lines.push(`${name}() { __moon_bash_custom__ ${shellSingleQuote(name)} "$@"; }`);
+      lines.push(`function ${name} { __moon_bash_custom__ ${shellSingleQuote(name)} "$@"; }`);
     }
     if (lines.length === 0) {
       return script;
     }
     return `${lines.join("\n")}\n${script}`;
-  }
-
-  private listCustomCommandNames(): string[] {
-    const names: string[] = [];
-    for (const name of this.eagerCustomCommands.keys()) {
-      names.push(name);
-    }
-    for (const name of this.lazyCustomCommands.keys()) {
-      names.push(name);
-    }
-    return names;
-  }
-
-  private scriptReferencesCustomCommand(script: string): boolean {
-    const names = this.listCustomCommandNames();
-    for (const name of names) {
-      const pattern = new RegExp(`(^|[\\s|])${escapeRegExp(name)}($|[\\s|])`);
-      if (pattern.test(script)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  private async tryExecuteWithCustomCommands(
-    script: string,
-    effectiveEnv: Record<string, string>,
-    cwd: string,
-    execOptions: ExecOptions,
-  ): Promise<BashExecResult | null> {
-    if (!this.hasCustomCommands() || !this.scriptReferencesCustomCommand(script)) {
-      return null;
-    }
-
-    const segments = splitSimplePipeline(script);
-    if (!segments) {
-      return null;
-    }
-
-    let pipelineInput = execOptions.stdin ?? "";
-    let finalStdout = "";
-    let finalExitCode = 0;
-    const stderrParts: string[] = [];
-
-    for (const segment of segments) {
-      const parsedArgs = parseSimpleArgs(segment);
-      if (!parsedArgs || parsedArgs.length === 0) {
-        return null;
-      }
-      const commandName = parsedArgs[0];
-      const commandArgs = parsedArgs.slice(1);
-      const customCommand = await this.resolveCustomCommand(commandName);
-
-      if (customCommand) {
-        const commandEnv = new Map<string, string>(Object.entries(effectiveEnv));
-        const result = await customCommand.execute(commandArgs, {
-          fs: this.fs,
-          cwd,
-          env: commandEnv,
-          stdin: pipelineInput,
-          exec: (command: string, options: ExecOptions = {}) =>
-            this.exec(command, {
-              ...options,
-              cwd: options.cwd ?? cwd,
-              env: { ...effectiveEnv, ...(options.env ?? {}) },
-            }),
-        });
-        const stdout = result.stdout ?? "";
-        const stderr = result.stderr ?? "";
-        finalStdout = stdout;
-        finalExitCode = Number.isFinite(result.exitCode) ? result.exitCode : 1;
-        pipelineInput = stdout;
-        if (stderr.length > 0) {
-          stderrParts.push(stderr);
-        }
-        continue;
-      }
-
-      const result = await this.exec(segment, {
-        cwd,
-        env: { ...effectiveEnv },
-        stdin: pipelineInput,
-      });
-      finalStdout = result.stdout ?? "";
-      finalExitCode = result.exitCode;
-      pipelineInput = finalStdout;
-      if (result.stderr.length > 0) {
-        stderrParts.push(result.stderr);
-      }
-    }
-
-    return {
-      stdout: finalStdout,
-      stderr: stderrParts.join(""),
-      exitCode: finalExitCode,
-      env: { ...effectiveEnv },
-    };
   }
 
   private createCustomBridge(
@@ -1399,7 +1237,19 @@ export class Bash {
 
     const cwd = normalizePosixPath(request.cwd ?? "/");
     const envObject: Record<string, string> = { ...(request.env ?? {}) };
-    let filesState: Record<string, string> = { ...(request.files ?? {}) };
+    let filesState: Record<string, string> =
+      request.files && typeof request.files === "object"
+        ? request.files
+        : {};
+    let filesMutable = false;
+    let filesDirty = false;
+    const ensureMutableFilesState = (): void => {
+      if (!filesMutable) {
+        filesState = { ...filesState };
+        filesMutable = true;
+      }
+      filesDirty = true;
+    };
 
     const fsApi: FileSystem = {
       readFile: (path: string): string => {
@@ -1410,10 +1260,12 @@ export class Bash {
         return filesState[normalized];
       },
       writeFile: (path: string, content: string): void => {
+        ensureMutableFilesState();
         const normalized = normalizePosixPath(path, cwd);
         filesState[normalized] = content;
       },
       appendFile: (path: string, content: string): void => {
+        ensureMutableFilesState();
         const normalized = normalizePosixPath(path, cwd);
         filesState[normalized] = (filesState[normalized] ?? "") + content;
       },
@@ -1459,6 +1311,7 @@ export class Bash {
         // Directories are inferred from file paths in this lightweight bridge.
       },
       rm: (path: string, options?: { recursive?: boolean }): void => {
+        ensureMutableFilesState();
         const normalized = normalizePosixPath(path, cwd);
         if (options?.recursive) {
           for (const filePath of Object.keys(filesState)) {
@@ -1471,6 +1324,7 @@ export class Bash {
         delete filesState[normalized];
       },
       cp: (src: string, dst: string): void => {
+        ensureMutableFilesState();
         const srcPath = normalizePosixPath(src, cwd);
         const dstPath = normalizePosixPath(dst, cwd);
         if (!Object.prototype.hasOwnProperty.call(filesState, srcPath)) {
@@ -1479,6 +1333,7 @@ export class Bash {
         filesState[dstPath] = filesState[srcPath];
       },
       mv: (src: string, dst: string): void => {
+        ensureMutableFilesState();
         const srcPath = normalizePosixPath(src, cwd);
         const dstPath = normalizePosixPath(dst, cwd);
         if (!Object.prototype.hasOwnProperty.call(filesState, srcPath)) {
@@ -1501,8 +1356,15 @@ export class Bash {
         ...(options.env ?? {}),
       };
       const subCwd = normalizePosixPath(options.cwd ?? cwd);
+      let commandToRun = command;
+      if (typeof options.stdin === "string" && options.stdin.length > 0) {
+        commandToRun = `printf '%s' ${shellSingleQuote(options.stdin)} | {\n${commandToRun}\n}`;
+      }
+      if (this.hasCustomCommands()) {
+        commandToRun = this.buildCustomPrelude(commandToRun);
+      }
       const subResult = JSON.parse(mbExecuteWithState(
-        command,
+        commandToRun,
         JSON.stringify(subEnv),
         JSON.stringify(filesState),
         "{}",
@@ -1512,7 +1374,11 @@ export class Bash {
         limitsJson,
         layoutMode,
       )) as StateExecResult;
-      filesState = { ...(subResult.files ?? filesState) };
+      if (subResult.files && typeof subResult.files === "object") {
+        filesState = subResult.files;
+        filesMutable = false;
+        filesDirty = true;
+      }
       return {
         stdout: subResult.stdout ?? "",
         stderr: subResult.stderr ?? "",
@@ -1541,7 +1407,7 @@ export class Bash {
         stdout: result.stdout ?? "",
         stderr: result.stderr ?? "",
         exitCode: Number.isFinite(result.exitCode) ? Math.floor(result.exitCode) : 1,
-        files: filesState,
+        files: filesDirty ? filesState : undefined,
       };
     } catch (error) {
       return {
@@ -1550,7 +1416,7 @@ export class Bash {
         stderr: "",
         exitCode: 1,
         error: toErrorMessage(error),
-        files: filesState,
+        files: filesDirty ? filesState : undefined,
       };
     }
   }
@@ -2323,6 +2189,414 @@ export class Bash {
     };
   }
 
+  private async handleCustomWorkerRequest(
+    requestJson: string,
+    limitsJson: string,
+    layoutMode: "default" | "minimal",
+  ): Promise<string> {
+    try {
+      const request = JSON.parse(requestJson) as MoonBashCustomRequest;
+      const response = await this.runCustomCommandBridge(request, limitsJson, layoutMode);
+      return JSON.stringify(this.normalizeCustomResponse(response));
+    } catch (error) {
+      return JSON.stringify({
+        handled: false,
+        stdout: "",
+        stderr: "",
+        exitCode: 1,
+        error: toErrorMessage(error),
+      } satisfies MoonBashCustomResponse);
+    }
+  }
+
+  private enqueueNodeWorkerExec<T>(task: () => Promise<T>): Promise<T> {
+    const run = this.nodeExecWorkerQueue.then(task);
+    this.nodeExecWorkerQueue = run.then(() => undefined, () => undefined);
+    return run;
+  }
+
+  private async resolveNodeEntryModuleUrl(): Promise<string> {
+    if (this.nodeEntryModuleUrlPromise) {
+      return this.nodeEntryModuleUrlPromise;
+    }
+    this.nodeEntryModuleUrlPromise = (async () => {
+      const candidates = [
+        new URL("../_build/js/debug/build/lib/entry/entry.js", import.meta.url),
+        new URL("../_build/js/release/build/lib/entry/entry.js", import.meta.url),
+      ];
+
+      try {
+        const fsModule = await this.invokeDynamicImport("node:fs") as {
+          existsSync?: (path: string | URL) => boolean;
+          default?: {
+            existsSync?: (path: string | URL) => boolean;
+          };
+        };
+        const existsSync = fsModule.existsSync ?? fsModule.default?.existsSync;
+        if (typeof existsSync === "function") {
+          for (const candidate of candidates) {
+            if (existsSync(candidate)) {
+              return candidate.href;
+            }
+          }
+        }
+      } catch {
+        // Fall back to import probing below.
+      }
+
+      for (const candidate of candidates) {
+        try {
+          await this.invokeDynamicImport(candidate.href);
+          return candidate.href;
+        } catch {
+          // Try next candidate.
+        }
+      }
+
+      return candidates[0].href;
+    })();
+    return this.nodeEntryModuleUrlPromise;
+  }
+
+  private clearNodeExecWorkerIdleTimer(): void {
+    if (!this.nodeExecWorkerIdleTimer) {
+      return;
+    }
+    clearTimeout(this.nodeExecWorkerIdleTimer);
+    this.nodeExecWorkerIdleTimer = null;
+  }
+
+  private scheduleNodeExecWorkerIdleTermination(): void {
+    if (!this.nodeExecWorker) {
+      return;
+    }
+    this.clearNodeExecWorkerIdleTimer();
+    const idleTimeoutMs = 200;
+    const timer = setTimeout(() => {
+      this.nodeExecWorkerIdleTimer = null;
+      if (this.nodeExecWorkerPendingExec.size > 0 || this.nodeExecWorkerBridgeContext) {
+        this.scheduleNodeExecWorkerIdleTermination();
+        return;
+      }
+      void this.terminateNodeExecWorker();
+    }, idleTimeoutMs);
+    const maybeUnref = timer as unknown as { unref?: () => void };
+    if (typeof maybeUnref.unref === "function") {
+      maybeUnref.unref();
+    }
+    this.nodeExecWorkerIdleTimer = timer;
+  }
+
+  private async terminateNodeExecWorker(): Promise<void> {
+    this.clearNodeExecWorkerIdleTimer();
+    const worker = this.nodeExecWorker;
+    if (!worker) {
+      return;
+    }
+    if (this.nodeExecWorkerPendingExec.size > 0 || this.nodeExecWorkerBridgeContext) {
+      return;
+    }
+    this.nodeExecWorker = null;
+    this.nodeExecWorkerBridgeContext = null;
+    this.nodeExecWorkerInitPromise = null;
+    try {
+      worker.postMessage({ type: "shutdown" });
+    } catch {
+      // Ignore shutdown post failures; terminate() below is authoritative.
+    }
+    try {
+      const terminated = worker.terminate();
+      if (isPromiseLike<number>(terminated)) {
+        await terminated.catch(() => undefined);
+      }
+    } catch {
+      // Ignore termination failures during idle cleanup.
+    }
+  }
+
+  private resetNodeExecWorker(error: Error): void {
+    this.clearNodeExecWorkerIdleTimer();
+    const worker = this.nodeExecWorker;
+    this.nodeExecWorker = null;
+    this.nodeExecWorkerBridgeContext = null;
+    this.nodeExecWorkerInitPromise = null;
+    if (worker) {
+      try {
+        const terminated = worker.terminate();
+        if (isPromiseLike<number>(terminated)) {
+          void terminated.catch(() => undefined);
+        }
+      } catch {
+        // Ignore termination failures during reset.
+      }
+    }
+    for (const pending of this.nodeExecWorkerPendingExec.values()) {
+      pending.reject(error);
+    }
+    this.nodeExecWorkerPendingExec.clear();
+  }
+
+  private createNodeExecWorkerSource(entryModuleUrl: string): string {
+    return `
+import { parentPort, receiveMessageOnPort } from "node:worker_threads";
+import { execute_with_state as mbExecuteWithState } from ${JSON.stringify(entryModuleUrl)};
+
+if (!parentPort) {
+  throw new Error("moon_bash: worker parent port is unavailable");
+}
+
+const idle = new Int32Array(new SharedArrayBuffer(4));
+let bridgeSeq = 0;
+const mailbox = [];
+
+function receiveMatching(match) {
+  // receiveMessageOnPort is consumptive; keep unmatched messages in mailbox.
+  for (let i = 0; i < mailbox.length; i += 1) {
+    const candidate = mailbox[i];
+    if (match(candidate)) {
+      mailbox.splice(i, 1);
+      return candidate;
+    }
+  }
+  while (true) {
+    const packet = receiveMessageOnPort(parentPort);
+    if (packet) {
+      const message = packet.message;
+      if (match(message)) {
+        return message;
+      }
+      mailbox.push(message);
+      continue;
+    }
+    Atomics.wait(idle, 0, 0, 10);
+  }
+}
+
+function callBridge(bridge, payload) {
+  const id = ++bridgeSeq;
+  parentPort.postMessage({ type: "bridge-request", id, bridge, payload });
+  const message = receiveMatching((candidate) =>
+    candidate && candidate.type === "bridge-response" && candidate.id === id
+  );
+  return typeof message.payload === "string" ? message.payload : "";
+}
+
+globalThis.__moon_bash_fetch = (requestJson) => callBridge("fetch", requestJson);
+globalThis.__moon_bash_sleep = (durationMs) => callBridge("sleep", String(durationMs));
+globalThis.__moon_bash_now = () => {
+  const value = Number(callBridge("now", ""));
+  return Number.isFinite(value) ? value : 0;
+};
+globalThis.__moon_bash_vm = (requestJson) => callBridge("vm", requestJson);
+globalThis.__moon_bash_custom = (requestJson) => callBridge("custom", requestJson);
+
+while (true) {
+  const message = receiveMatching((candidate) =>
+    candidate && (candidate.type === "exec" || candidate.type === "shutdown")
+  );
+  if (message.type === "shutdown") {
+    break;
+  }
+  try {
+    const jsonResult = mbExecuteWithState(
+      message.script,
+      message.envJson,
+      message.filesJson,
+      message.dirsJson,
+      message.linksJson,
+      message.modesJson,
+      message.cwd,
+      message.limitsJson,
+      message.layoutMode,
+    );
+    parentPort.postMessage({ type: "exec-result", id: message.id, jsonResult });
+  } catch (error) {
+    const details = error instanceof Error ? error.message : String(error);
+    parentPort.postMessage({ type: "exec-error", id: message.id, error: details });
+  }
+}
+`;
+  }
+
+  private async ensureNodeExecWorker(): Promise<NodeWorkerLike> {
+    if (this.nodeExecWorker) {
+      return this.nodeExecWorker;
+    }
+    if (this.nodeExecWorkerInitPromise) {
+      return this.nodeExecWorkerInitPromise;
+    }
+
+    this.nodeExecWorkerInitPromise = (async () => {
+      const workerThreads = await this.invokeDynamicImport("node:worker_threads") as {
+        Worker?: new (specifier: string, options?: Record<string, unknown>) => NodeWorkerLike;
+      };
+      const WorkerCtor = workerThreads.Worker;
+      if (typeof WorkerCtor !== "function") {
+        throw new Error("moon_bash: node worker runtime is unavailable");
+      }
+
+      const entryModuleUrl = await this.resolveNodeEntryModuleUrl();
+      const worker = new WorkerCtor(this.createNodeExecWorkerSource(entryModuleUrl), {
+        eval: true,
+        type: "module",
+      });
+      if (typeof worker.unref === "function") {
+        worker.unref();
+      }
+
+      worker.on("message", (rawMessage: unknown) => {
+        if (!rawMessage || typeof rawMessage !== "object") {
+          return;
+        }
+        const message = rawMessage as Record<string, unknown>;
+        const type = typeof message.type === "string" ? message.type : "";
+
+        if (type === "bridge-request") {
+          const requestId = message.id;
+          const bridge = typeof message.bridge === "string" ? message.bridge : "";
+          const payload = typeof message.payload === "string" ? message.payload : "";
+          const context = this.nodeExecWorkerBridgeContext;
+          void Promise.resolve()
+            .then(async () => {
+              if (!context) {
+                return "";
+              }
+              if (bridge === "custom") {
+                return await this.handleCustomWorkerRequest(payload, context.limitsJson, context.layoutMode);
+              }
+              if (bridge === "fetch") {
+                return context.fetchBridge ? context.fetchBridge(payload) : "";
+              }
+              if (bridge === "sleep") {
+                const durationMs = Number.parseInt(payload, 10);
+                return context.sleepBridge
+                  ? context.sleepBridge(Number.isFinite(durationMs) ? durationMs : 0)
+                  : "";
+              }
+              if (bridge === "now") {
+                return context.nowBridge ? context.nowBridge().toString() : "0";
+              }
+              if (bridge === "vm") {
+                return context.vmBridge ? context.vmBridge(payload) : "";
+              }
+              return "";
+            })
+            .then((responsePayload) => {
+              worker.postMessage({ type: "bridge-response", id: requestId, payload: responsePayload });
+            })
+            .catch((error) => {
+              const fallback = bridge === "custom"
+                ? JSON.stringify({
+                  handled: false,
+                  stdout: "",
+                  stderr: "",
+                  exitCode: 1,
+                  error: toErrorMessage(error),
+                } satisfies MoonBashCustomResponse)
+                : "";
+              worker.postMessage({ type: "bridge-response", id: requestId, payload: fallback });
+            });
+          return;
+        }
+
+        if (type === "exec-result" || type === "exec-error") {
+          const id = typeof message.id === "number" ? message.id : Number.NaN;
+          if (!Number.isFinite(id)) {
+            return;
+          }
+          const pending = this.nodeExecWorkerPendingExec.get(id);
+          if (!pending) {
+            return;
+          }
+          this.nodeExecWorkerPendingExec.delete(id);
+          if (type === "exec-error") {
+            pending.reject(new Error(String(message.error ?? "moon_bash: worker execution failed")));
+            return;
+          }
+          try {
+            const parsed = JSON.parse(String(message.jsonResult ?? "{}")) as StateExecResult;
+            pending.resolve(parsed);
+          } catch (error) {
+            pending.reject(error instanceof Error ? error : new Error(String(error)));
+          }
+        }
+      });
+
+      worker.on("error", (error: unknown) => {
+        const normalized = error instanceof Error
+          ? error
+          : new Error(String(error));
+        this.resetNodeExecWorker(normalized);
+      });
+
+      this.nodeExecWorker = worker;
+      return worker;
+    })();
+
+    try {
+      return await this.nodeExecWorkerInitPromise;
+    } finally {
+      this.nodeExecWorkerInitPromise = null;
+    }
+  }
+
+  private async execWithNodeCustomWorker(
+    scriptToRun: string,
+    envJson: string,
+    filesJson: string,
+    dirsJson: string,
+    linksJson: string,
+    modesJson: string,
+    cwd: string,
+    limitsJson: string,
+    layoutMode: "default" | "minimal",
+  ): Promise<StateExecResult> {
+    return this.enqueueNodeWorkerExec(async () => {
+      try {
+        this.clearNodeExecWorkerIdleTimer();
+        const worker = await this.ensureNodeExecWorker();
+        const execId = this.nodeExecWorkerExecSeq;
+        this.nodeExecWorkerExecSeq += 1;
+        this.nodeExecWorkerBridgeContext = {
+          limitsJson,
+          layoutMode,
+          fetchBridge: this.createFetchBridge(),
+          sleepBridge: this.createSleepBridge(),
+          nowBridge: this.createNowBridge(),
+          vmBridge: this.createVmBridge(),
+        };
+
+        try {
+          return await new Promise<StateExecResult>((resolve, reject) => {
+            this.nodeExecWorkerPendingExec.set(execId, { resolve, reject });
+            try {
+              worker.postMessage({
+                type: "exec",
+                id: execId,
+                script: scriptToRun,
+                envJson,
+                filesJson,
+                dirsJson,
+                linksJson,
+                modesJson,
+                cwd,
+                limitsJson,
+                layoutMode,
+              });
+            } catch (error) {
+              this.nodeExecWorkerPendingExec.delete(execId);
+              reject(error instanceof Error ? error : new Error(String(error)));
+            }
+          });
+        } finally {
+          this.nodeExecWorkerBridgeContext = null;
+        }
+      } finally {
+        this.scheduleNodeExecWorkerIdleTermination();
+      }
+    });
+  }
+
   /**
    * Execute a bash script in the sandbox.
    * Returns stdout, stderr, and exit code.
@@ -2351,36 +2625,49 @@ export class Bash {
     const limitsJson = this.encodeLimitsJson();
     const layoutMode: "default" | "minimal" = this.useDefaultLayout ? "default" : "minimal";
 
-    if (this.hasCustomCommands()) {
-      const customResult = await this.tryExecuteWithCustomCommands(
-        script,
-        effectiveEnv,
-        cwd,
-        execOptions,
-      );
-      if (customResult) {
-        if (!isEmptyScript && logger) {
-          if (customResult.stdout.length > 0) {
-            logger.debug("stdout", { output: customResult.stdout });
-          }
-          if (customResult.stderr.length > 0) {
-            logger.info("stderr", { output: customResult.stderr });
-          }
-          logger.info("exit", { exitCode: customResult.exitCode });
-        }
-        return customResult;
-      }
-    }
-
     let scriptToRun = script;
     if (typeof execOptions.stdin === "string" && execOptions.stdin.length > 0) {
-      scriptToRun = `printf '%s' ${shellSingleQuote(execOptions.stdin)} | ${scriptToRun}`;
+      scriptToRun = `printf '%s' ${shellSingleQuote(execOptions.stdin)} | {\n${scriptToRun}\n}`;
+    }
+    if (this.hasCustomCommands()) {
+      scriptToRun = this.buildCustomPrelude(scriptToRun);
     }
     const envJson = JSON.stringify(effectiveEnv);
     const filesJson = JSON.stringify(this.files);
     const dirsJson = JSON.stringify(this.dirs);
     const linksJson = JSON.stringify(this.links);
     const modesJson = JSON.stringify(this.modes);
+
+    if (this.hasCustomCommands() && this.isNodeRuntime()) {
+      const parsed = await this.execWithNodeCustomWorker(
+        scriptToRun,
+        envJson,
+        filesJson,
+        dirsJson,
+        linksJson,
+        modesJson,
+        cwd,
+        limitsJson,
+        layoutMode,
+      );
+      this.applyState(parsed);
+      const result: BashExecResult = {
+        stdout: parsed.stdout ?? "",
+        stderr: parsed.stderr ?? "",
+        exitCode: Number.isFinite(parsed.exitCode) ? parsed.exitCode : 1,
+        env: parsed.env && typeof parsed.env === "object" ? parsed.env : { ...effectiveEnv },
+      };
+      if (!isEmptyScript && logger) {
+        if (result.stdout.length > 0) {
+          logger.debug("stdout", { output: result.stdout });
+        }
+        if (result.stderr.length > 0) {
+          logger.info("stderr", { output: result.stderr });
+        }
+        logger.info("exit", { exitCode: result.exitCode });
+      }
+      return result;
+    }
 
     const fetchBridge = this.createFetchBridge();
     const sleepBridge = this.createSleepBridge();

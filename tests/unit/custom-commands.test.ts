@@ -267,6 +267,39 @@ describe("custom-commands", () => {
       expect(result.exitCode).toBe(0);
     });
 
+    it("runs custom commands inside multiline function bodies", async () => {
+      const argv = defineCommand("argv.py", async (args) => ({
+        stdout: `[${args.map((arg) => `'${arg}'`).join(", ")}]\n`,
+        stderr: "",
+        exitCode: 0,
+      }));
+
+      const bash = new Bash({ customCommands: [argv] });
+      const result = await bash.exec(`fun () {
+  argv.py "$@" "$*"
+}
+fun "a b" "c d"`);
+
+      expect(result.stdout).toBe("['a b', 'c d', 'a b c d']\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
+    it("does not recurse when custom command name appears in plain text", async () => {
+      const argv = defineCommand("argv.py", async (args) => ({
+        stdout: `[${args.join(",")}]\n`,
+        stderr: "",
+        exitCode: 0,
+      }));
+
+      const bash = new Bash({ customCommands: [argv] });
+      const result = await bash.exec("echo argv.py");
+
+      expect(result.stdout).toBe("argv.py\n");
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+    });
+
     it("works with mixed Command and LazyCommand types", async () => {
       const regular = defineCommand("regular", async () => ({
         stdout: "regular\n",
