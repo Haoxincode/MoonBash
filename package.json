@@ -20,6 +20,7 @@
     "build": "pnpm build:mbt && pnpm build:ts",
     "test:mbt": "cd src && moon test",
     "test": "vitest run",
+    "test:safe": "bash scripts/test-safe.sh",
     "test:watch": "vitest",
     "check": "cd src && moon check"
   },

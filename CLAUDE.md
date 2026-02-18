@@ -13,6 +13,9 @@ MoonBash is a zero-dependency, pure-memory POSIX Shell sandbox written in MoonBi
 ```bash
 cd src && moon build --target js   # Compile MoonBit to JS
 cd src && moon check --target js   # Type-check without building
+pnpm test:safe                     # Recommended default: batched, single-worker, heap-bounded
+MOONBASH_TEST_HEAP_MB=1536 MOONBASH_TEST_SKIP_FUZZ=1 pnpm test:safe  # Low-memory local mode
+pnpm test                          # One-shot full run (can OOM on low-memory machines)
 npx vitest run tests/comparison/   # Run comparison tests (Vitest)
 ```
 
@@ -39,6 +42,13 @@ Tests are pre-imported from just-bash and organized into four categories:
 - **`tests/agent-examples/`** - 13 AI agent workflow scenarios (bug investigation, log analysis, code review, etc.).
 
 All TypeScript tests use Vitest and the `Bash` class.
+
+### Test Execution Policy (OOM Avoidance)
+
+- Default to `pnpm test:safe` for routine validation; it splits suites into isolated batches.
+- `test:safe` runs with single-worker fork mode and bounded heap (`MOONBASH_TEST_HEAP_MB`, default `2048`).
+- Set `MOONBASH_TEST_SKIP_FUZZ=1` when iterating locally to skip the heaviest fuzzing suites.
+- Use plain `pnpm test` only on high-memory environments when you explicitly want one-shot full execution.
 
 ## Key Design Documents
 

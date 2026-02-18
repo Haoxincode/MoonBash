@@ -11,6 +11,7 @@
     "moonbit-community/yaml",
     "moon_bash/lib/nyacsv",
     "moon_bash/lib/ffi",
+    "moonbitlang/core/math",
     "gmlewis/base64",
     "moonbit-community/piediff/line_diff",
     "moonbit-community/piediff/edit"
