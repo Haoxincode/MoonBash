@@ -135,13 +135,13 @@ fn ExecContext::builtin_od(
       }
       i += 2
     } else if arg.has_prefix("-A") && arg.length() > 2 {
-      let fmt = arg.substring(start=2)
+      let fmt = arg.view(start_offset=2).to_string()
       if fmt == "x" {
         hex_address = true
       }
       i += 1
     } else if arg.has_prefix("-t") && arg.length() > 2 {
-      let fmt = arg.substring(start=2)
+      let fmt = arg.view(start_offset=2).to_string()
       if fmt == "x2" {
         hex_mode = true
       }

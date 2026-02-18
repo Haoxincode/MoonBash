@@ -759,7 +759,7 @@ fn decode_fd_output_mapping(spec : String) -> (String, Bool)? {
   if spec[1].to_int().unsafe_to_char() != ':' {
     return None
   }
-  let path = spec.substring(start=2)
+  let path = spec.view(start_offset=2).to_string()
   if mode == 'A' {
     Some((path, true))
   } else if mode == 'W' {
@@ -992,7 +992,7 @@ fn ExecContext::refresh_array_metadata(self : ExecContext, name : String) -> Uni
     }
     if string_has_prefix(key, prefix) && key.length() > prefix.length() &&
       key[key.length() - 1] == ']' {
-      let inner = key.substring(start=prefix.length(), end=key.length() - 1)
+      let inner = key.view(start_offset=prefix.length(), end_offset=key.length() - 1).to_string()
       if inner != "@" && inner != "*" {
         keys.push(inner)
       }
@@ -1045,12 +1045,12 @@ fn parse_array_element_assignment_name(name : String) -> (String, String)? {
     return None
   }
 
-  let base = name.substring(start=0, end=bracket)
+  let base = name.view(start_offset=0, end_offset=bracket).to_string()
   if not(is_valid_shell_name(base)) {
     return None
   }
 
-  let raw_index = name.substring(start=bracket + 1, end=name.length() - 1)
+  let raw_index = name.view(start_offset=bracket + 1, end_offset=name.length() - 1).to_string()
   let index = normalize_array_assignment_index(raw_index)
   if index.length() == 0 {
     return None
@@ -1066,7 +1066,7 @@ fn normalize_array_assignment_index(raw_index : String) -> String {
     let first = cleaned[0].to_int().unsafe_to_char()
     let last = cleaned[cleaned.length() - 1].to_int().unsafe_to_char()
     if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
-      return cleaned.substring(start=1, end=cleaned.length() - 1)
+      return cleaned.view(start_offset=1, end_offset=cleaned.length() - 1).to_string()
     }
   }
   cleaned
@@ -1091,7 +1091,7 @@ fn trim_ascii_space_for_array_index(s : String) -> String {
       break
     }
   }
-  s.substring(start=start, end=end_)
+  s.view(start_offset=start, end_offset=end_).to_string()
 }
 
 fn strip_array_assignment_index_markers(s : String) -> String {

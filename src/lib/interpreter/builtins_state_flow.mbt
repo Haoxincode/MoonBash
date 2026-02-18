@@ -21,8 +21,8 @@ fn ExecContext::builtin_export(self : ExecContext, args : Array[String]) -> Unit
       }
     }
     if eq_pos > 0 {
-      let name = arg.substring(start=0, end=eq_pos)
-      let value = arg.substring(start=eq_pos + 1)
+      let name = arg.view(start_offset=0, end_offset=eq_pos).to_string()
+      let value = arg.view(start_offset=eq_pos + 1).to_string()
       self.env[name] = value
       self.exported[name] = true
     } else {
@@ -94,7 +94,7 @@ fn ExecContext::builtin_set(self : ExecContext, args : Array[String]) -> Unit {
       continue
     }
     if arg.length() >= 2 && arg[0] == '-' {
-      let ch = arg.substring(start=1, end=2)
+      let ch = arg.view(start_offset=1, end_offset=2).to_string()
       match ch {
         "e" => self.options.errexit = true
         "u" => self.options.nounset = true
@@ -106,7 +106,7 @@ fn ExecContext::builtin_set(self : ExecContext, args : Array[String]) -> Unit {
       }
       i += 1
     } else if arg.length() >= 2 && arg[0] == '+' {
-      let ch = arg.substring(start=1, end=2)
+      let ch = arg.view(start_offset=1, end_offset=2).to_string()
       match ch {
         "e" => self.options.errexit = false
         "u" => self.options.nounset = false
@@ -289,8 +289,8 @@ fn ExecContext::builtin_local(
       }
     }
     if eq_pos > 0 {
-      let name = arg.substring(start=0, end=eq_pos)
-      let value = arg.substring(start=eq_pos + 1)
+      let name = arg.view(start_offset=0, end_offset=eq_pos).to_string()
+      let value = arg.view(start_offset=eq_pos + 1).to_string()
       self.capture_local_binding(name)
       self.env[name] = value
     } else {
@@ -382,7 +382,7 @@ fn split_local_scope_names(spec : String) -> Array[String] {
   for i = 0; i <= spec.length(); i = i + 1 {
     if i == spec.length() || spec[i].to_int().unsafe_to_char() == '\u001f' {
       if i > start {
-        parts.push(spec.substring(start=start, end=i))
+        parts.push(spec.view(start_offset=start, end_offset=i).to_string())
       }
       start = i + 1
     }
@@ -639,7 +639,7 @@ fn ExecContext::builtin_getopts(
 
   let expects_arg = getopts_option_takes_argument(opt_spec, opt_idx)
   if expects_arg {
-    let inline = if current.length() > 2 { current.substring(start=2) } else { "" }
+    let inline = if current.length() > 2 { current.view(start_offset=2).to_string() } else { "" }
     let optarg = if inline.length() > 0 {
       inline
     } else if optind < parse_args.length() {
@@ -687,8 +687,8 @@ fn parse_name_value_spec(spec : String) -> (String, String?)? {
     }
   }
   if eq_pos > 0 {
-    let name = spec.substring(start=0, end=eq_pos)
-    let value = spec.substring(start=eq_pos + 1)
+    let name = spec.view(start_offset=0, end_offset=eq_pos).to_string()
+    let value = spec.view(start_offset=eq_pos + 1).to_string()
     if name.length() == 0 {
       return None
     }

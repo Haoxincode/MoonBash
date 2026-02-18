@@ -510,7 +510,7 @@ fn ExecContext::regex_cond_match(
   match matcher.find_first_with_groups(text) {
     Some((start, end, groups)) => {
       let values : Array[String] = []
-      values.push(text.substring(start=start, end=end))
+      values.push(text.view(start_offset=start, end_offset=end).to_string())
       for group in groups {
         values.push(group)
       }
@@ -550,5 +550,5 @@ fn trim_cstyle_expr(s : String) -> String {
       break
     }
   }
-  s.substring(start=start, end=end_)
+  s.view(start_offset=start, end_offset=end_).to_string()
 }

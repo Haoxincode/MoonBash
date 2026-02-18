@@ -56,7 +56,7 @@ fn cst_split_path(path : String) -> Array[String] {
   for i = 0; i <= path.length(); i = i + 1 {
     if i == path.length() || path[i] == '/' {
       if i > start {
-        parts.push(path.substring(start=start, end=i))
+        parts.push(path.view(start_offset=start, end_offset=i).to_string())
       }
       start = i + 1
     }
@@ -218,7 +218,7 @@ fn cmd_strings(ctx : CommandContext) -> @ast.ExecResult {
       continue
     }
     if arg.has_prefix("-n") && arg.length() > 2 {
-      min_len = cst_parse_int(arg.substring(start=2))
+      min_len = cst_parse_int(arg.view(start_offset=2).to_string())
       i += 1
       continue
     }
@@ -316,7 +316,7 @@ fn cmd_split(ctx : CommandContext) -> @ast.ExecResult {
       continue
     }
     if arg.has_prefix("-l") && arg.length() > 2 {
-      lines_per_chunk = cst_parse_int(arg.substring(start=2))
+      lines_per_chunk = cst_parse_int(arg.view(start_offset=2).to_string())
       i += 1
       continue
     }
@@ -326,7 +326,7 @@ fn cmd_split(ctx : CommandContext) -> @ast.ExecResult {
       continue
     }
     if arg.has_prefix("-b") && arg.length() > 2 {
-      bytes_per_chunk = Some(cst_parse_int(arg.substring(start=2)))
+      bytes_per_chunk = Some(cst_parse_int(arg.view(start_offset=2).to_string()))
       i += 1
       continue
     }
@@ -403,7 +403,7 @@ fn tar_clean_path(path : String) -> String {
     start += 2
   }
   let trimmed = if start > 0 {
-    path.substring(start=start)
+    path.view(start_offset=start).to_string()
   } else {
     path
   }
@@ -414,7 +414,7 @@ fn tar_clean_path(path : String) -> String {
   if end_ == trimmed.length() {
     trimmed
   } else {
-    trimmed.substring(start=0, end=end_)
+    trimmed.view(start_offset=0, end_offset=end_).to_string()
   }
 }
 
@@ -508,7 +508,7 @@ fn tar_deserialize(content : String) -> Array[TarEntry] {
     }
 
     if cst_starts_with(header, "D\t") {
-      let path = header.substring(start=2)
+      let path = header.view(start_offset=2).to_string()
       entries.push({ path, is_dir: true, content: "" })
       continue
     }
@@ -544,7 +544,7 @@ fn tar_strip_components(path : String, strip : Int) -> String? {
   let mut p = path
   let is_dir = p.length() > 0 && p[p.length() - 1] == '/'
   if is_dir && p.length() > 1 {
-    p = p.substring(start=0, end=p.length() - 1)
+    p = p.view(start_offset=0, end_offset=p.length() - 1).to_string()
   }
   let parts = cst_split_path(p)
   if strip >= parts.length() {
@@ -577,7 +577,7 @@ fn cmd_tar(ctx : CommandContext) -> @ast.ExecResult {
       continue
     }
     if arg.has_prefix("--strip-components=") {
-      strip_components = cst_parse_int(arg.substring(start=19))
+      strip_components = cst_parse_int(arg.view(start_offset=19).to_string())
       if strip_components < 0 {
         strip_components = 0
       }
@@ -593,7 +593,7 @@ fn cmd_tar(ctx : CommandContext) -> @ast.ExecResult {
           'z' => ()
           'f' => {
             if j + 1 < arg.length() {
-              archive_file = Some(arg.substring(start=j + 1))
+              archive_file = Some(arg.view(start_offset=j + 1).to_string())
               j = arg.length()
             } else if i + 1 < ctx.args.length() {
               i += 1
@@ -689,7 +689,7 @@ fn cmd_tar(ctx : CommandContext) -> @ast.ExecResult {
         None => continue
       }
       let clean = if extracted.length() > 0 && extracted[extracted.length() - 1] == '/' {
-        extracted.substring(start=0, end=extracted.length() - 1)
+        extracted.view(start_offset=0, end_offset=extracted.length() - 1).to_string()
       } else {
         extracted
       }

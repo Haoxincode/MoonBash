@@ -419,7 +419,7 @@ fn ltrim_blanks(s : String) -> String {
       break
     }
   }
-  s.substring(start=i)
+  s.view(start_offset=i).to_string()
 }
 
 fn split_version_tokens(s : String) -> Array[String] {
@@ -432,12 +432,12 @@ fn split_version_tokens(s : String) -> Array[String] {
   for i = 1; i < s.length(); i = i + 1 {
     let is_digit = is_ascii_digit(s[i].to_int().unsafe_to_char())
     if is_digit != in_digit {
-      tokens.push(s.substring(start=start, end=i))
+      tokens.push(s.view(start_offset=start, end_offset=i).to_string())
       start = i
       in_digit = is_digit
     }
   }
-  tokens.push(s.substring(start=start))
+  tokens.push(s.view(start_offset=start).to_string())
   tokens
 }
 
@@ -502,7 +502,7 @@ fn parse_human_size(s : String) -> Int {
     return 0
   }
 
-  let number = parse_int32_str(trimmed.substring(start=0, end=i))
+  let number = parse_int32_str(trimmed.view(start_offset=0, end_offset=i).to_string())
   if i >= trimmed.length() {
     return number
   }

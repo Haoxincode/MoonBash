@@ -49,7 +49,7 @@ fn aj_trim(s : String) -> String {
   } else if start >= end_ {
     ""
   } else {
-    s.substring(start=start, end=end_)
+    s.view(start_offset=start, end_offset=end_).to_string()
   }
 }
 

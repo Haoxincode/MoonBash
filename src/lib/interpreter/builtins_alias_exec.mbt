@@ -128,7 +128,7 @@ fn ExecContext::builtin_alias(
     // List all aliases
     for k, v in self.env {
       if k.has_prefix(alias_prefix) {
-        let name = k.substring(start=alias_prefix.length())
+        let name = k.view(start_offset=alias_prefix.length()).to_string()
         self.stdout_buf.write_string("alias \{name}='\{v}'\n")
       }
     }
@@ -146,8 +146,8 @@ fn ExecContext::builtin_alias(
     }
     if eq_pos > 0 {
       // name=value → set alias
-      let name = arg.substring(start=0, end=eq_pos)
-      let value = arg.substring(start=eq_pos + 1)
+      let name = arg.view(start_offset=0, end_offset=eq_pos).to_string()
+      let value = arg.view(start_offset=eq_pos + 1).to_string()
       self.env[alias_prefix + name] = value
     } else {
       // name only → show alias

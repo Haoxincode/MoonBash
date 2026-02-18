@@ -51,7 +51,7 @@ pub fn GrepMatcher::find_first(
       }
       let mut cursor = start
       while cursor <= line.length() {
-        let segment = line.substring(start=cursor)
+        let segment = line.view(start_offset=cursor).to_string()
         let result = re.execute(segment[:])
         if not(result.matched()) {
           return None
@@ -101,7 +101,7 @@ pub fn GrepMatcher::find_first_with_groups(
       }
       let mut cursor = start
       while cursor <= line.length() {
-        let segment = line.substring(start=cursor)
+        let segment = line.view(start_offset=cursor).to_string()
         let result = re.execute(segment[:])
         if not(result.matched()) {
           return None

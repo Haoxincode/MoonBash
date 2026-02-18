@@ -305,7 +305,7 @@ fn cmd_du(ctx : CommandContext) -> @ast.ExecResult {
       continue
     }
     if arg.has_prefix("--max-depth=") {
-      max_depth = Some(cmd_find_parse_int(arg.substring(start=12)))
+      max_depth = Some(cmd_find_parse_int(arg.view(start_offset=12).to_string()))
       i += 1
       continue
     }
@@ -368,7 +368,7 @@ fn cmd_du(ctx : CommandContext) -> @ast.ExecResult {
         let rel_depth = if key == resolved {
           0
         } else {
-          cmd_du_relative_depth(key.substring(start=resolved.length()))
+          cmd_du_relative_depth(key.view(start_offset=resolved.length()).to_string())
         }
         let include_entry = match max_depth {
           Some(limit) => rel_depth <= limit
@@ -380,7 +380,7 @@ fn cmd_du(ctx : CommandContext) -> @ast.ExecResult {
           let display = if key == resolved {
             path
           } else {
-            let rel = key.substring(start=resolved.length())
+            let rel = key.view(start_offset=resolved.length()).to_string()
             if path == "." {
               "." + rel
             } else {

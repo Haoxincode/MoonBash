@@ -169,7 +169,7 @@ fn trim_cstyle_expr(s : String) -> String {
       break
     }
   }
-  s.substring(start=start, end=end_)
+  s.view(start_offset=start, end_offset=end_).to_string()
 }
 
 // ============================================================================

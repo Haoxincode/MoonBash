@@ -295,7 +295,7 @@ fn hash_parse_check_line(line : String) -> (String, String)? {
   if i == 0 || i >= line.length() {
     return None
   }
-  let hash = line.substring(start=0, end=i)
+  let hash = line.view(start_offset=0, end_offset=i).to_string()
   // Skip whitespace (typically two spaces or space+asterisk)
   while i < line.length() && (line[i] == ' ' || line[i] == '\t' || line[i] == '*') {
     i += 1
@@ -303,6 +303,6 @@ fn hash_parse_check_line(line : String) -> (String, String)? {
   if i >= line.length() {
     return None
   }
-  let filename = line.substring(start=i)
+  let filename = line.view(start_offset=i).to_string()
   Some((hash, filename))
 }

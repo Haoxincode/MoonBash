@@ -505,7 +505,7 @@ fn expand_scalar_substring(value : String, offset : Int64, len : Int64?) -> Stri
   if actual_offset >= value_len || actual_len <= 0L {
     ""
   } else {
-    value.substring(start=actual_offset.to_int(), end=end.to_int())
+    value.view(start_offset=actual_offset.to_int(), end_offset=end.to_int()).to_string()
   }
 }
 
@@ -753,7 +753,7 @@ fn arith_trim(s : String) -> String {
     }
   }
 
-  s.substring(start=start, end=end_)
+  s.view(start_offset=start, end_offset=end_).to_string()
 }
 
 fn arith_is_identifier_text(s : String) -> Bool {
@@ -840,12 +840,12 @@ fn arith_parse_number_literal(token : String) -> Int64? {
     return None
   }
 
-  let body = token.substring(start=start)
+  let body = token.view(start_offset=start).to_string()
 
   if body.length() >= 3 &&
     body[0] == '0' &&
     (body[1] == 'x' || body[1] == 'X') {
-    let digits = body.substring(start=2)
+    let digits = body.view(start_offset=2).to_string()
     match arith_parse_base_digits(digits, 16) {
       Some(v) => return Some(v * sign)
       None => return None
@@ -860,8 +860,8 @@ fn arith_parse_number_literal(token : String) -> Int64? {
     }
   }
   if hash_pos > 0 {
-    let base_text = body.substring(start=0, end=hash_pos)
-    let digits = body.substring(start=hash_pos + 1)
+    let base_text = body.view(start_offset=0, end_offset=hash_pos).to_string()
+    let digits = body.view(start_offset=hash_pos + 1).to_string()
     match arith_parse_decimal_str(base_text) {
       Some(base) => {
         if base < 2L || base > 64L {
@@ -877,7 +877,7 @@ fn arith_parse_number_literal(token : String) -> Int64? {
   }
 
   if body.length() > 1 && body[0] == '0' {
-    let digits = body.substring(start=1)
+    let digits = body.view(start_offset=1).to_string()
     let mut is_octal = true
     for i = 0; i < digits.length(); i = i + 1 {
       let ch = digits[i].to_int().unsafe_to_char()
@@ -918,7 +918,7 @@ fn arith_tokenize(expr : String) -> Array[String] {
       while i < expr.length() && arith_is_ident_char(expr[i].to_int().unsafe_to_char()) {
         i += 1
       }
-      tokens.push(expr.substring(start=start, end=i))
+      tokens.push(expr.view(start_offset=start, end_offset=i).to_string())
       continue
     }
 
@@ -931,7 +931,7 @@ fn arith_tokenize(expr : String) -> Array[String] {
         while i < expr.length() && arith_is_hex_digit(expr[i].to_int().unsafe_to_char()) {
           i += 1
         }
-        tokens.push(expr.substring(start=start, end=i))
+        tokens.push(expr.view(start_offset=start, end_offset=i).to_string())
         continue
       }
 
@@ -944,14 +944,14 @@ fn arith_tokenize(expr : String) -> Array[String] {
         while i < expr.length() && arith_is_base_digit_char(expr[i].to_int().unsafe_to_char()) {
           i += 1
         }
-        tokens.push(expr.substring(start=start, end=i))
+        tokens.push(expr.view(start_offset=start, end_offset=i).to_string())
         continue
       }
 
       while i < expr.length() && arith_is_ident_char(expr[i].to_int().unsafe_to_char()) {
         i += 1
       }
-      tokens.push(expr.substring(start=start, end=i))
+      tokens.push(expr.view(start_offset=start, end_offset=i).to_string())
       continue
     }
 
@@ -992,7 +992,7 @@ fn arith_tokenize(expr : String) -> Array[String] {
         (a == '^' && b == '=') ||
         (a == '<' && b == '<') ||
         (a == '>' && b == '>') {
-        tokens.push(expr.substring(start=i, end=i + 2))
+        tokens.push(expr.view(start_offset=i, end_offset=i + 2).to_string())
         i += 2
         continue
       }
@@ -1001,7 +1001,7 @@ fn arith_tokenize(expr : String) -> Array[String] {
     match ch {
       '+' | '-' | '*' | '/' | '%' | '=' | '!' | '~' | '<' | '>' | '&' | '|'
       | '^' | '?' | ':' | ',' | '(' | ')' | '[' | ']' => {
-        tokens.push(expr.substring(start=i, end=i + 1))
+        tokens.push(expr.view(start_offset=i, end_offset=i + 1).to_string())
         i += 1
       }
       _ => {
@@ -1057,7 +1057,7 @@ fn ExecContext::arith_parse_value_text(self : ExecContext, text : String) -> Int
   if trimmed.length() >= 2 &&
     trimmed[0] == '(' &&
     trimmed[trimmed.length() - 1] == ')' {
-    let inner = trimmed.substring(start=1, end=trimmed.length() - 1)
+    let inner = trimmed.view(start_offset=1, end_offset=trimmed.length() - 1).to_string()
     let parts = split_by_whitespace(inner)
     if parts.length() == 0 {
       return 0L
@@ -1114,7 +1114,7 @@ fn ExecContext::arith_get_array_elem(
   if trimmed.length() >= 2 &&
     trimmed[0] == '(' &&
     trimmed[trimmed.length() - 1] == ')' {
-    let inner = trimmed.substring(start=1, end=trimmed.length() - 1)
+    let inner = trimmed.view(start_offset=1, end_offset=trimmed.length() - 1).to_string()
     let parts = split_by_whitespace(inner)
     if index < parts.length().to_int64() {
       return self.arith_parse_value_text(parts[index.to_int()])
@@ -1591,7 +1591,7 @@ fn ExecContext::arith_expand_dollar_refs(self : ExecContext, raw : String) -> St
         while j < raw.length() && arith_is_ident_char(raw[j].to_int().unsafe_to_char()) {
           j += 1
         }
-        let name = raw.substring(start=i + 1, end=j)
+        let name = raw.view(start_offset=i + 1, end_offset=j).to_string()
         out.write_string(self.expand_variable(name))
         i = j
         continue
@@ -1601,13 +1601,13 @@ fn ExecContext::arith_expand_dollar_refs(self : ExecContext, raw : String) -> St
         while j < raw.length() && arith_is_digit(raw[j].to_int().unsafe_to_char()) {
           j += 1
         }
-        let name = raw.substring(start=i + 1, end=j)
+        let name = raw.view(start_offset=i + 1, end_offset=j).to_string()
         out.write_string(self.expand_variable(name))
         i = j
         continue
       }
       if arith_is_special_var_char(next) {
-        let name = raw.substring(start=i + 1, end=i + 2)
+        let name = raw.view(start_offset=i + 1, end_offset=i + 2).to_string()
         out.write_string(self.expand_variable(name))
         i += 2
         continue
@@ -1757,14 +1757,14 @@ fn brace_expand_collect(input : String, out : Array[String]) -> Unit {
   match find_first_brace_pair(input) {
     None => out.push(input)
     Some((start, end_)) => {
-      let content = input.substring(start=start + 1, end=end_)
+      let content = input.view(start_offset=start + 1, end_offset=end_).to_string()
       let options = parse_brace_options(content)
       if options.length() == 0 {
         out.push(input)
         return
       }
-      let prefix = input.substring(start=0, end=start)
-      let suffix = input.substring(start=end_ + 1)
+      let prefix = input.view(start_offset=0, end_offset=start).to_string()
+      let suffix = input.view(start_offset=end_ + 1).to_string()
       for option in options {
         if out.length() >= brace_expansion_result_limit {
           return
@@ -1826,14 +1826,14 @@ fn split_brace_top_level_commas(content : String) -> (Array[String], Bool) {
         depth -= 1
       }
     } else if content[i] == ',' && depth == 0 {
-      parts.push(content.substring(start=start, end=i))
+      parts.push(content.view(start_offset=start, end_offset=i).to_string())
       start = i + 1
       has_comma = true
     }
   }
 
   if has_comma {
-    parts.push(content.substring(start=start, end=content.length()))
+    parts.push(content.view(start_offset=start, end_offset=content.length()).to_string())
   }
   (parts, has_comma)
 }
@@ -1886,14 +1886,14 @@ fn split_by_double_dot(content : String) -> Array[String] {
   let mut i = 0
   while i + 1 < content.length() {
     if content[i] == '.' && content[i + 1] == '.' {
-      parts.push(content.substring(start=start, end=i))
+      parts.push(content.view(start_offset=start, end_offset=i).to_string())
       start = i + 2
       i += 2
       continue
     }
     i += 1
   }
-  parts.push(content.substring(start=start, end=content.length()))
+  parts.push(content.view(start_offset=start, end_offset=content.length()).to_string())
   parts
 }
 
@@ -2155,9 +2155,9 @@ fn expansion_array_count_storage_key(name : String) -> String {
 
 fn array_count_var_name(name : String) -> String? {
   if name.length() >= 3 {
-    let suffix = name.substring(start=name.length() - 3, end=name.length())
+    let suffix = name.view(start_offset=name.length() - 3, end_offset=name.length()).to_string()
     if suffix == "[@]" || suffix == "[*]" {
-      let base = name.substring(start=0, end=name.length() - 3)
+      let base = name.view(start_offset=0, end_offset=name.length() - 3).to_string()
       return Some(expansion_array_count_storage_key(base))
     }
   }
@@ -2166,9 +2166,9 @@ fn array_count_var_name(name : String) -> String? {
 
 fn indirection_array_keys_name(name : String) -> String? {
   if name.length() >= 3 {
-    let suffix = name.substring(start=name.length() - 3, end=name.length())
+    let suffix = name.view(start_offset=name.length() - 3, end_offset=name.length()).to_string()
     if suffix == "[@]" || suffix == "[*]" {
-      let base = name.substring(start=0, end=name.length() - 3)
+      let base = name.view(start_offset=0, end_offset=name.length() - 3).to_string()
       if base.length() > 0 {
         return Some(base)
       }
@@ -2183,7 +2183,7 @@ fn indirection_prefix_name(name : String) -> String? {
   }
   let last = name[name.length() - 1].to_int().unsafe_to_char()
   if last == '*' || last == '@' {
-    let prefix = name.substring(start=0, end=name.length() - 1)
+    let prefix = name.view(start_offset=0, end_offset=name.length() - 1).to_string()
     if prefix.length() > 0 {
       return Some(prefix)
     }
@@ -2224,12 +2224,12 @@ fn parse_array_reference_name(name : String) -> (String, String)? {
     return None
   }
 
-  let base = name.substring(start=0, end=bracket)
+  let base = name.view(start_offset=0, end_offset=bracket).to_string()
   if not(is_expand_var_base_name(base)) {
     return None
   }
 
-  let index = name.substring(start=bracket + 1, end=name.length() - 1)
+  let index = name.view(start_offset=bracket + 1, end_offset=name.length() - 1).to_string()
   if index.length() == 0 {
     return None
   }
@@ -2286,7 +2286,7 @@ fn trim_ascii_space_simple(s : String) -> String {
     }
   }
 
-  s.substring(start=start, end=end_)
+  s.view(start_offset=start, end_offset=end_).to_string()
 }
 
 fn strip_wrapping_quotes(text : String) -> String {
@@ -2294,7 +2294,7 @@ fn strip_wrapping_quotes(text : String) -> String {
     let first = text[0].to_int().unsafe_to_char()
     let last = text[text.length() - 1].to_int().unsafe_to_char()
     if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
-      return text.substring(start=1, end=text.length() - 1)
+      return text.view(start_offset=1, end_offset=text.length() - 1).to_string()
     }
   }
   text
@@ -2317,7 +2317,7 @@ fn ExecContext::collect_array_keys(
   for env_key, _value in self.env {
     if starts_with(env_key, prefix) && env_key.length() > prefix.length() &&
       env_key[env_key.length() - 1] == ']' {
-      let key = env_key.substring(start=prefix.length(), end=env_key.length() - 1)
+      let key = env_key.view(start_offset=prefix.length(), end_offset=env_key.length() - 1).to_string()
       if key != "@" && key != "*" {
         keys.push(key)
       }
@@ -2386,7 +2386,7 @@ fn split_path_segments(path : String) -> Array[String] {
   for i = 0; i <= path.length(); i = i + 1 {
     if i == path.length() || path[i] == '/' {
       if i > start {
-        segments.push(path.substring(start=start, end=i))
+        segments.push(path.view(start_offset=start, end_offset=i).to_string())
       }
       start = i + 1
     }
@@ -2435,13 +2435,13 @@ fn ExecContext::abs_to_shell_path(self : ExecContext, abs_path : String) -> Stri
   }
   if self.cwd == "/" {
     if abs_path.length() > 0 && abs_path[0] == '/' {
-      return abs_path.substring(start=1)
+      return abs_path.view(start_offset=1).to_string()
     }
     return abs_path
   }
   let prefix = self.cwd + "/"
   if starts_with(abs_path, prefix) {
-    return abs_path.substring(start=prefix.length())
+    return abs_path.view(start_offset=prefix.length()).to_string()
   }
   abs_path
 }
@@ -2491,18 +2491,18 @@ fn strip_prefix_pattern(value : String, pattern : String, greedy : Bool) -> Stri
   if greedy {
     // Try longest match from start
     for i = value.length(); i >= 0; i = i - 1 {
-      let prefix = value.substring(start=0, end=i)
+      let prefix = value.view(start_offset=0, end_offset=i).to_string()
       if simple_pattern_match(prefix, pattern) {
-        return value.substring(start=i)
+        return value.view(start_offset=i).to_string()
       }
     }
     value
   } else {
     // Try shortest match from start
     for i = 0; i <= value.length(); i = i + 1 {
-      let prefix = value.substring(start=0, end=i)
+      let prefix = value.view(start_offset=0, end_offset=i).to_string()
       if simple_pattern_match(prefix, pattern) {
-        return value.substring(start=i)
+        return value.view(start_offset=i).to_string()
       }
     }
     value
@@ -2516,18 +2516,18 @@ fn strip_suffix_pattern(value : String, pattern : String, greedy : Bool) -> Stri
   if greedy {
     // Try longest match from end
     for i = 0; i <= value.length(); i = i + 1 {
-      let suffix = value.substring(start=i)
+      let suffix = value.view(start_offset=i).to_string()
       if simple_pattern_match(suffix, pattern) {
-        return value.substring(start=0, end=i)
+        return value.view(start_offset=0, end_offset=i).to_string()
       }
     }
     value
   } else {
     // Try shortest match from end
     for i = value.length(); i >= 0; i = i - 1 {
-      let suffix = value.substring(start=i)
+      let suffix = value.view(start_offset=i).to_string()
       if simple_pattern_match(suffix, pattern) {
-        return value.substring(start=0, end=i)
+        return value.view(start_offset=0, end_offset=i).to_string()
       }
     }
     value
@@ -2581,9 +2581,9 @@ fn replace_pattern(
     @ast.ReplaceMode::Prefix => {
       // Replace only if pattern matches at beginning
       for i = 0; i <= value.length(); i = i + 1 {
-        let prefix = value.substring(start=0, end=i)
+        let prefix = value.view(start_offset=0, end_offset=i).to_string()
         if simple_pattern_match(prefix, pattern) {
-          return replacement + value.substring(start=i)
+          return replacement + value.view(start_offset=i).to_string()
         }
       }
       value
@@ -2591,9 +2591,9 @@ fn replace_pattern(
     @ast.ReplaceMode::Suffix => {
       // Replace only if pattern matches at end
       for i = value.length(); i >= 0; i = i - 1 {
-        let suffix = value.substring(start=i)
+        let suffix = value.view(start_offset=i).to_string()
         if simple_pattern_match(suffix, pattern) {
-          return value.substring(start=0, end=i) + replacement
+          return value.view(start_offset=0, end_offset=i).to_string() + replacement
         }
       }
       value
@@ -2605,9 +2605,9 @@ fn replace_first(value : String, pattern : String, replacement : String) -> Stri
   // Try each position
   for i = 0; i < value.length(); i = i + 1 {
     for j = i + 1; j <= value.length(); j = j + 1 {
-      let substr = value.substring(start=i, end=j)
+      let substr = value.view(start_offset=i, end_offset=j).to_string()
       if simple_pattern_match(substr, pattern) {
-        return value.substring(start=0, end=i) + replacement + value.substring(start=j)
+        return value.view(start_offset=0, end_offset=i).to_string() + replacement + value.view(start_offset=j).to_string()
       }
     }
   }
@@ -2620,7 +2620,7 @@ fn replace_all(value : String, pattern : String, replacement : String) -> String
   while i < value.length() {
     let mut matched = false
     for j = i + 1; j <= value.length(); j = j + 1 {
-      let substr = value.substring(start=i, end=j)
+      let substr = value.view(start_offset=i, end_offset=j).to_string()
       if simple_pattern_match(substr, pattern) {
         buf.write_string(replacement)
         i = j
@@ -2711,7 +2711,7 @@ fn strip_trailing_newlines(s : String) -> String {
   while end > 0 && s[end - 1] == '\n' {
     end -= 1
   }
-  s.substring(start=0, end=end)
+  s.view(start_offset=0, end_offset=end).to_string()
 }
 
 fn int_pow(base : Int64, exp : Int64) -> Int64 {

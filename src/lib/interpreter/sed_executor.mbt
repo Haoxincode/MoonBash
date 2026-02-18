@@ -45,7 +45,7 @@ fn ExecContext::builtin_sed(
           j += 1
         } else if flag == 'e' {
           if j + 1 < arg.length() {
-            expressions.push(arg.substring(start=j + 1))
+            expressions.push(arg.view(start_offset=j + 1).to_string())
           } else if i + 1 < args.length() {
             i += 1
             expressions.push(args[i])
@@ -101,7 +101,7 @@ fn ExecContext::builtin_sed(
       expressions.push(args[i])
       script_taken = true
     } else if arg.has_prefix("-e") && arg.length() > 2 {
-      expressions.push(arg.substring(start=2))
+      expressions.push(arg.view(start_offset=2).to_string())
       script_taken = true
     } else if not(script_taken) {
       let mut candidate = arg

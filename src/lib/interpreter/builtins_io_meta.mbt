@@ -14,7 +14,7 @@ fn ExecContext::builtin_read(
       break
     }
   }
-  let line = input.substring(start=0, end=line_end)
+  let line = input.view(start_offset=0, end_offset=line_end).to_string()
 
   // Parse flags
   let var_names : Array[String] = []
@@ -81,7 +81,7 @@ fn ExecContext::builtin_read(
 
   // Consume the line from stdin
   if line_end < input.length() {
-    self.stdin_buf = input.substring(start=line_end + 1)
+    self.stdin_buf = input.view(start_offset=line_end + 1).to_string()
   } else {
     self.stdin_buf = ""
   }

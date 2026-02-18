@@ -755,7 +755,7 @@ fn cmd_find_trim_trailing_slashes(path : String) -> String {
   if end == path.length() {
     path
   } else {
-    path.substring(start=0, end=end)
+    path.view(start_offset=0, end_offset=end).to_string()
   }
 }
 
@@ -784,7 +784,7 @@ fn cmd_find_display_basename(path : String) -> String {
   } else if slash + 1 >= path.length() {
     ""
   } else {
-    path.substring(start=slash + 1)
+    path.view(start_offset=slash + 1).to_string()
   }
 }
 
@@ -813,10 +813,10 @@ fn cmd_find_perm_matches(expr : String, mode : Int) -> Bool {
   }
   let first = expr[0].to_int().unsafe_to_char()
   if first == '-' {
-    let mask = cmd_find_parse_octal(expr.substring(start=1))
+    let mask = cmd_find_parse_octal(expr.view(start_offset=1).to_string())
     mode.land(mask) == mask
   } else if first == '/' {
-    let mask = cmd_find_parse_octal(expr.substring(start=1))
+    let mask = cmd_find_parse_octal(expr.view(start_offset=1).to_string())
     mode.land(mask) != 0
   } else {
     let expected = cmd_find_parse_octal(expr)

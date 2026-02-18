@@ -135,7 +135,7 @@ fn substring_slice(s : String, start : Int, end : Int) -> String {
   if start >= end || start < 0 || end > s.length() {
     return ""
   }
-  s.substring(start=start, end=end)
+  s.view(start_offset=start, end_offset=end).to_string()
 }
 
 

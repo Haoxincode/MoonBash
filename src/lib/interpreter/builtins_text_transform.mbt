@@ -108,7 +108,7 @@ fn ExecContext::builtin_sort(
       continue
     }
     if arg.has_prefix("-k") && arg.length() > 2 {
-      key_field = Some(parse_int32_str(arg.substring(start=2)))
+      key_field = Some(parse_int32_str(arg.view(start_offset=2).to_string()))
       i += 1
       continue
     }
@@ -118,7 +118,7 @@ fn ExecContext::builtin_sort(
       continue
     }
     if arg.has_prefix("-t") && arg.length() > 2 {
-      delimiter = Some(arg.substring(start=2))
+      delimiter = Some(arg.view(start_offset=2).to_string())
       i += 1
       continue
     }
@@ -340,14 +340,14 @@ fn ExecContext::builtin_cut(
       char_ranges = parse_cut_char_spec(args[i + 1])
       i += 2
     } else if args[i].has_prefix("-d") {
-      delimiter = args[i].substring(start=2)
+      delimiter = args[i].view(start_offset=2).to_string()
       i += 1
     } else if args[i].has_prefix("-f") {
-      fields = parse_field_spec(args[i].substring(start=2))
+      fields = parse_field_spec(args[i].view(start_offset=2).to_string())
       i += 1
     } else if args[i].has_prefix("-c") {
       char_mode = true
-      char_ranges = parse_cut_char_spec(args[i].substring(start=2))
+      char_ranges = parse_cut_char_spec(args[i].view(start_offset=2).to_string())
       i += 1
     } else {
       input_file = Some(args[i])

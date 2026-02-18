@@ -54,7 +54,7 @@ fn ExecContext::builtin_nl(
       continue
     }
     if arg.has_prefix("-b") && arg.length() > 2 {
-      let style = arg.substring(start=2)
+      let style = arg.view(start_offset=2).to_string()
       number_all = style == "a"
       i += 1
       continue
@@ -65,7 +65,7 @@ fn ExecContext::builtin_nl(
       continue
     }
     if arg.has_prefix("-n") && arg.length() > 2 {
-      number_format = arg.substring(start=2)
+      number_format = arg.view(start_offset=2).to_string()
       i += 1
       continue
     }
@@ -75,7 +75,7 @@ fn ExecContext::builtin_nl(
       continue
     }
     if arg.has_prefix("-w") && arg.length() > 2 {
-      width = parse_int32_str(arg.substring(start=2))
+      width = parse_int32_str(arg.view(start_offset=2).to_string())
       i += 1
       continue
     }
@@ -85,7 +85,7 @@ fn ExecContext::builtin_nl(
       continue
     }
     if arg.has_prefix("-s") && arg.length() > 2 {
-      separator = arg.substring(start=2)
+      separator = arg.view(start_offset=2).to_string()
       i += 1
       continue
     }
@@ -95,7 +95,7 @@ fn ExecContext::builtin_nl(
       continue
     }
     if arg.has_prefix("-v") && arg.length() > 2 {
-      current_number = parse_int32_str(arg.substring(start=2))
+      current_number = parse_int32_str(arg.view(start_offset=2).to_string())
       i += 1
       continue
     }
@@ -105,7 +105,7 @@ fn ExecContext::builtin_nl(
       continue
     }
     if arg.has_prefix("-i") && arg.length() > 2 {
-      increment = parse_int32_str(arg.substring(start=2))
+      increment = parse_int32_str(arg.view(start_offset=2).to_string())
       i += 1
       continue
     }
@@ -182,7 +182,7 @@ fn ExecContext::builtin_fold(
       continue
     }
     if arg.has_prefix("-w") && arg.length() > 2 {
-      width = parse_int32_str(arg.substring(start=2))
+      width = parse_int32_str(arg.view(start_offset=2).to_string())
       i += 1
       continue
     }
@@ -194,7 +194,7 @@ fn ExecContext::builtin_fold(
           's' => break_spaces = true
           'w' => {
             if j + 1 < arg.length() {
-              width = parse_int32_str(arg.substring(start=j + 1))
+              width = parse_int32_str(arg.view(start_offset=j + 1).to_string())
             } else if i + 1 < args.length() {
               i += 1
               width = parse_int32_str(args[i])
@@ -262,7 +262,7 @@ fn ExecContext::builtin_expand(
       continue
     }
     if arg.has_prefix("-t") && arg.length() > 2 {
-      tab_width = parse_int32_str(arg.substring(start=2))
+      tab_width = parse_int32_str(arg.view(start_offset=2).to_string())
       i += 1
       continue
     }
@@ -323,7 +323,7 @@ fn ExecContext::builtin_unexpand(
       continue
     }
     if arg.has_prefix("-t") && arg.length() > 2 {
-      tab_width = parse_int32_str(arg.substring(start=2))
+      tab_width = parse_int32_str(arg.view(start_offset=2).to_string())
       i += 1
       continue
     }
@@ -334,7 +334,7 @@ fn ExecContext::builtin_unexpand(
           'a' => convert_all = true
           't' => {
             if j + 1 < arg.length() {
-              tab_width = parse_int32_str(arg.substring(start=j + 1))
+              tab_width = parse_int32_str(arg.view(start_offset=j + 1).to_string())
             } else if i + 1 < args.length() {
               i += 1
               tab_width = parse_int32_str(args[i])
@@ -408,7 +408,7 @@ fn ExecContext::builtin_paste(
       continue
     }
     if arg.has_prefix("-d") && arg.length() > 2 {
-      delimiter_spec = arg.substring(start=2)
+      delimiter_spec = arg.view(start_offset=2).to_string()
       i += 1
       continue
     }
@@ -419,7 +419,7 @@ fn ExecContext::builtin_paste(
           's' => serial_mode = true
           'd' => {
             if j + 1 < arg.length() {
-              delimiter_spec = arg.substring(start=j + 1)
+              delimiter_spec = arg.view(start_offset=j + 1).to_string()
             } else if i + 1 < args.length() {
               i += 1
               delimiter_spec = args[i]
@@ -563,7 +563,7 @@ fn ExecContext::builtin_column(
       continue
     }
     if arg.has_prefix("-s") && arg.length() > 2 {
-      separator = Some(arg.substring(start=2))
+      separator = Some(arg.view(start_offset=2).to_string())
       i += 1
       continue
     }
@@ -574,7 +574,7 @@ fn ExecContext::builtin_column(
           't' => table_mode = true
           's' => {
             if j + 1 < arg.length() {
-              separator = Some(arg.substring(start=j + 1))
+              separator = Some(arg.view(start_offset=j + 1).to_string())
             } else if i + 1 < args.length() {
               i += 1
               separator = Some(args[i])
@@ -646,7 +646,7 @@ fn ExecContext::builtin_join(
       continue
     }
     if arg.has_prefix("-1") && arg.length() > 2 {
-      field1 = parse_int32_str(arg.substring(start=2))
+      field1 = parse_int32_str(arg.view(start_offset=2).to_string())
       i += 1
       continue
     }
@@ -656,7 +656,7 @@ fn ExecContext::builtin_join(
       continue
     }
     if arg.has_prefix("-2") && arg.length() > 2 {
-      field2 = parse_int32_str(arg.substring(start=2))
+      field2 = parse_int32_str(arg.view(start_offset=2).to_string())
       i += 1
       continue
     }
@@ -666,7 +666,7 @@ fn ExecContext::builtin_join(
       continue
     }
     if arg.has_prefix("-t") && arg.length() > 2 {
-      delimiter = arg.substring(start=2)
+      delimiter = arg.view(start_offset=2).to_string()
       i += 1
       continue
     }
@@ -681,7 +681,7 @@ fn ExecContext::builtin_join(
       continue
     }
     if arg.has_prefix("-a") && arg.length() > 2 {
-      let side = parse_int32_str(arg.substring(start=2))
+      let side = parse_int32_str(arg.view(start_offset=2).to_string())
       if side == 1 {
         include_unpair_1 = true
       } else if side == 2 {
@@ -699,7 +699,7 @@ fn ExecContext::builtin_join(
       continue
     }
     if arg.has_prefix("-v") && arg.length() > 2 {
-      let side = parse_int32_str(arg.substring(start=2))
+      let side = parse_int32_str(arg.view(start_offset=2).to_string())
       if side == 1 || side == 2 {
         only_unpair_file = Some(side)
       }

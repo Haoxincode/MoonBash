@@ -16,7 +16,7 @@ fn grep_recursive_display_path(
   } else {
     let prefix = resolved_root + "/"
     if full_path.has_prefix(prefix) {
-      suffix = full_path.substring(start=prefix.length())
+      suffix = full_path.view(start_offset=prefix.length()).to_string()
     } else {
       // Fallback for unexpected path shapes.
       return full_path
@@ -66,7 +66,7 @@ fn path_basename(path : String) -> String {
   } else if slash + 1 >= path.length() {
     ""
   } else {
-    path.substring(start=slash + 1)
+    path.view(start_offset=slash + 1).to_string()
   }
 }
 
@@ -152,7 +152,7 @@ fn ExecContext::builtin_grep(
   while i < args.length() {
     let arg = args[i]
     if arg.has_prefix("--include=") {
-      include_globs.push(arg.substring(start=10))
+      include_globs.push(arg.view(start_offset=10).to_string())
     } else if arg == "--include" && i + 1 < args.length() {
       i += 1
       include_globs.push(args[i])
@@ -192,11 +192,11 @@ fn ExecContext::builtin_grep(
       before_context = ctx
       after_context = ctx
     } else if arg.has_prefix("-A") && arg.length() > 2 {
-      after_context = parse_int32_str(arg.substring(start=2))
+      after_context = parse_int32_str(arg.view(start_offset=2).to_string())
     } else if arg.has_prefix("-B") && arg.length() > 2 {
-      before_context = parse_int32_str(arg.substring(start=2))
+      before_context = parse_int32_str(arg.view(start_offset=2).to_string())
     } else if arg.has_prefix("-C") && arg.length() > 2 {
-      let ctx = parse_int32_str(arg.substring(start=2))
+      let ctx = parse_int32_str(arg.view(start_offset=2).to_string())
       before_context = ctx
       after_context = ctx
     } else if arg.length() > 1 && arg[0] == '-' {
@@ -218,7 +218,7 @@ fn ExecContext::builtin_grep(
           'F' => fixed = true
           'A' => {
             if j + 1 < arg.length() {
-              after_context = parse_int32_str(arg.substring(start=j + 1))
+              after_context = parse_int32_str(arg.view(start_offset=j + 1).to_string())
             } else if i + 1 < args.length() {
               i += 1
               after_context = parse_int32_str(args[i])
@@ -227,7 +227,7 @@ fn ExecContext::builtin_grep(
           }
           'B' => {
             if j + 1 < arg.length() {
-              before_context = parse_int32_str(arg.substring(start=j + 1))
+              before_context = parse_int32_str(arg.view(start_offset=j + 1).to_string())
             } else if i + 1 < args.length() {
               i += 1
               before_context = parse_int32_str(args[i])
@@ -236,7 +236,7 @@ fn ExecContext::builtin_grep(
           }
           'C' => {
             let ctx = if j + 1 < arg.length() {
-              parse_int32_str(arg.substring(start=j + 1))
+              parse_int32_str(arg.view(start_offset=j + 1).to_string())
             } else if i + 1 < args.length() {
               i += 1
               parse_int32_str(args[i])

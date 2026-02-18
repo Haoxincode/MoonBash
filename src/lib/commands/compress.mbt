@@ -32,7 +32,7 @@ fn gzip_decode(content : String) -> String {
   if content.length() <= 2 {
     return ""
   }
-  content.substring(start=2)
+  content.view(start_offset=2).to_string()
 }
 
 /// Check whether a filename ends with a given suffix.
@@ -52,7 +52,7 @@ fn str_ends_with(s : String, suffix : String) -> Bool {
 /// Strip a suffix from a string if present, otherwise return the string.
 fn str_strip_suffix(s : String, suffix : String) -> String {
   if str_ends_with(s, suffix) {
-    s.substring(start=0, end=s.length() - suffix.length())
+    s.view(start_offset=0, end_offset=s.length() - suffix.length()).to_string()
   } else {
     s
   }
