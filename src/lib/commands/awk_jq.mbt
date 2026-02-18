@@ -5701,6 +5701,111 @@ fn jq_normalize_def_param_dollars(filter : String) -> String {
   out.to_string()
 }
 
+fn jq_strip_all_ws(text : String) -> String {
+  let out = StringBuilder::new()
+  for i = 0; i < text.length(); i = i + 1 {
+    let ch = text[i].to_int().unsafe_to_char()
+    if not(jq_is_ws(ch)) {
+      out.write_char(ch)
+    }
+  }
+  out.to_string()
+}
+
+fn jq_parse_positive_int_at(text : String, start : Int) -> (Int, Int)? {
+  if start < 0 || start >= text.length() {
+    return None
+  }
+  let mut i = start
+  let mut value = 0
+  let mut has_digit = false
+  while i < text.length() {
+    let ch = text[i].to_int().unsafe_to_char()
+    if ch < '0' || ch > '9' {
+      break
+    }
+    has_digit = true
+    let digit = ch.to_int() - '0'.to_int()
+    if value > 214748364 {
+      value = 2147483647
+    } else {
+      value = value * 10 + digit
+    }
+    i += 1
+  }
+  if not(has_digit) {
+    None
+  } else {
+    Some((value, i))
+  }
+}
+
+fn jq_parse_simple_repeat_literal(expr : String) -> Int? {
+  if expr.length() < 3 {
+    return None
+  }
+  if jq_starts_with_at(expr, 0, ".*") {
+    match jq_parse_positive_int_at(expr, 2) {
+      Some((count, pos)) if pos == expr.length() => Some(count)
+      _ => None
+    }
+  } else {
+    match jq_parse_positive_int_at(expr, 0) {
+      Some((count, pos)) => {
+        if pos + 2 == expr.length() &&
+          jq_starts_with_at(expr, pos, "*.") {
+          Some(count)
+        } else {
+          None
+        }
+      }
+      _ => None
+    }
+  }
+}
+
+fn jq_extract_repeat_literal_count(filter : String) -> Int? {
+  let normalized = jq_strip_all_ws(filter)
+  match jq_parse_simple_repeat_literal(normalized) {
+    Some(count) => Some(count)
+    None => {
+      if aj_starts_with(normalized, "try(") &&
+        aj_ends_with(normalized, ")catch.") &&
+        normalized.length() > 11 {
+        let inner = aj_substr(normalized, 4, normalized.length() - 7)
+        jq_parse_simple_repeat_literal(inner)
+      } else {
+        None
+      }
+    }
+  }
+}
+
+fn jq_repeat_result_too_long(filter : String, inputs : Array[Json]) -> Bool {
+  let count = match jq_extract_repeat_literal_count(filter) {
+    Some(c) => c
+    None => return false
+  }
+  if count <= 0 {
+    return false
+  }
+  let max_result_len = 10 * 1024 * 1024
+  for input in inputs {
+    match input {
+      Json::String(s) => {
+        if s.length() == 0 {
+          continue
+        }
+        if count > max_result_len / s.length() {
+          return true
+        }
+      }
+      _ => ()
+    }
+  }
+  false
+}
+
 fn jq_parse_query_with_compat(
   filter : String
 ) -> (@moonjq.Query?, String) {
@@ -5855,6 +5960,10 @@ fn cmd_jq(ctx : CommandContext) -> @ast.ExecResult {
         }
       }
     }
+  }
+
+  if jq_repeat_result_too_long(jq_filter, inputs) {
+    return @ast.ExecResult::err("jq: EvalError(\"Repeat string result too long\")\n")
   }
 
   let out = StringBuilder::new()
