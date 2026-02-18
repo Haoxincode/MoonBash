@@ -3877,14 +3877,52 @@ fn awk_merge_if_else_statements(statements : Array[String]) -> Array[String] {
   }
 
   fn is_bare_for_header(stmt : String) -> Bool {
-    match awk_parse_for_statement(stmt) {
-      Some((_init_stmt, _cond_expr, _update_stmt, body_stmt)) => aj_trim(body_stmt).length() == 0
-      None =>
-        match awk_parse_for_in_statement(stmt) {
-          Some((_loop_var, _arr_name, body_stmt)) => aj_trim(body_stmt).length() == 0
-          None => false
-        }
+    let text = aj_trim(stmt)
+    if not(aj_starts_with(text, "for")) {
+      return false
     }
+    let mut i = 3
+    while i < text.length() && awk_is_space(text[i].to_int().unsafe_to_char()) {
+      i += 1
+    }
+    if i >= text.length() || text[i].to_int().unsafe_to_char() != '(' {
+      return false
+    }
+    let mut depth = 1
+    let mut j = i + 1
+    let mut quote : Char? = None
+    while j < text.length() {
+      let ch = text[j].to_int().unsafe_to_char()
+      match quote {
+        Some(q) => {
+          if ch == '\\' && j + 1 < text.length() {
+            j += 2
+            continue
+          }
+          if ch == q {
+            quote = None
+          }
+        }
+        None => {
+          if ch == '"' || ch == '\'' {
+            quote = Some(ch)
+          } else if ch == '(' {
+            depth += 1
+          } else if ch == ')' {
+            depth -= 1
+            if depth == 0 {
+              break
+            }
+          }
+        }
+      }
+      j += 1
+    }
+    if j >= text.length() || depth != 0 {
+      return false
+    }
+    let tail = aj_trim(aj_substr(text, j + 1, text.length()))
+    tail.length() == 0
   }
 
   fn statement_has_dangling_control(stmt : String) -> Bool {

@@ -75,8 +75,16 @@ fn ExecContext::run_builtin(
       self.builtin_local(args)
       true
     }
+    "readonly" => {
+      self.builtin_readonly(args)
+      true
+    }
     "declare" | "typeset" => {
       self.builtin_declare(args)
+      true
+    }
+    "getopts" => {
+      self.builtin_getopts(args)
       true
     }
     "let" => {

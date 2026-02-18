@@ -11,7 +11,7 @@ else
   export NODE_OPTIONS="--max-old-space-size=${HEAP_MB}"
 fi
 
-COMMON_ARGS=(run --pool=forks --maxWorkers=1 --fileParallelism=false --silent)
+COMMON_ARGS=(run --no-cache --pool=forks --maxWorkers=1 --fileParallelism=false --silent)
 
 run_batch() {
   local name="$1"

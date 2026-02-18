@@ -228,13 +228,33 @@ fn ExecContext::builtin_printf(
     self.exit_code = 1
     return
   }
-  let format = args[0]
+
+  let mut value_target : String? = None
+  let mut format_idx = 0
+  if args.length() >= 2 && args[0] == "-v" {
+    value_target = Some(args[1])
+    format_idx = 2
+  }
+  if format_idx >= args.length() {
+    self.stderr_buf.write_string("printf: usage: printf format [arguments]\n")
+    self.exit_code = 1
+    return
+  }
+
+  let format = args[format_idx]
   let fmt_args : Array[String] = []
-  for i = 1; i < args.length(); i = i + 1 {
+  for i = format_idx + 1; i < args.length(); i = i + 1 {
     fmt_args.push(args[i])
   }
   let result = format_printf(format, fmt_args)
-  self.stdout_buf.write_string(result)
+  match value_target {
+    Some(name) => {
+      if not(self.store_scalar_assignment(name, result)) {
+        return
+      }
+    }
+    None => self.stdout_buf.write_string(result)
+  }
   self.exit_code = 0
 }
 

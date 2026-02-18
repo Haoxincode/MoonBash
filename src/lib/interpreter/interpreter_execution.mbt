@@ -705,11 +705,26 @@ fn ExecContext::store_scalar_assignment(
   name : String,
   value : String
 ) -> Bool {
-  if value.length() > self.limits.max_string_length {
+  self.store_scalar_assignment_with_options(name, value, true)
+}
+
+fn ExecContext::store_scalar_assignment_with_options(
+  self : ExecContext,
+  name : String,
+  value : String,
+  enforce_readonly : Bool
+) -> Bool {
+  if enforce_readonly && self.is_readonly_variable(name) {
+    self.stderr_buf.write_string("moon_bash: \{name}: readonly variable\n")
+    self.exit_code = 1
+    return false
+  }
+  let final_value = self.apply_variable_attributes(name, value)
+  if final_value.length() > self.limits.max_string_length {
     self.fail_execution_limit("string length limit exceeded")
     return false
   }
-  self.env[name] = value
+  self.env[name] = final_value
   true
 }
 

@@ -10,7 +10,7 @@
 ## Build, Test, and Development Commands
 - `cd src && moon build --target js` - compile MoonBit core to JavaScript.
 - `cd src && moon check --target js` - type-check MoonBit code.
-- `pnpm test:safe` - recommended default; runs Vitest in isolated batches with single worker and bounded heap to avoid OOM.
+- `pnpm test:safe` - recommended default; runs Vitest in isolated batches with single worker, bounded heap, and `--no-cache` to avoid OOM/stale artifacts.
 - `MOONBASH_TEST_HEAP_MB=1536 MOONBASH_TEST_SKIP_FUZZ=1 pnpm test:safe` - low-memory/local quick mode (skip fuzzing suites).
 - `pnpm test` - full Vitest run in one process (faster on high-memory machines, but can OOM locally).
 - `npx vitest run tests/comparison/` - run comparison tests directly.

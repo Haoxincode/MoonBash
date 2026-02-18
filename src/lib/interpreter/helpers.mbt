@@ -5,7 +5,7 @@ fn is_shell_builtin(name : String) -> Bool {
   match name {
     "export" | "unset" | "set" | "shift" | "exit" | "return" | "break"
     | "continue" | "read" | "test" | "[" | "[[" | "printf" | "eval" | "source"
-    | "." | "local" | "declare" | "typeset" | "let" | ":" | "type" | "command" | "basename"
+    | "." | "local" | "readonly" | "declare" | "typeset" | "getopts" | "let" | ":" | "type" | "command" | "basename"
     | "dirname" | "seq" | "rev" | "nl" | "fold" | "expand" | "unexpand" | "paste"
     | "column" | "join" | "tr" | "sort" | "uniq" | "cut" | "tee" | "sed" | "grep"
     | "egrep" | "fgrep" | "rg" | "xargs" | "date" | "env" | "printenv"

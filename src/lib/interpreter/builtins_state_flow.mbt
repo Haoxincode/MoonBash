@@ -49,6 +49,10 @@ fn ExecContext::builtin_unset(self : ExecContext, args : Array[String]) -> Unit 
     }
     self.env.remove(arg)
     self.env.remove("__MOON_BASH_NAMEREF__" + arg)
+    self.env.remove(readonly_storage_key(arg))
+    self.env.remove(integer_attr_storage_key(arg))
+    self.env.remove(lower_attr_storage_key(arg))
+    self.env.remove(upper_attr_storage_key(arg))
     self.exported.remove(arg)
   }
   self.exit_code = 0
@@ -393,6 +397,11 @@ fn ExecContext::builtin_declare(
   let mut nameref = false
   let mut print_mode = false
   let mut function_mode = false
+  let mut readonly_mode = false
+  let mut integer_mode = false
+  let mut lowercase_mode = false
+  let mut uppercase_mode = false
+  let mut export_mode = false
   let filtered : Array[String] = []
   for arg in args {
     if arg.length() > 0 && arg[0] == '-' {
@@ -404,6 +413,21 @@ fn ExecContext::builtin_declare(
       }
       if declare_flag_contains(arg, 'f') {
         function_mode = true
+      }
+      if declare_flag_contains(arg, 'r') {
+        readonly_mode = true
+      }
+      if declare_flag_contains(arg, 'i') {
+        integer_mode = true
+      }
+      if declare_flag_contains(arg, 'l') {
+        lowercase_mode = true
+      }
+      if declare_flag_contains(arg, 'u') {
+        uppercase_mode = true
+      }
+      if declare_flag_contains(arg, 'x') {
+        export_mode = true
       }
       continue
     }
@@ -451,31 +475,81 @@ fn ExecContext::builtin_declare(
 
   if nameref {
     for spec in filtered {
-      let mut eq_pos = -1
-      for i = 0; i < spec.length(); i = i + 1 {
-        if spec[i] == '=' {
-          eq_pos = i
-          break
+      match parse_name_value_spec(spec) {
+        Some((name, Some(target))) => {
+          self.capture_local_binding(name)
+          self.env[name] = target
+          self.env["__MOON_BASH_NAMEREF__" + name] = target
         }
-      }
-      if eq_pos > 0 {
-        let name = spec.substring(start=0, end=eq_pos)
-        let target = spec.substring(start=eq_pos + 1)
-        self.capture_local_binding(name)
-        self.env[name] = target
-        self.env["__MOON_BASH_NAMEREF__" + name] = target
-      } else {
-        self.capture_local_binding(spec)
-        if not(self.env.contains(spec)) {
-          self.env[spec] = ""
+        Some((name, None)) => {
+          self.capture_local_binding(name)
+          if not(self.env.contains(name)) {
+            self.env[name] = ""
+          }
         }
+        None => ()
       }
     }
     self.exit_code = 0
     return
   }
 
-  self.builtin_local(filtered)
+  if filtered.length() == 0 {
+    self.exit_code = 0
+    return
+  }
+
+  if not(
+    readonly_mode || integer_mode || lowercase_mode || uppercase_mode || export_mode
+  ) {
+    self.builtin_local(filtered)
+    return
+  }
+
+  let mut failed = false
+  for spec in filtered {
+    match parse_name_value_spec(spec) {
+      Some((name, assigned_value)) => {
+        self.capture_local_binding(name)
+        if readonly_mode {
+          self.set_readonly_variable(name, true)
+        }
+        if integer_mode {
+          self.set_integer_attribute(name, true)
+        }
+        if lowercase_mode {
+          self.set_lower_attribute(name, true)
+        }
+        if uppercase_mode {
+          self.set_upper_attribute(name, true)
+        }
+        if lowercase_mode && uppercase_mode {
+          self.set_lower_attribute(name, false)
+        }
+        if export_mode {
+          self.exported[name] = true
+        }
+        match assigned_value {
+          Some(value) => {
+            if not(self.store_scalar_assignment_with_options(name, value, false)) {
+              failed = true
+              break
+            }
+          }
+          None => {
+            if not(self.env.contains(name)) {
+              if not(self.store_scalar_assignment_with_options(name, "", false)) {
+                failed = true
+                break
+              }
+            }
+          }
+        }
+      }
+      None => ()
+    }
+  }
+  self.exit_code = if failed { 1 } else { 0 }
 }
 
 fn declare_flag_contains(flag : String, needle : Char) -> Bool {
@@ -488,4 +562,245 @@ fn declare_flag_contains(flag : String, needle : Char) -> Bool {
     }
   }
   false
+}
+
+fn ExecContext::builtin_readonly(
+  self : ExecContext,
+  args : Array[String]
+) -> Unit {
+  let declare_args : Array[String] = ["-r"]
+  for arg in args {
+    declare_args.push(arg)
+  }
+  self.builtin_declare(declare_args)
+}
+
+fn ExecContext::builtin_getopts(
+  self : ExecContext,
+  args : Array[String]
+) -> Unit {
+  if args.length() < 2 {
+    self.exit_code = 1
+    return
+  }
+
+  let opt_spec = args[0]
+  let target_name = args[1]
+  let parse_args : Array[String] = []
+  if args.length() > 2 {
+    for i = 2; i < args.length(); i = i + 1 {
+      parse_args.push(args[i])
+    }
+  } else {
+    let argc = parse_int32_str(self.env.get("#").unwrap_or("0"))
+    for i = 1; i <= argc; i = i + 1 {
+      parse_args.push(self.env.get(i.to_string()).unwrap_or(""))
+    }
+  }
+
+  let mut optind = parse_int32_str(self.env.get("OPTIND").unwrap_or("1"))
+  if optind < 1 {
+    optind = 1
+  }
+  if optind > parse_args.length() {
+    self.exit_code = 1
+    return
+  }
+
+  let current = parse_args[optind - 1]
+  if current == "--" {
+    self.env["OPTIND"] = (optind + 1).to_string()
+    self.exit_code = 1
+    return
+  }
+  if current.length() < 2 || current[0].to_int().unsafe_to_char() != '-' {
+    self.exit_code = 1
+    return
+  }
+
+  let option_char = current[1].to_int().unsafe_to_char()
+  if option_char == '-' {
+    self.exit_code = 1
+    return
+  }
+  let option_name = getopts_char_string(option_char)
+  let opt_idx = getopts_find_option(opt_spec, option_char)
+  if opt_idx < 0 {
+    if not(self.store_scalar_assignment(target_name, "?")) {
+      return
+    }
+    if not(self.store_scalar_assignment("OPTARG", option_name)) {
+      return
+    }
+    self.env["OPTIND"] = (optind + 1).to_string()
+    self.exit_code = 0
+    return
+  }
+
+  let expects_arg = getopts_option_takes_argument(opt_spec, opt_idx)
+  if expects_arg {
+    let inline = if current.length() > 2 { current.substring(start=2) } else { "" }
+    let optarg = if inline.length() > 0 {
+      inline
+    } else if optind < parse_args.length() {
+      parse_args[optind]
+    } else {
+      if not(self.store_scalar_assignment(target_name, "?")) {
+        return
+      }
+      self.env["OPTIND"] = (optind + 1).to_string()
+      self.exit_code = 0
+      return
+    }
+    if not(self.store_scalar_assignment(target_name, option_name)) {
+      return
+    }
+    if not(self.store_scalar_assignment("OPTARG", optarg)) {
+      return
+    }
+    self.env["OPTIND"] = if inline.length() > 0 {
+      (optind + 1).to_string()
+    } else {
+      (optind + 2).to_string()
+    }
+    self.exit_code = 0
+    return
+  }
+
+  if not(self.store_scalar_assignment(target_name, option_name)) {
+    return
+  }
+  self.env.remove("OPTARG")
+  self.env["OPTIND"] = (optind + 1).to_string()
+  self.exit_code = 0
+}
+
+fn parse_name_value_spec(spec : String) -> (String, String?)? {
+  if spec.length() == 0 {
+    return None
+  }
+  let mut eq_pos = -1
+  for i = 0; i < spec.length(); i = i + 1 {
+    if spec[i] == '=' {
+      eq_pos = i
+      break
+    }
+  }
+  if eq_pos > 0 {
+    let name = spec.substring(start=0, end=eq_pos)
+    let value = spec.substring(start=eq_pos + 1)
+    if name.length() == 0 {
+      return None
+    }
+    return Some((name, Some(value)))
+  }
+  Some((spec, None))
+}
+
+fn getopts_char_string(ch : Char) -> String {
+  let buf = StringBuilder::new()
+  buf.write_char(ch)
+  buf.to_string()
+}
+
+fn getopts_find_option(spec : String, ch : Char) -> Int {
+  for i = 0; i < spec.length(); i = i + 1 {
+    if spec[i].to_int().unsafe_to_char() == ch {
+      return i
+    }
+  }
+  -1
+}
+
+fn getopts_option_takes_argument(spec : String, opt_idx : Int) -> Bool {
+  if opt_idx < 0 || opt_idx + 1 >= spec.length() {
+    return false
+  }
+  spec[opt_idx + 1].to_int().unsafe_to_char() == ':'
+}
+
+fn readonly_storage_key(name : String) -> String {
+  "__MOON_BASH_READONLY__" + name
+}
+
+fn integer_attr_storage_key(name : String) -> String {
+  "__MOON_BASH_ATTR_INTEGER__" + name
+}
+
+fn lower_attr_storage_key(name : String) -> String {
+  "__MOON_BASH_ATTR_LOWER__" + name
+}
+
+fn upper_attr_storage_key(name : String) -> String {
+  "__MOON_BASH_ATTR_UPPER__" + name
+}
+
+fn ExecContext::set_readonly_variable(
+  self : ExecContext,
+  name : String,
+  enabled : Bool
+) -> Unit {
+  if enabled {
+    self.env[readonly_storage_key(name)] = "1"
+  } else {
+    self.env.remove(readonly_storage_key(name))
+  }
+}
+
+fn ExecContext::set_integer_attribute(
+  self : ExecContext,
+  name : String,
+  enabled : Bool
+) -> Unit {
+  if enabled {
+    self.env[integer_attr_storage_key(name)] = "1"
+  } else {
+    self.env.remove(integer_attr_storage_key(name))
+  }
+}
+
+fn ExecContext::set_lower_attribute(
+  self : ExecContext,
+  name : String,
+  enabled : Bool
+) -> Unit {
+  if enabled {
+    self.env[lower_attr_storage_key(name)] = "1"
+  } else {
+    self.env.remove(lower_attr_storage_key(name))
+  }
+}
+
+fn ExecContext::set_upper_attribute(
+  self : ExecContext,
+  name : String,
+  enabled : Bool
+) -> Unit {
+  if enabled {
+    self.env[upper_attr_storage_key(name)] = "1"
+  } else {
+    self.env.remove(upper_attr_storage_key(name))
+  }
+}
+
+fn ExecContext::is_readonly_variable(self : ExecContext, name : String) -> Bool {
+  self.env.get(readonly_storage_key(name)).unwrap_or("") == "1"
+}
+
+fn ExecContext::apply_variable_attributes(
+  self : ExecContext,
+  name : String,
+  value : String
+) -> String {
+  let mut output = value
+  if self.env.get(integer_attr_storage_key(name)).unwrap_or("") == "1" {
+    output = self.eval_arith_raw(value).to_string()
+  }
+  if self.env.get(lower_attr_storage_key(name)).unwrap_or("") == "1" {
+    output = to_lower(output)
+  }
+  if self.env.get(upper_attr_storage_key(name)).unwrap_or("") == "1" {
+    output = to_upper(output)
+  }
+  output
 }
