@@ -378,7 +378,6 @@ fn awk_execute_function_statements(
           }
         }
       }
-      Simple(_raw_stmt) => ()
     }
   }
 }

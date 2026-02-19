@@ -1,7 +1,6 @@
 // moon_bash Commands - awk statement AST parsing
 
 priv enum AwkStmt {
-  Simple(String)
   If(AwkExprAst, Array[AwkStmt], Array[AwkStmt]?)
   For(Array[AwkStmt], AwkExprAst?, Array[AwkStmt], Array[AwkStmt])
   ForIn(String, String, Array[AwkStmt])
@@ -20,45 +19,6 @@ priv enum AwkStmt {
   CompoundAssignStmt(String, String, AwkExprAst)
   ExprStmt(AwkExprAst)
 } derive(Show)
-
-fn awk_stmt_ast_supports_expr(stmt : String) -> Bool {
-  let t = aj_trim(stmt)
-  if t.length() == 0 {
-    return false
-  }
-
-  if (aj_starts_with(t, "system(") || aj_starts_with(t, "gsub(") ||
-    aj_starts_with(t, "sub(")) &&
-    aj_ends_with(t, ")") {
-    return false
-  }
-
-  if awk_find_top_level_token(t, "+=") > 0 ||
-    awk_find_top_level_token(t, "-=") > 0 ||
-    awk_find_top_level_token(t, "*=") > 0 ||
-    awk_find_top_level_token(t, "/=") > 0 {
-    return false
-  }
-
-  let eq_idx = awk_find_top_level_token(t, "=")
-  if eq_idx > 0 {
-    let prev = t[eq_idx - 1].to_int().unsafe_to_char()
-    let next = if eq_idx + 1 < t.length() {
-      Some(t[eq_idx + 1].to_int().unsafe_to_char())
-    } else {
-      None
-    }
-    if prev != '!' && prev != '<' && prev != '>' && prev != '=' &&
-      next != Some('=') {
-      let lhs = aj_trim(aj_substr(t, 0, eq_idx))
-      if aj_starts_with(lhs, "$") {
-        return false
-      }
-    }
-  }
-
-  true
-}
 
 fn awk_stmt_assignment_target_valid(lhs : String) -> Bool {
   let t = aj_trim(lhs)
@@ -161,7 +121,7 @@ fn awk_parse_field_assign_stmt(text : String) -> (String, AwkExprAst)? {
 fn awk_parse_statement_ast(stmt : String) -> AwkStmt {
   let text = aj_trim(stmt)
   if text.length() == 0 {
-    return Simple("")
+    return ExprStmt(Raw(""))
   }
 
   if text == "next" {
@@ -272,13 +232,7 @@ fn awk_parse_statement_ast(stmt : String) -> AwkStmt {
         None => If(cond_ast, then_ast, None)
       }
     }
-    None => {
-      if awk_stmt_ast_supports_expr(text) {
-        ExprStmt(awk_parse_expr_ast(text))
-      } else {
-        Simple(text)
-      }
-    }
+    None => ExprStmt(awk_parse_expr_ast(text))
   }
 }
 
@@ -286,15 +240,11 @@ fn awk_parse_action_ast(action : String) -> Array[AwkStmt] {
   let merged = awk_merge_if_else_statements(awk_split_statements(action))
   let out : Array[AwkStmt] = []
   for stmt_raw in merged {
-    let stmt = awk_parse_statement_ast(stmt_raw)
-    match stmt {
-      Simple(text) => {
-        if aj_trim(text).length() > 0 {
-          out.push(stmt)
-        }
-      }
-      _ => out.push(stmt)
+    if aj_trim(stmt_raw).length() == 0 {
+      continue
     }
+    let stmt = awk_parse_statement_ast(stmt_raw)
+    out.push(stmt)
   }
   out
 }

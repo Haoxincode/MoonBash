@@ -856,7 +856,6 @@ fn awk_execute_action_ast_list(
           }
         }
       }
-      Simple(_raw_stmt) => ()
     }
   }
 
