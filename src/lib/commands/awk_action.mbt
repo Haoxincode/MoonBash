@@ -397,32 +397,6 @@ fn awk_execute_action_legacy(
       continue
     }
 
-    let parsed_stmt = awk_parse_statement_ast(stmt)
-    match parsed_stmt {
-      Simple(_) => ()
-      _ => {
-        let (next_line, next_fields, consumed_stmt, new_nr) = awk_execute_action_ast_list(
-          ctx,
-          [parsed_stmt],
-          lines,
-          line_idx + consumed,
-          current_line,
-          current_fields,
-          current_nr,
-          fs,
-          filename,
-          vars,
-          array_vars,
-          out,
-        )
-        current_line = next_line
-        current_fields = next_fields
-        consumed += consumed_stmt
-        current_nr = new_nr
-        continue
-      }
-    }
-
     if stmt == "next" {
       vars[awk_ctrl_next_key] = "1"
       break

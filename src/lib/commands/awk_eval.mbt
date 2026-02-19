@@ -291,15 +291,6 @@ fn awk_execute_function_body_legacy(
       continue
     }
 
-    let parsed_stmt = awk_parse_statement_ast(stmt)
-    match parsed_stmt {
-      Simple(_) => ()
-      _ => {
-        awk_execute_function_statements([parsed_stmt], line, fields, nr, vars, array_vars, out)
-        continue
-      }
-    }
-
     if stmt == "return" || aj_starts_with(stmt, "return ") || aj_starts_with(stmt, "return(") {
       let expr = if stmt.length() > 6 { aj_trim(aj_substr(stmt, 6, stmt.length())) } else { "" }
       let value = if expr.length() == 0 {
