@@ -183,6 +183,55 @@ fn awk_sync_fields_from_record_for_function(
   vars["NF"] = fields.length().to_string()
 }
 
+fn awk_apply_getline_target_for_function(
+  target : AwkGetlineTarget,
+  line_value : String,
+  line : String,
+  fields : Array[String],
+  nr : Int,
+  vars : Map[String, String],
+  array_vars : Map[String, String]
+) -> Unit {
+  match target {
+    Var(name) => vars[name] = line_value
+    Record => awk_sync_fields_from_record_for_function(line_value, fields, vars)
+    Field(key_ast) => {
+      let key_value = awk_eval_expr_ast(
+        key_ast,
+        line,
+        fields,
+        nr,
+        fields.length(),
+        vars,
+        array_vars,
+      )
+      let field_idx = awk_parse_number(key_value).to_int()
+      if field_idx == 0 {
+        awk_sync_fields_from_record_for_function(line_value, fields, vars)
+      } else if field_idx > 0 {
+        while fields.length() < field_idx {
+          fields.push("")
+        }
+        fields[field_idx - 1] = line_value
+        vars["NF"] = fields.length().to_string()
+      }
+    }
+    ArrayElem(arr_name, idx_ast) => {
+      let idx = awk_eval_expr_ast(
+        idx_ast,
+        line,
+        fields,
+        nr,
+        fields.length(),
+        vars,
+        array_vars,
+      )
+      array_vars[awk_array_key(arr_name, idx)] = line_value
+    }
+    Raw(_) => ()
+  }
+}
+
 fn awk_execute_function_statements(
   statements : Array[AwkStmt],
   line : String,
@@ -235,11 +284,15 @@ fn awk_execute_function_statements(
           array_vars,
         )
         let line_from_cmd = awk_eval_getline_command_line(command)
-        match target {
-          Var(name) => vars[name] = line_from_cmd
-          Record => awk_sync_fields_from_record_for_function(line_from_cmd, fields, vars)
-          _ => ()
-        }
+        awk_apply_getline_target_for_function(
+          target,
+          line_from_cmd,
+          line,
+          fields,
+          nr,
+          vars,
+          array_vars,
+        )
       }
       Getline(target, path_ast) => {
         match path_ast {
@@ -250,11 +303,15 @@ fn awk_execute_function_statements(
             break
           }
           None => {
-            match target {
-              Var(name) => vars[name] = line
-              Record => awk_sync_fields_from_record_for_function(line, fields, vars)
-              Raw(_) => awk_sync_fields_from_record_for_function(line, fields, vars)
-            }
+            awk_apply_getline_target_for_function(
+              target,
+              line,
+              line,
+              fields,
+              nr,
+              vars,
+              array_vars,
+            )
           }
         }
       }

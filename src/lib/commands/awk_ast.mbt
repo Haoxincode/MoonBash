@@ -3,6 +3,8 @@
 priv enum AwkGetlineTarget {
   Record
   Var(String)
+  Field(AwkExprAst)
+  ArrayElem(String, AwkExprAst)
   Raw(String)
 } derive(Show)
 
@@ -12,8 +14,13 @@ fn awk_parse_getline_target(target : String) -> AwkGetlineTarget {
     Record
   } else if awk_is_identifier(t) {
     Var(t)
+  } else if aj_starts_with(t, "$") && t.length() > 1 {
+    Field(awk_parse_expr_ast(aj_substr(t, 1, t.length())))
   } else {
-    Raw(t)
+    match awk_parse_array_ref(t) {
+      Some((arr_name, idx_expr)) => ArrayElem(arr_name, awk_parse_expr_ast(idx_expr))
+      None => Raw(t)
+    }
   }
 }
 

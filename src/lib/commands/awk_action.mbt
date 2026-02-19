@@ -109,14 +109,55 @@ fn awk_apply_getline_target(
   line_value : String,
   fs : String,
   vars : Map[String, String],
+  array_vars : Map[String, String],
   current_line : String,
   current_fields : Array[String],
+  current_nr : Int,
   raw_sets_record : Bool
 ) -> (String, Array[String]) {
   match target {
     Record => awk_assign_getline_record(line_value, fs, vars, current_line, current_fields)
     Var(name) => {
       vars[name] = line_value
+      (current_line, current_fields)
+    }
+    Field(key_ast) => {
+      let key_value = awk_eval_expr_ast(
+        key_ast,
+        current_line,
+        current_fields,
+        current_nr,
+        current_fields.length(),
+        vars,
+        array_vars,
+      )
+      let field_idx = awk_parse_number(key_value).to_int()
+      if field_idx == 0 {
+        awk_assign_getline_record(line_value, fs, vars, current_line, current_fields)
+      } else if field_idx > 0 {
+        while current_fields.length() < field_idx {
+          current_fields.push("")
+        }
+        current_fields[field_idx - 1] = line_value
+        let ofs = vars.get("OFS").unwrap_or(" ")
+        let next_line = awk_join_fields(current_fields, ofs)
+        vars["NF"] = current_fields.length().to_string()
+        (next_line, current_fields)
+      } else {
+        (current_line, current_fields)
+      }
+    }
+    ArrayElem(arr_name, idx_ast) => {
+      let idx = awk_eval_expr_ast(
+        idx_ast,
+        current_line,
+        current_fields,
+        current_nr,
+        current_fields.length(),
+        vars,
+        array_vars,
+      )
+      array_vars[awk_array_key(arr_name, idx)] = line_value
       (current_line, current_fields)
     }
     Raw(_) => {
@@ -236,8 +277,10 @@ fn awk_execute_action_ast_list(
           line_from_cmd,
           fs,
           vars,
+          array_vars,
           current_line,
           current_fields,
+          current_nr,
           false,
         )
         current_line = next_line
@@ -272,8 +315,10 @@ fn awk_execute_action_ast_list(
                 first_line,
                 fs,
                 vars,
+                array_vars,
                 current_line,
                 current_fields,
+                current_nr,
                 false,
               )
               current_line = next_line
@@ -306,8 +351,10 @@ fn awk_execute_action_ast_list(
             next_line,
             fs,
             vars,
+            array_vars,
             current_line,
             current_fields,
+            current_nr,
             true,
           )
           current_line = next_line_value
@@ -820,8 +867,10 @@ fn awk_execute_action_ast_list(
                   next_line,
                   fs,
                   vars,
+                  array_vars,
                   current_line,
                   current_fields,
+                  current_nr,
                   true,
                 )
                 current_line = next_line_value
@@ -899,8 +948,10 @@ fn awk_execute_action_ast_list(
                 next_line,
                 fs,
                 vars,
+                array_vars,
                 current_line,
                 current_fields,
+                current_nr,
                 true,
               )
               current_line = next_line_value
