@@ -416,6 +416,32 @@ fn awk_eval_call_expr_ast(
   }
 }
 
+fn awk_eval_raw_expr_ast(
+  text : String,
+  line : String,
+  fields : Array[String],
+  nr : Int,
+  nf : Int,
+  vars : Map[String, String],
+  array_vars : Map[String, String]
+) -> String {
+  let t = awk_strip_outer_parens(aj_trim(text))
+  if t.length() == 0 {
+    return ""
+  }
+  if (aj_starts_with(t, "\"") && aj_ends_with(t, "\"")) ||
+    (aj_starts_with(t, "'") && aj_ends_with(t, "'")) {
+    return awk_eval_atom(t, line, fields, nr, nf, vars, array_vars)
+  }
+  if awk_is_numeric_string(t) || awk_is_identifier(t) || aj_starts_with(t, "$") {
+    return awk_eval_atom(t, line, fields, nr, nf, vars, array_vars)
+  }
+  match awk_parse_array_ref(t) {
+    Some(_) => awk_eval_atom(t, line, fields, nr, nf, vars, array_vars)
+    None => awk_eval_expr_legacy(t, line, fields, nr, nf, vars, array_vars)
+  }
+}
+
 fn awk_eval_expr_ast(
   ast : AwkExprAst,
   line : String,
@@ -426,7 +452,7 @@ fn awk_eval_expr_ast(
   array_vars : Map[String, String]
 ) -> String {
   match ast {
-    Raw(text) => awk_eval_expr_legacy(text, line, fields, nr, nf, vars, array_vars)
+    Raw(text) => awk_eval_raw_expr_ast(text, line, fields, nr, nf, vars, array_vars)
     Call(call_name, args) =>
       awk_eval_call_expr_ast(call_name, args, line, fields, nr, nf, vars, array_vars)
     Mutate(target, delta, return_new) => {
