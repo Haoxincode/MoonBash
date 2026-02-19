@@ -208,7 +208,7 @@ fn awk_execute_function_statements(
           }
         }
       }
-      For(init_stmts, cond_expr, update_stmts, body_stmts) => {
+      For(init_stmts, cond_ast, update_stmts, body_stmts) => {
         if init_stmts.length() > 0 {
           awk_execute_function_statements(init_stmts, line, fields, nr, vars, array_vars, out)
         }
@@ -217,19 +217,23 @@ fn awk_execute_function_statements(
           if vars.contains(awk_ctrl_exit_key) || vars.contains(awk_ctrl_return_key) {
             break
           }
-          if cond_expr.length() > 0 &&
-            not(
-              awk_eval_condition(
-                cond_expr,
-                line,
-                fields,
-                nr,
-                fields.length(),
-                vars,
-                array_vars,
-              ),
-            ) {
-            break
+          match cond_ast {
+            Some(cond_expr_ast) => {
+              if not(
+                awk_eval_condition_ast(
+                  cond_expr_ast,
+                  line,
+                  fields,
+                  nr,
+                  fields.length(),
+                  vars,
+                  array_vars,
+                ),
+              ) {
+                break
+              }
+            }
+            None => ()
           }
           if body_stmts.length() > 0 {
             awk_execute_function_statements(body_stmts, line, fields, nr, vars, array_vars, out)
@@ -246,9 +250,9 @@ fn awk_execute_function_statements(
           }
         }
       }
-      If(cond_expr, then_stmts, else_stmts) => {
-        if awk_eval_condition(
-          cond_expr,
+      If(cond_ast, then_stmts, else_stmts) => {
+        if awk_eval_condition_ast(
+          cond_ast,
           line,
           fields,
           nr,

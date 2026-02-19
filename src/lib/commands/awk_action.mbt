@@ -39,6 +39,68 @@ fn awk_execute_action(
   )
 }
 
+fn awk_is_zero_literal_expr_ast(expr_ast : AwkExprAst) -> Bool {
+  match expr_ast {
+    Raw(text) => {
+      let t = aj_trim(text)
+      t.length() > 0 && awk_is_numeric_string(t) && awk_parse_number(t) == 0.0
+    }
+    _ => false
+  }
+}
+
+fn awk_stringify_simple_expr_ast(expr_ast : AwkExprAst) -> String? {
+  match expr_ast {
+    Raw(text) => Some(aj_trim(text))
+    Concat(parts) => {
+      let out = StringBuilder::new()
+      let mut wrote = false
+      for part in parts {
+        match part {
+          Raw(text) => {
+            let token = aj_trim(text)
+            if token.length() == 0 {
+              continue
+            }
+            if wrote {
+              out.write_char(' ')
+            }
+            out.write_string(token)
+            wrote = true
+          }
+          _ => return None
+        }
+      }
+      Some(out.to_string())
+    }
+    _ => None
+  }
+}
+
+fn awk_getline_target_from_condition_ast(cond_ast : AwkExprAst) -> String? {
+  match cond_ast {
+    Binary(op, left, right) => {
+      if op != ">" || not(awk_is_zero_literal_expr_ast(right)) {
+        return None
+      }
+      match awk_stringify_simple_expr_ast(left) {
+        Some(left_text) => {
+          let expr = awk_strip_outer_parens(aj_trim(left_text))
+          if expr == "getline" {
+            Some("")
+          } else if aj_starts_with(expr, "getline ") {
+            Some(aj_trim(aj_substr(expr, 7, expr.length())))
+          } else {
+            None
+          }
+        }
+        None => None
+      }
+    }
+    _ => None
+  }
+}
+
 fn awk_execute_action_ast_list(
   ctx : CommandContext,
   statements : Array[AwkStmt],
@@ -102,7 +164,7 @@ fn awk_execute_action_ast_list(
           }
         }
       }
-      For(init_stmts, cond_expr, update_stmts, body_stmts) => {
+      For(init_stmts, cond_ast, update_stmts, body_stmts) => {
         if init_stmts.length() > 0 {
           let (next_line, next_fields, consumed_init, new_nr) = awk_execute_action_ast_list(
             ctx,
@@ -131,19 +193,23 @@ fn awk_execute_action_ast_list(
             vars.contains(awk_ctrl_return_key) {
             break
           }
-          if cond_expr.length() > 0 &&
-            not(
-              awk_eval_condition(
-                cond_expr,
-                current_line,
-                current_fields,
-                current_nr,
-                current_fields.length(),
-                vars,
-                array_vars,
-              ),
-            ) {
-            break
+          match cond_ast {
+            Some(cond_expr_ast) => {
+              if not(
+                awk_eval_condition_ast(
+                  cond_expr_ast,
+                  current_line,
+                  current_fields,
+                  current_nr,
+                  current_fields.length(),
+                  vars,
+                  array_vars,
+                ),
+              ) {
+                break
+              }
+            }
+            None => ()
           }
 
           if body_stmts.length() > 0 {
@@ -200,21 +266,12 @@ fn awk_execute_action_ast_list(
           }
         }
       }
-      If(cond_expr, then_stmts, else_stmts) => {
+      If(cond_ast, then_stmts, else_stmts) => {
         let mut cond_passed = false
-        let cond_text = awk_strip_outer_parens(cond_expr)
-        let gt_idx = awk_find_top_level_token(cond_text, ">")
         let mut handled_getline = false
-        if gt_idx > 0 {
-          let left_expr = awk_strip_outer_parens(aj_trim(aj_substr(cond_text, 0, gt_idx)))
-          let right_expr = aj_trim(aj_substr(cond_text, gt_idx + 1, cond_text.length()))
-          if right_expr == "0" && (left_expr == "getline" || aj_starts_with(left_expr, "getline ")) {
+        match awk_getline_target_from_condition_ast(cond_ast) {
+          Some(target) => {
             handled_getline = true
-            let target = if left_expr.length() > 7 {
-              aj_trim(aj_substr(left_expr, 7, left_expr.length()))
-            } else {
-              ""
-            }
             let next_idx = line_idx + consumed + 1
             if next_idx >= 0 && next_idx < lines.length() {
               let next_line = lines[next_idx]
@@ -235,10 +292,11 @@ fn awk_execute_action_ast_list(
               cond_passed = false
             }
           }
+          None => ()
         }
         if not(handled_getline) {
-          cond_passed = awk_eval_condition(
-            cond_expr,
+          cond_passed = awk_eval_condition_ast(
+            cond_ast,
             current_line,
             current_fields,
             current_nr,

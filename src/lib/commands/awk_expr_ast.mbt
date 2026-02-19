@@ -2,11 +2,11 @@
 
 priv enum AwkExprAst {
   Raw(String)
-  Call(String, Array[String])
+  Call(String, Array[AwkExprAst], Array[String])
   Mutate(String, Double, Bool)
   UnaryNot(AwkExprAst)
   Concat(Array[AwkExprAst])
-  Ternary(String, AwkExprAst, AwkExprAst)
+  Ternary(AwkExprAst, AwkExprAst, AwkExprAst)
   Assign(String, AwkExprAst)
   In(AwkExprAst, String)
   Binary(String, AwkExprAst, AwkExprAst)
@@ -42,7 +42,13 @@ fn awk_parse_expr_ast(expr : String) -> AwkExprAst {
   }
 
   match awk_parse_call_expr(t) {
-    Some((name, args)) => return Call(name, args)
+    Some((name, raw_args)) => {
+      let args_ast : Array[AwkExprAst] = []
+      for i = 0; i < raw_args.length(); i = i + 1 {
+        args_ast.push(awk_parse_expr_ast(raw_args[i]))
+      }
+      return Call(name, args_ast, raw_args)
+    }
     None => ()
   }
 
@@ -90,7 +96,7 @@ fn awk_parse_expr_ast(expr : String) -> AwkExprAst {
       let true_expr = aj_substr(t, question_idx + 1, colon_idx)
       let false_expr = aj_substr(t, colon_idx + 1, t.length())
       return Ternary(
-        cond_expr,
+        awk_parse_expr_ast(cond_expr),
         awk_parse_expr_ast(true_expr),
         awk_parse_expr_ast(false_expr),
       )
@@ -237,7 +243,8 @@ fn awk_parse_expr_ast(expr : String) -> AwkExprAst {
 
 fn awk_eval_call_expr_ast(
   call_name : String,
-  args : Array[String],
+  args_ast : Array[AwkExprAst],
+  args_raw : Array[String],
   line : String,
   fields : Array[String],
   nr : Int,
@@ -245,12 +252,21 @@ fn awk_eval_call_expr_ast(
   vars : Map[String, String],
   array_vars : Map[String, String]
 ) -> String {
+  let eval_arg = fn(idx : Int) {
+    if idx >= 0 && idx < args_ast.length() {
+      awk_eval_expr_ast(args_ast[idx], line, fields, nr, nf, vars, array_vars)
+    } else {
+      ""
+    }
+  }
+  let eval_arg_number = fn(idx : Int) { awk_parse_number(eval_arg(idx)) }
+
   if call_name == "index" {
-    if args.length() < 2 {
+    if args_ast.length() < 2 {
       return "0"
     }
-    let haystack = awk_eval_expr(args[0], line, fields, nr, nf, vars, array_vars)
-    let needle = awk_eval_expr(args[1], line, fields, nr, nf, vars, array_vars)
+    let haystack = eval_arg(0)
+    let needle = eval_arg(1)
     if needle.length() == 0 {
       return "1"
     }
@@ -259,18 +275,18 @@ fn awk_eval_call_expr_ast(
   }
 
   if call_name == "substr" {
-    if args.length() < 2 {
+    if args_ast.length() < 2 {
       return ""
     }
-    let text = awk_eval_expr(args[0], line, fields, nr, nf, vars, array_vars)
-    let raw_start = awk_eval_number(args[1], line, fields, nr, nf, vars, array_vars).to_int()
+    let text = eval_arg(0)
+    let raw_start = eval_arg_number(1).to_int()
     let start_pos = if raw_start <= 1 { 1 } else { raw_start }
     let start_idx = start_pos - 1
     if start_idx >= text.length() {
       return ""
     }
-    if args.length() >= 3 {
-      let len = awk_eval_number(args[2], line, fields, nr, nf, vars, array_vars).to_int()
+    if args_ast.length() >= 3 {
+      let len = eval_arg_number(2).to_int()
       if len <= 0 {
         return ""
       }
@@ -280,17 +296,17 @@ fn awk_eval_call_expr_ast(
   }
 
   if call_name == "tolower" {
-    if args.length() == 0 {
+    if args_ast.length() == 0 {
       return ""
     }
-    return awk_to_lower(awk_eval_expr(args[0], line, fields, nr, nf, vars, array_vars))
+    return awk_to_lower(eval_arg(0))
   }
 
   if call_name == "toupper" {
-    if args.length() == 0 {
+    if args_ast.length() == 0 {
       return ""
     }
-    return awk_to_upper(awk_eval_expr(args[0], line, fields, nr, nf, vars, array_vars))
+    return awk_to_upper(eval_arg(0))
   }
 
   if call_name == "close" {
@@ -298,8 +314,8 @@ fn awk_eval_call_expr_ast(
   }
 
   if call_name == "sin" {
-    let value = if args.length() > 0 {
-      awk_eval_number(args[0], line, fields, nr, nf, vars, array_vars)
+    let value = if args_ast.length() > 0 {
+      eval_arg_number(0)
     } else {
       0.0
     }
@@ -307,8 +323,8 @@ fn awk_eval_call_expr_ast(
   }
 
   if call_name == "cos" {
-    let value = if args.length() > 0 {
-      awk_eval_number(args[0], line, fields, nr, nf, vars, array_vars)
+    let value = if args_ast.length() > 0 {
+      eval_arg_number(0)
     } else {
       0.0
     }
@@ -316,8 +332,8 @@ fn awk_eval_call_expr_ast(
   }
 
   if call_name == "exp" {
-    let value = if args.length() > 0 {
-      awk_eval_number(args[0], line, fields, nr, nf, vars, array_vars)
+    let value = if args_ast.length() > 0 {
+      eval_arg_number(0)
     } else {
       0.0
     }
@@ -325,8 +341,8 @@ fn awk_eval_call_expr_ast(
   }
 
   if call_name == "log" {
-    let value = if args.length() > 0 {
-      awk_eval_number(args[0], line, fields, nr, nf, vars, array_vars)
+    let value = if args_ast.length() > 0 {
+      eval_arg_number(0)
     } else {
       0.0
     }
@@ -334,8 +350,8 @@ fn awk_eval_call_expr_ast(
   }
 
   if call_name == "sqrt" {
-    let value = if args.length() > 0 {
-      awk_eval_number(args[0], line, fields, nr, nf, vars, array_vars)
+    let value = if args_ast.length() > 0 {
+      eval_arg_number(0)
     } else {
       0.0
     }
@@ -343,11 +359,11 @@ fn awk_eval_call_expr_ast(
   }
 
   if call_name == "atan2" {
-    if args.length() < 2 {
+    if args_ast.length() < 2 {
       return "0"
     }
-    let y = awk_eval_number(args[0], line, fields, nr, nf, vars, array_vars)
-    let x = awk_eval_number(args[1], line, fields, nr, nf, vars, array_vars)
+    let y = eval_arg_number(0)
+    let x = eval_arg_number(1)
     let pi = @math.atan(1.0) * 4.0
     let half_pi = pi / 2.0
     let angle = if x > 0.0 {
@@ -367,23 +383,23 @@ fn awk_eval_call_expr_ast(
   }
 
   if call_name == "sprintf" {
-    if args.length() == 0 {
+    if args_ast.length() == 0 {
       return ""
     }
-    let format = awk_eval_expr(args[0], line, fields, nr, nf, vars, array_vars)
+    let format = eval_arg(0)
     let format_args : Array[String] = []
-    for i = 1; i < args.length(); i = i + 1 {
-      format_args.push(awk_eval_expr(args[i], line, fields, nr, nf, vars, array_vars))
+    for i = 1; i < args_ast.length(); i = i + 1 {
+      format_args.push(eval_arg(i))
     }
     return awk_format_printf(format, format_args)
   }
 
   if call_name == "split" {
-    if args.length() >= 2 {
-      let source = awk_eval_expr(args[0], line, fields, nr, nf, vars, array_vars)
-      let arr_name = aj_trim(args[1])
-      let delim = if args.length() >= 3 {
-        awk_eval_split_delim(args[2], line, fields, nr, nf, vars, array_vars)
+    if args_raw.length() >= 2 && args_ast.length() >= 1 {
+      let source = eval_arg(0)
+      let arr_name = aj_trim(args_raw[1])
+      let delim = if args_raw.length() >= 3 {
+        awk_eval_split_delim(args_raw[2], line, fields, nr, nf, vars, array_vars)
       } else {
         awk_current_fs(vars.get("FS").unwrap_or(" "), vars)
       }
@@ -402,7 +418,7 @@ fn awk_eval_call_expr_ast(
       let fn_out = StringBuilder::new()
       awk_eval_user_function(
         call_name,
-        args,
+        args_raw,
         line,
         fields,
         nr,
@@ -429,6 +445,9 @@ fn awk_eval_raw_expr_ast(
   if t.length() == 0 {
     return ""
   }
+  if aj_starts_with(t, "/") && aj_ends_with(t, "/") && t.length() >= 2 {
+    return awk_bool_to_string(awk_match_regex_pattern(t, line))
+  }
   if (aj_starts_with(t, "\"") && aj_ends_with(t, "\"")) ||
     (aj_starts_with(t, "'") && aj_ends_with(t, "'")) {
     return awk_eval_atom(t, line, fields, nr, nf, vars, array_vars)
@@ -436,10 +455,19 @@ fn awk_eval_raw_expr_ast(
   if awk_is_numeric_string(t) || awk_is_identifier(t) || aj_starts_with(t, "$") {
     return awk_eval_atom(t, line, fields, nr, nf, vars, array_vars)
   }
-  match awk_parse_array_ref(t) {
-    Some(_) => awk_eval_atom(t, line, fields, nr, nf, vars, array_vars)
-    None => awk_eval_atom(t, line, fields, nr, nf, vars, array_vars)
-  }
+  awk_eval_atom(t, line, fields, nr, nf, vars, array_vars)
+}
+
+fn awk_eval_condition_ast(
+  cond_ast : AwkExprAst,
+  line : String,
+  fields : Array[String],
+  nr : Int,
+  nf : Int,
+  vars : Map[String, String],
+  array_vars : Map[String, String]
+) -> Bool {
+  awk_value_truthy(awk_eval_expr_ast(cond_ast, line, fields, nr, nf, vars, array_vars))
 }
 
 fn awk_eval_expr_ast(
@@ -453,8 +481,8 @@ fn awk_eval_expr_ast(
 ) -> String {
   match ast {
     Raw(text) => awk_eval_raw_expr_ast(text, line, fields, nr, nf, vars, array_vars)
-    Call(call_name, args) =>
-      awk_eval_call_expr_ast(call_name, args, line, fields, nr, nf, vars, array_vars)
+    Call(call_name, args_ast, args_raw) =>
+      awk_eval_call_expr_ast(call_name, args_ast, args_raw, line, fields, nr, nf, vars, array_vars)
     Mutate(target, delta, return_new) => {
       match awk_mutate_numeric_reference(
         target,
@@ -482,8 +510,8 @@ fn awk_eval_expr_ast(
       }
       out.to_string()
     }
-    Ternary(cond_expr, yes, no) => {
-      if awk_eval_condition(cond_expr, line, fields, nr, nf, vars, array_vars) {
+    Ternary(cond_ast, yes, no) => {
+      if awk_eval_condition_ast(cond_ast, line, fields, nr, nf, vars, array_vars) {
         awk_eval_expr_ast(yes, line, fields, nr, nf, vars, array_vars)
       } else {
         awk_eval_expr_ast(no, line, fields, nr, nf, vars, array_vars)

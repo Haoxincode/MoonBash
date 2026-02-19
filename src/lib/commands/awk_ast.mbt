@@ -2,8 +2,8 @@
 
 priv enum AwkStmt {
   Simple(String)
-  If(String, Array[AwkStmt], Array[AwkStmt]?)
-  For(Array[AwkStmt], String, Array[AwkStmt], Array[AwkStmt])
+  If(AwkExprAst, Array[AwkStmt], Array[AwkStmt]?)
+  For(Array[AwkStmt], AwkExprAst?, Array[AwkStmt], Array[AwkStmt])
   ForIn(String, String, Array[AwkStmt])
 } derive(Show)
 
@@ -24,20 +24,26 @@ fn awk_parse_statement_ast(stmt : String) -> AwkStmt {
   match awk_parse_for_statement(text) {
     Some((init_stmt, cond_expr, update_stmt, body_stmt)) => {
       let init_ast = awk_parse_action_ast(init_stmt)
+      let cond_ast = if aj_trim(cond_expr).length() == 0 {
+        None
+      } else {
+        Some(awk_parse_expr_ast(cond_expr))
+      }
       let update_ast = awk_parse_action_ast(update_stmt)
       let body_ast = awk_parse_action_ast(body_stmt)
-      return For(init_ast, cond_expr, update_ast, body_ast)
+      return For(init_ast, cond_ast, update_ast, body_ast)
     }
     None => ()
   }
 
   match awk_parse_if_statement(text) {
     Some((cond_expr, body_stmt)) => {
+      let cond_ast = awk_parse_expr_ast(cond_expr)
       let (then_body, else_body) = awk_split_if_else_body(body_stmt)
       let then_ast = awk_parse_action_ast(then_body)
       match else_body {
-        Some(else_stmt) => If(cond_expr, then_ast, Some(awk_parse_action_ast(else_stmt)))
-        None => If(cond_expr, then_ast, None)
+        Some(else_stmt) => If(cond_ast, then_ast, Some(awk_parse_action_ast(else_stmt)))
+        None => If(cond_ast, then_ast, None)
       }
     }
     None => Simple(text)
