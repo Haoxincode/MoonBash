@@ -217,6 +217,21 @@ fn awk_execute_function_statements(
         let line_from_cmd = awk_eval_getline_command_line(command)
         match target {
           Var(name) => vars[name] = line_from_cmd
+          Record => {
+            let current_fs = awk_current_fs(vars.get("FS").unwrap_or(" "), vars)
+            let next_fields = awk_split_fields(line_from_cmd, current_fs)
+            while fields.length() > next_fields.length() {
+              let _ = fields.pop()
+            }
+            for i = 0; i < next_fields.length(); i = i + 1 {
+              if i < fields.length() {
+                fields[i] = next_fields[i]
+              } else {
+                fields.push(next_fields[i])
+              }
+            }
+            vars["NF"] = fields.length().to_string()
+          }
           _ => ()
         }
       }
@@ -229,7 +244,7 @@ fn awk_execute_function_statements(
         break
       }
       SubstituteStmt(is_gsub, args_ast) => {
-        if args_ast.length() >= 3 {
+        if args_ast.length() >= 2 {
           let pattern = awk_eval_sub_pattern_ast(
             args_ast[0],
             line,
@@ -248,37 +263,58 @@ fn awk_execute_function_statements(
             vars,
             array_vars,
           )
-          match args_ast[2] {
-            Raw(raw_target) => {
-              let target = aj_trim(raw_target)
-              let source = awk_eval_expr_ast(
-                args_ast[2],
-                line,
-                fields,
-                nr,
-                fields.length(),
-                vars,
-                array_vars,
-              )
-              let (updated, _count) = if is_gsub {
-                awk_replace_all_literal(source, pattern, replacement)
-              } else {
-                awk_replace_first_literal(source, pattern, replacement)
-              }
-              ignore(
-                awk_assign_reference(
-                  target,
-                  updated,
+          if args_ast.length() >= 3 {
+            match args_ast[2] {
+              Raw(raw_target) => {
+                let target = aj_trim(raw_target)
+                let source = awk_eval_expr_ast(
+                  args_ast[2],
                   line,
                   fields,
                   nr,
                   fields.length(),
                   vars,
                   array_vars,
-                ),
-              )
+                )
+                let (updated, _count) = if is_gsub {
+                  awk_replace_all_literal(source, pattern, replacement)
+                } else {
+                  awk_replace_first_literal(source, pattern, replacement)
+                }
+                ignore(
+                  awk_assign_reference(
+                    target,
+                    updated,
+                    line,
+                    fields,
+                    nr,
+                    fields.length(),
+                    vars,
+                    array_vars,
+                  ),
+                )
+              }
+              _ => ()
             }
-            _ => ()
+          } else {
+            let (updated, _count) = if is_gsub {
+              awk_replace_all_literal(line, pattern, replacement)
+            } else {
+              awk_replace_first_literal(line, pattern, replacement)
+            }
+            let current_fs = awk_current_fs(vars.get("FS").unwrap_or(" "), vars)
+            let next_fields = awk_split_fields(updated, current_fs)
+            while fields.length() > next_fields.length() {
+              let _ = fields.pop()
+            }
+            for i = 0; i < next_fields.length(); i = i + 1 {
+              if i < fields.length() {
+                fields[i] = next_fields[i]
+              } else {
+                fields.push(next_fields[i])
+              }
+            }
+            vars["NF"] = fields.length().to_string()
           }
         }
       }
