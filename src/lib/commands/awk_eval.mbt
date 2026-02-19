@@ -358,29 +358,6 @@ fn awk_execute_function_body_simple(
       continue
     }
 
-    if stmt == "return" || aj_starts_with(stmt, "return ") || aj_starts_with(stmt, "return(") {
-      let expr = if stmt.length() > 6 { aj_trim(aj_substr(stmt, 6, stmt.length())) } else { "" }
-      let value = if expr.length() == 0 {
-        ""
-      } else {
-        awk_eval_expr(expr, line, fields, nr, fields.length(), vars, array_vars)
-      }
-      vars[awk_ctrl_return_key] = "1"
-      vars[awk_ctrl_return_value_key] = value
-      break
-    }
-
-    if stmt == "exit" || aj_starts_with(stmt, "exit ") || aj_starts_with(stmt, "exit(") {
-      let code_expr = if stmt.length() > 4 { aj_trim(aj_substr(stmt, 4, stmt.length())) } else { "" }
-      let code = if code_expr.length() == 0 {
-        0
-      } else {
-        awk_eval_number(code_expr, line, fields, nr, fields.length(), vars, array_vars).to_int()
-      }
-      vars[awk_ctrl_exit_key] = code.to_string()
-      break
-    }
-
     if aj_starts_with(stmt, "print") {
       let rest = aj_trim(aj_substr(stmt, 5, stmt.length()))
       out.write_string(

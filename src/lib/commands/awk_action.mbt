@@ -742,58 +742,6 @@ fn awk_execute_action_simple(
       continue
     }
 
-    if stmt == "next" {
-      vars[awk_ctrl_next_key] = "1"
-      break
-    }
-
-    if stmt == "exit" || aj_starts_with(stmt, "exit ") || aj_starts_with(stmt, "exit(") {
-      let code_expr = if stmt.length() > 4 {
-        aj_trim(aj_substr(stmt, 4, stmt.length()))
-      } else {
-        ""
-      }
-      let code = if code_expr.length() == 0 {
-        0
-      } else {
-        awk_eval_number(
-          code_expr,
-          current_line,
-          current_fields,
-          current_nr,
-          current_fields.length(),
-          vars,
-          array_vars,
-        ).to_int()
-      }
-      vars[awk_ctrl_exit_key] = code.to_string()
-      break
-    }
-
-    if stmt == "return" || aj_starts_with(stmt, "return ") || aj_starts_with(stmt, "return(") {
-      let value_expr = if stmt.length() > 6 {
-        aj_trim(aj_substr(stmt, 6, stmt.length()))
-      } else {
-        ""
-      }
-      let value = if value_expr.length() == 0 {
-        ""
-      } else {
-        awk_eval_expr(
-          value_expr,
-          current_line,
-          current_fields,
-          current_nr,
-          current_fields.length(),
-          vars,
-          array_vars,
-        )
-      }
-      vars[awk_ctrl_return_key] = "1"
-      vars[awk_ctrl_return_value_key] = value
-      break
-    }
-
     if aj_starts_with(stmt, "system(") && aj_ends_with(stmt, ")") {
       vars[awk_ctrl_error_key] = "system() is not supported"
       vars[awk_ctrl_exit_key] = "1"
