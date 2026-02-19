@@ -127,6 +127,47 @@ fn awk_execute_action_ast_list(
       break
     }
     match stmt {
+      Next => {
+        vars[awk_ctrl_next_key] = "1"
+        break
+      }
+      Exit(code_ast) => {
+        let code = match code_ast {
+          Some(expr_ast) =>
+            awk_parse_number(
+              awk_eval_expr_ast(
+                expr_ast,
+                current_line,
+                current_fields,
+                current_nr,
+                current_fields.length(),
+                vars,
+                array_vars,
+              ),
+            ).to_int()
+          None => 0
+        }
+        vars[awk_ctrl_exit_key] = code.to_string()
+        break
+      }
+      Return(value_ast) => {
+        let value = match value_ast {
+          Some(expr_ast) =>
+            awk_eval_expr_ast(
+              expr_ast,
+              current_line,
+              current_fields,
+              current_nr,
+              current_fields.length(),
+              vars,
+              array_vars,
+            )
+          None => ""
+        }
+        vars[awk_ctrl_return_key] = "1"
+        vars[awk_ctrl_return_value_key] = value
+        break
+      }
       ForIn(loop_var, arr_name, body_stmts) => {
         let key_prefix = arr_name + "#"
         let indices : Array[String] = []

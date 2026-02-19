@@ -186,10 +186,37 @@ fn awk_execute_function_statements(
   out : StringBuilder
 ) -> Unit {
   for stmt in statements {
-    if vars.contains(awk_ctrl_exit_key) || vars.contains(awk_ctrl_return_key) {
+    if vars.contains(awk_ctrl_exit_key) ||
+      vars.contains(awk_ctrl_next_key) ||
+      vars.contains(awk_ctrl_return_key) {
       break
     }
     match stmt {
+      Next => {
+        vars[awk_ctrl_next_key] = "1"
+        break
+      }
+      Exit(code_ast) => {
+        let code = match code_ast {
+          Some(expr_ast) =>
+            awk_parse_number(
+              awk_eval_expr_ast(expr_ast, line, fields, nr, fields.length(), vars, array_vars),
+            ).to_int()
+          None => 0
+        }
+        vars[awk_ctrl_exit_key] = code.to_string()
+        break
+      }
+      Return(value_ast) => {
+        let value = match value_ast {
+          Some(expr_ast) =>
+            awk_eval_expr_ast(expr_ast, line, fields, nr, fields.length(), vars, array_vars)
+          None => ""
+        }
+        vars[awk_ctrl_return_key] = "1"
+        vars[awk_ctrl_return_value_key] = value
+        break
+      }
       ForIn(loop_var, arr_name, body_stmts) => {
         let key_prefix = arr_name + "#"
         let indices : Array[String] = []
@@ -199,7 +226,9 @@ fn awk_execute_function_statements(
           }
         }
         for idx_value in indices {
-          if vars.contains(awk_ctrl_exit_key) || vars.contains(awk_ctrl_return_key) {
+          if vars.contains(awk_ctrl_exit_key) ||
+            vars.contains(awk_ctrl_next_key) ||
+            vars.contains(awk_ctrl_return_key) {
             break
           }
           vars[loop_var] = idx_value
@@ -214,7 +243,9 @@ fn awk_execute_function_statements(
         }
         let mut loop_count = 0
         while true {
-          if vars.contains(awk_ctrl_exit_key) || vars.contains(awk_ctrl_return_key) {
+          if vars.contains(awk_ctrl_exit_key) ||
+            vars.contains(awk_ctrl_next_key) ||
+            vars.contains(awk_ctrl_return_key) {
             break
           }
           match cond_ast {
@@ -238,7 +269,9 @@ fn awk_execute_function_statements(
           if body_stmts.length() > 0 {
             awk_execute_function_statements(body_stmts, line, fields, nr, vars, array_vars, out)
           }
-          if vars.contains(awk_ctrl_exit_key) || vars.contains(awk_ctrl_return_key) {
+          if vars.contains(awk_ctrl_exit_key) ||
+            vars.contains(awk_ctrl_next_key) ||
+            vars.contains(awk_ctrl_return_key) {
             break
           }
           if update_stmts.length() > 0 {

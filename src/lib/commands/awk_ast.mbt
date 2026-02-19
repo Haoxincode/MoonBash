@@ -5,12 +5,39 @@ priv enum AwkStmt {
   If(AwkExprAst, Array[AwkStmt], Array[AwkStmt]?)
   For(Array[AwkStmt], AwkExprAst?, Array[AwkStmt], Array[AwkStmt])
   ForIn(String, String, Array[AwkStmt])
+  Next
+  Exit(AwkExprAst?)
+  Return(AwkExprAst?)
 } derive(Show)
 
 fn awk_parse_statement_ast(stmt : String) -> AwkStmt {
   let text = aj_trim(stmt)
   if text.length() == 0 {
     return Simple("")
+  }
+
+  if text == "next" {
+    return Next
+  }
+
+  if text == "exit" || aj_starts_with(text, "exit ") || aj_starts_with(text, "exit(") {
+    let expr_text = if text.length() > 4 {
+      aj_trim(aj_substr(text, 4, text.length()))
+    } else {
+      ""
+    }
+    let expr_ast = if expr_text.length() > 0 { Some(awk_parse_expr_ast(expr_text)) } else { None }
+    return Exit(expr_ast)
+  }
+
+  if text == "return" || aj_starts_with(text, "return ") || aj_starts_with(text, "return(") {
+    let expr_text = if text.length() > 6 {
+      aj_trim(aj_substr(text, 6, text.length()))
+    } else {
+      ""
+    }
+    let expr_ast = if expr_text.length() > 0 { Some(awk_parse_expr_ast(expr_text)) } else { None }
+    return Return(expr_ast)
   }
 
   match awk_parse_for_in_statement(text) {
