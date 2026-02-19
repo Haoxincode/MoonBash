@@ -378,47 +378,8 @@ fn awk_execute_function_statements(
           }
         }
       }
-      Simple(raw_stmt) => {
-        awk_execute_function_body_simple(raw_stmt, line, fields, nr, vars, array_vars, out)
-      }
+      Simple(_raw_stmt) => ()
     }
-  }
-}
-
-fn awk_execute_function_body_simple(
-  body : String,
-  line : String,
-  fields : Array[String],
-  nr : Int,
-  vars : Map[String, String],
-  array_vars : Map[String, String],
-  out : StringBuilder
-) -> Unit {
-  let statements = awk_merge_if_else_statements(awk_split_statements(body))
-  for stmt_raw in statements {
-    if vars.contains(awk_ctrl_exit_key) || vars.contains(awk_ctrl_return_key) {
-      break
-    }
-    let stmt = aj_trim(stmt_raw)
-    if stmt.length() == 0 {
-      continue
-    }
-
-    if aj_starts_with(stmt, "print") {
-      let rest = aj_trim(aj_substr(stmt, 5, stmt.length()))
-      out.write_string(
-        awk_render_print_output(
-          rest,
-          line,
-          fields,
-          nr,
-          vars,
-          array_vars,
-        ),
-      )
-      continue
-    }
-
   }
 }
 

@@ -39,6 +39,17 @@ fn awk_execute_action(
   )
 }
 
+fn awk_execute_empty_action_branch(
+  line : String,
+  fields : Array[String],
+  nr : Int,
+  out : StringBuilder
+) -> (String, Array[String], Int, Int) {
+  out.write_string(line)
+  out.write_char('\n')
+  (line, fields, 0, nr)
+}
+
 fn awk_is_zero_literal_expr_ast(expr_ast : AwkExprAst) -> Bool {
   match expr_ast {
     Raw(text) => {
@@ -793,21 +804,7 @@ fn awk_execute_action_ast_list(
         if cond_passed {
           let (next_line, next_fields, consumed_if, new_nr) = if then_stmts.length() == 0 {
             // Keep historical behavior for empty if-body branches.
-            awk_execute_action_simple(
-              ctx,
-              "",
-              lines,
-              line_idx + consumed,
-              current_line,
-              current_fields,
-              current_nr,
-              current_fields.length(),
-              fs,
-              filename,
-              vars,
-              array_vars,
-              out,
-            )
+            awk_execute_empty_action_branch(current_line, current_fields, current_nr, out)
           } else {
             awk_execute_action_ast_list(
               ctx,
@@ -833,21 +830,7 @@ fn awk_execute_action_ast_list(
             Some(else_branch) => {
               let (next_line, next_fields, consumed_if, new_nr) = if else_branch.length() == 0 {
                 // Keep historical behavior for explicit else {}.
-                awk_execute_action_simple(
-                  ctx,
-                  "",
-                  lines,
-                  line_idx + consumed,
-                  current_line,
-                  current_fields,
-                  current_nr,
-                  current_fields.length(),
-                  fs,
-                  filename,
-                  vars,
-                  array_vars,
-                  out,
-                )
+                awk_execute_empty_action_branch(current_line, current_fields, current_nr, out)
               } else {
                 awk_execute_action_ast_list(
                   ctx,
@@ -873,63 +856,9 @@ fn awk_execute_action_ast_list(
           }
         }
       }
-      Simple(raw_stmt) => {
-        let (next_line, next_fields, consumed_stmt, new_nr) = awk_execute_action_simple(
-          ctx,
-          raw_stmt,
-          lines,
-          line_idx + consumed,
-          current_line,
-          current_fields,
-          current_nr,
-          current_fields.length(),
-          fs,
-          filename,
-          vars,
-          array_vars,
-          out,
-        )
-        current_line = next_line
-        current_fields = next_fields
-        consumed += consumed_stmt
-        current_nr = new_nr
-      }
+      Simple(_raw_stmt) => ()
     }
   }
 
   (current_line, current_fields, consumed, current_nr)
-}
-
-fn awk_execute_action_simple(
-  ctx : CommandContext,
-  action : String,
-  lines : Array[String],
-  line_idx : Int,
-  line : String,
-  fields : Array[String],
-  nr : Int,
-  nf : Int,
-  fs : String,
-  filename : String,
-  vars : Map[String, String],
-  array_vars : Map[String, String],
-  out : StringBuilder
-) -> (String, Array[String], Int, Int) {
-  ignore(ctx)
-  ignore(lines)
-  ignore(line_idx)
-  ignore(nf)
-  ignore(fs)
-  ignore(filename)
-  ignore(vars)
-  ignore(array_vars)
-  let act = aj_trim(action)
-
-  if act.length() == 0 {
-    out.write_string(line)
-    out.write_char('\n')
-    return (line, fields, 0, nr)
-  }
-
-  (line, fields, 0, nr)
 }
