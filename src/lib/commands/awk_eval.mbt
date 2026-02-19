@@ -446,30 +446,6 @@ fn awk_execute_function_body_simple(
       continue
     }
 
-    match awk_parse_call_expr(stmt) {
-      Some((call_name, args)) => {
-        if call_name == "close" {
-          continue
-        }
-        if call_name == "sprintf" {
-          ignore(awk_eval_expr(stmt, line, fields, nr, fields.length(), vars, array_vars))
-          continue
-        }
-        ignore(awk_eval_user_function(
-          call_name,
-          args,
-          line,
-          fields,
-          nr,
-          fields.length(),
-          vars,
-          array_vars,
-          out,
-        ))
-        continue
-      }
-      None => ()
-    }
   }
 }
 
