@@ -8,6 +8,11 @@ priv enum AwkGetlineTarget {
   Invalid(String)
 } derive(Show)
 
+priv enum AwkAssignTarget {
+  Var(String)
+  ArrayElem(String, AwkExprAst)
+} derive(Show)
+
 fn awk_parse_getline_target(target : String) -> AwkGetlineTarget {
   let t = aj_trim(target)
   if t.length() == 0 {
@@ -40,66 +45,78 @@ priv enum AwkStmt {
   SystemStmt
   SubstituteStmt(Bool, Array[AwkExprAst])
   FieldAssignStmt(String, AwkExprAst)
-  AssignStmt(String, AwkExprAst)
-  CompoundAssignStmt(String, String, AwkExprAst)
+  AssignStmt(AwkAssignTarget, AwkExprAst)
+  CompoundAssignStmt(AwkAssignTarget, String, AwkExprAst)
   ExprStmt(AwkExprAst)
 } derive(Show)
 
-fn awk_stmt_assignment_target_valid(lhs : String) -> Bool {
+fn awk_parse_assign_target(lhs : String) -> AwkAssignTarget? {
   let t = aj_trim(lhs)
   if t.length() == 0 || aj_starts_with(t, "$") {
-    return false
+    return None
   }
   if awk_is_identifier(t) {
-    return true
+    return Some(Var(t))
   }
   match awk_parse_array_ref(t) {
-    Some(_) => true
-    None => false
+    Some((arr_name, idx_expr)) => Some(ArrayElem(arr_name, awk_parse_expr_ast(idx_expr)))
+    None => None
   }
 }
 
-fn awk_parse_compound_assign_stmt(text : String) -> (String, String, AwkExprAst)? {
+fn awk_parse_compound_assign_stmt(text : String) -> (AwkAssignTarget, String, AwkExprAst)? {
   let plus_eq_idx = awk_find_top_level_token(text, "+=")
   if plus_eq_idx > 0 {
-    let lhs = aj_trim(aj_substr(text, 0, plus_eq_idx))
-    if awk_stmt_assignment_target_valid(lhs) {
-      let rhs = aj_trim(aj_substr(text, plus_eq_idx + 2, text.length()))
-      return Some((lhs, "+=", awk_parse_expr_ast(rhs)))
+    let lhs = aj_substr(text, 0, plus_eq_idx)
+    match awk_parse_assign_target(lhs) {
+      Some(lhs_target) => {
+        let rhs = aj_trim(aj_substr(text, plus_eq_idx + 2, text.length()))
+        return Some((lhs_target, "+=", awk_parse_expr_ast(rhs)))
+      }
+      None => ()
     }
   }
 
   let minus_eq_idx = awk_find_top_level_token(text, "-=")
   if minus_eq_idx > 0 {
-    let lhs = aj_trim(aj_substr(text, 0, minus_eq_idx))
-    if awk_stmt_assignment_target_valid(lhs) {
-      let rhs = aj_trim(aj_substr(text, minus_eq_idx + 2, text.length()))
-      return Some((lhs, "-=", awk_parse_expr_ast(rhs)))
+    let lhs = aj_substr(text, 0, minus_eq_idx)
+    match awk_parse_assign_target(lhs) {
+      Some(lhs_target) => {
+        let rhs = aj_trim(aj_substr(text, minus_eq_idx + 2, text.length()))
+        return Some((lhs_target, "-=", awk_parse_expr_ast(rhs)))
+      }
+      None => ()
     }
   }
 
   let mul_eq_idx = awk_find_top_level_token(text, "*=")
   if mul_eq_idx > 0 {
-    let lhs = aj_trim(aj_substr(text, 0, mul_eq_idx))
-    if awk_stmt_assignment_target_valid(lhs) {
-      let rhs = aj_trim(aj_substr(text, mul_eq_idx + 2, text.length()))
-      return Some((lhs, "*=", awk_parse_expr_ast(rhs)))
+    let lhs = aj_substr(text, 0, mul_eq_idx)
+    match awk_parse_assign_target(lhs) {
+      Some(lhs_target) => {
+        let rhs = aj_trim(aj_substr(text, mul_eq_idx + 2, text.length()))
+        return Some((lhs_target, "*=", awk_parse_expr_ast(rhs)))
+      }
+      None => ()
     }
   }
 
   let div_eq_idx = awk_find_top_level_token(text, "/=")
   if div_eq_idx > 0 {
-    let lhs = aj_trim(aj_substr(text, 0, div_eq_idx))
-    if awk_stmt_assignment_target_valid(lhs) {
-      let rhs = aj_trim(aj_substr(text, div_eq_idx + 2, text.length()))
-      return Some((lhs, "/=", awk_parse_expr_ast(rhs)))
+    let lhs = aj_substr(text, 0, div_eq_idx)
+    match awk_parse_assign_target(lhs) {
+      Some(lhs_target) => {
+        let rhs = aj_trim(aj_substr(text, div_eq_idx + 2, text.length()))
+        return Some((lhs_target, "/=", awk_parse_expr_ast(rhs)))
+      }
+      None => ()
     }
   }
 
   None
 }
 
-fn awk_parse_assign_stmt(text : String) -> (String, AwkExprAst)? {
+fn awk_parse_assign_stmt(text : String) -> (AwkAssignTarget, AwkExprAst)? {
   let eq_idx = awk_find_top_level_token(text, "=")
   if eq_idx <= 0 {
     return None
@@ -113,12 +130,13 @@ fn awk_parse_assign_stmt(text : String) -> (String, AwkExprAst)? {
   if prev == '!' || prev == '<' || prev == '>' || prev == '=' || next == Some('=') {
     return None
   }
-  let lhs = aj_trim(aj_substr(text, 0, eq_idx))
-  if not(awk_stmt_assignment_target_valid(lhs)) {
-    return None
+  let lhs = aj_substr(text, 0, eq_idx)
+  let lhs_target = match awk_parse_assign_target(lhs) {
+    Some(target) => target
+    None => return None
   }
   let rhs = aj_trim(aj_substr(text, eq_idx + 1, text.length()))
-  Some((lhs, awk_parse_expr_ast(rhs)))
+  Some((lhs_target, awk_parse_expr_ast(rhs)))
 }
 
 fn awk_parse_field_assign_stmt(text : String) -> (String, AwkExprAst)? {
@@ -257,7 +275,7 @@ fn awk_parse_statement_ast(stmt : String) -> AwkStmt {
   }
 
   match awk_parse_compound_assign_stmt(text) {
-    Some((lhs, op, rhs_ast)) => return CompoundAssignStmt(lhs, op, rhs_ast)
+    Some((lhs_target, op, rhs_ast)) => return CompoundAssignStmt(lhs_target, op, rhs_ast)
     None => ()
   }
 
@@ -267,7 +285,7 @@ fn awk_parse_statement_ast(stmt : String) -> AwkStmt {
   }
 
   match awk_parse_assign_stmt(text) {
-    Some((lhs, rhs_ast)) => return AssignStmt(lhs, rhs_ast)
+    Some((lhs_target, rhs_ast)) => return AssignStmt(lhs_target, rhs_ast)
     None => ()
   }
 
