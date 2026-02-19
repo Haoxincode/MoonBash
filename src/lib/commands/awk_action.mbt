@@ -868,7 +868,7 @@ fn awk_execute_action_ast_list(
                 )
                 current_line = next_line_value
                 current_fields = next_fields_value
-                cond_passed = true
+                cond_passed = not(vars.contains(awk_ctrl_exit_key))
               } else {
                 cond_passed = false
               }
@@ -948,7 +948,7 @@ fn awk_execute_action_ast_list(
               )
               current_line = next_line_value
               current_fields = next_fields_value
-              cond_passed = true
+              cond_passed = not(vars.contains(awk_ctrl_exit_key))
             } else {
               cond_passed = false
             }
