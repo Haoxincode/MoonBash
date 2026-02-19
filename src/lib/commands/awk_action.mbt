@@ -112,10 +112,8 @@ fn awk_apply_getline_target(
   array_vars : Map[String, String],
   current_line : String,
   current_fields : Array[String],
-  current_nr : Int,
-  raw_sets_record : Bool
+  current_nr : Int
 ) -> (String, Array[String]) {
-  ignore(raw_sets_record)
   match target {
     Record => awk_assign_getline_record(line_value, fs, vars, current_line, current_fields)
     Var(name) => {
@@ -280,7 +278,6 @@ fn awk_execute_action_ast_list(
           current_line,
           current_fields,
           current_nr,
-          false,
         )
         current_line = next_line
         current_fields = next_fields
@@ -318,7 +315,6 @@ fn awk_execute_action_ast_list(
                 current_line,
                 current_fields,
                 current_nr,
-                false,
               )
               current_line = next_line
               current_fields = next_fields
@@ -354,7 +350,6 @@ fn awk_execute_action_ast_list(
             current_line,
             current_fields,
             current_nr,
-            true,
           )
           current_line = next_line_value
           current_fields = next_fields_value
@@ -870,7 +865,6 @@ fn awk_execute_action_ast_list(
                   current_line,
                   current_fields,
                   current_nr,
-                  true,
                 )
                 current_line = next_line_value
                 current_fields = next_fields_value
@@ -951,7 +945,6 @@ fn awk_execute_action_ast_list(
                 current_line,
                 current_fields,
                 current_nr,
-                true,
               )
               current_line = next_line_value
               current_fields = next_fields_value
