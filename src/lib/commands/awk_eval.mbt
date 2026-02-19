@@ -561,7 +561,7 @@ fn awk_execute_function_statements(
           }
         }
       }
-      While(cond_ast, body_stmts) => {
+      While(cond_ast, _cond_getline, body_stmts) => {
         let mut loop_count = 0
         while true {
           if vars.contains(awk_ctrl_exit_key) ||
@@ -596,7 +596,7 @@ fn awk_execute_function_statements(
           }
         }
       }
-      If(cond_ast, then_stmts, else_stmts) => {
+      If(cond_ast, _cond_getline, then_stmts, else_stmts) => {
         if awk_eval_condition_ast(
           cond_ast,
           line,

@@ -54,6 +54,7 @@
 - `FieldAssignStmt` 左值已迁移为字段索引 AST，执行期按表达式求值索引（不再依赖 `"$n"` 字符串切片）
 - `AwkProgram` 已缓存 `pattern_ast` / `range_start_ast` / `range_end_ast`，主记录匹配改为直接执行 AST，移除逐记录字符串条件解析
 - `Delete(arr_name, None)` 已从 no-op 修正为清空数组命名空间（`delete arr` 语义）
+- `If` / `While` 语句已缓存 `getline > 0` 快路径目标（`AwkGetlineTarget?`），执行期不再反复从条件 AST 做字符串化识别
 
 ## 验证方式
 

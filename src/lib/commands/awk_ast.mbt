@@ -30,10 +30,10 @@ fn awk_parse_getline_target(target : String) -> AwkGetlineTarget {
 }
 
 priv enum AwkStmt {
-  If(AwkExprAst, Array[AwkStmt], Array[AwkStmt]?)
+  If(AwkExprAst, AwkGetlineTarget?, Array[AwkStmt], Array[AwkStmt]?)
   For(Array[AwkStmt], AwkExprAst?, Array[AwkStmt], Array[AwkStmt])
   ForIn(String, String, Array[AwkStmt])
-  While(AwkExprAst, Array[AwkStmt])
+  While(AwkExprAst, AwkGetlineTarget?, Array[AwkStmt])
   Next
   Exit(AwkExprAst?)
   Return(AwkExprAst?)
@@ -49,6 +49,68 @@ priv enum AwkStmt {
   CompoundAssignStmt(AwkAssignTarget, String, AwkExprAst)
   ExprStmt(AwkExprAst)
 } derive(Show)
+
+fn awk_is_zero_literal_expr_for_getline(expr_ast : AwkExprAst) -> Bool {
+  match expr_ast {
+    Raw(text) => {
+      let t = aj_trim(text)
+      t.length() > 0 && awk_is_numeric_string(t) && awk_parse_number(t) == 0.0
+    }
+    _ => false
+  }
+}
+
+fn awk_stringify_simple_expr_for_getline(expr_ast : AwkExprAst) -> String? {
+  match expr_ast {
+    Raw(text) => Some(aj_trim(text))
+    Concat(parts) => {
+      let out = StringBuilder::new()
+      let mut wrote = false
+      for part in parts {
+        match part {
+          Raw(text) => {
+            let token = aj_trim(text)
+            if token.length() == 0 {
+              continue
+            }
+            if wrote {
+              out.write_char(' ')
+            }
+            out.write_string(token)
+            wrote = true
+          }
+          _ => return None
+        }
+      }
+      Some(out.to_string())
+    }
+    _ => None
+  }
+}
+
+fn awk_getline_target_from_condition_expr_ast(cond_ast : AwkExprAst) -> AwkGetlineTarget? {
+  match cond_ast {
+    Binary(op, left, right) => {
+      if op != ">" || not(awk_is_zero_literal_expr_for_getline(right)) {
+        return None
+      }
+      match awk_stringify_simple_expr_for_getline(left) {
+        Some(left_text) => {
+          let expr = awk_strip_outer_parens(aj_trim(left_text))
+          if expr == "getline" {
+            Some(Record)
+          } else if aj_starts_with(expr, "getline ") {
+            Some(awk_parse_getline_target(aj_trim(aj_substr(expr, 7, expr.length()))))
+          } else {
+            None
+          }
+        }
+        None => None
+      }
+    }
+    _ => None
+  }
+}
 
 fn awk_parse_assign_target(lhs : String) -> AwkAssignTarget? {
   let t = aj_trim(lhs)
@@ -321,8 +383,9 @@ fn awk_parse_statement_ast(stmt : String) -> AwkStmt {
   match awk_parse_while_statement(text) {
     Some((cond_expr, body_stmt)) => {
       let cond_ast = awk_parse_expr_ast(cond_expr)
+      let cond_getline = awk_getline_target_from_condition_expr_ast(cond_ast)
       let body_ast = awk_parse_action_ast(body_stmt)
-      return While(cond_ast, body_ast)
+      return While(cond_ast, cond_getline, body_ast)
     }
     None => ()
   }
@@ -330,11 +393,13 @@ fn awk_parse_statement_ast(stmt : String) -> AwkStmt {
   match awk_parse_if_statement(text) {
     Some((cond_expr, body_stmt)) => {
       let cond_ast = awk_parse_expr_ast(cond_expr)
+      let cond_getline = awk_getline_target_from_condition_expr_ast(cond_ast)
       let (then_body, else_body) = awk_split_if_else_body(body_stmt)
       let then_ast = awk_parse_action_ast(then_body)
       match else_body {
-        Some(else_stmt) => If(cond_ast, then_ast, Some(awk_parse_action_ast(else_stmt)))
-        None => If(cond_ast, then_ast, None)
+        Some(else_stmt) =>
+          If(cond_ast, cond_getline, then_ast, Some(awk_parse_action_ast(else_stmt)))
+        None => If(cond_ast, cond_getline, then_ast, None)
       }
     }
     None => ExprStmt(awk_parse_expr_ast(text))

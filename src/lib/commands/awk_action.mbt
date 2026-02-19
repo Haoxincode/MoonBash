@@ -50,44 +50,6 @@ fn awk_execute_empty_action_branch(
   (line, fields, 0, nr)
 }
 
-fn awk_is_zero_literal_expr_ast(expr_ast : AwkExprAst) -> Bool {
-  match expr_ast {
-    Raw(text) => {
-      let t = aj_trim(text)
-      t.length() > 0 && awk_is_numeric_string(t) && awk_parse_number(t) == 0.0
-    }
-    _ => false
-  }
-}
-
-fn awk_stringify_simple_expr_ast(expr_ast : AwkExprAst) -> String? {
-  match expr_ast {
-    Raw(text) => Some(aj_trim(text))
-    Concat(parts) => {
-      let out = StringBuilder::new()
-      let mut wrote = false
-      for part in parts {
-        match part {
-          Raw(text) => {
-            let token = aj_trim(text)
-            if token.length() == 0 {
-              continue
-            }
-            if wrote {
-              out.write_char(' ')
-            }
-            out.write_string(token)
-            wrote = true
-          }
-          _ => return None
-        }
-      }
-      Some(out.to_string())
-    }
-    _ => None
-  }
-}
-
 fn awk_assign_getline_record(
   line_value : String,
   fs : String,
@@ -164,30 +126,6 @@ fn awk_apply_getline_target(
       vars[awk_ctrl_exit_key] = "1"
       (current_line, current_fields)
     }
-  }
-}
-
-fn awk_getline_target_from_condition_ast(cond_ast : AwkExprAst) -> AwkGetlineTarget? {
-  match cond_ast {
-    Binary(op, left, right) => {
-      if op != ">" || not(awk_is_zero_literal_expr_ast(right)) {
-        return None
-      }
-      match awk_stringify_simple_expr_ast(left) {
-        Some(left_text) => {
-          let expr = awk_strip_outer_parens(aj_trim(left_text))
-          if expr == "getline" {
-            Some(Record)
-          } else if aj_starts_with(expr, "getline ") {
-            Some(awk_parse_getline_target(aj_trim(aj_substr(expr, 7, expr.length()))))
-          } else {
-            None
-          }
-        }
-        None => None
-      }
-    }
-    _ => None
   }
 }
 
@@ -834,7 +772,7 @@ fn awk_execute_action_ast_list(
           }
         }
       }
-      While(cond_ast, body_stmts) => {
+      While(cond_ast, cond_getline, body_stmts) => {
         let mut loop_count = 0
         while true {
           if vars.contains(awk_ctrl_exit_key) ||
@@ -845,7 +783,7 @@ fn awk_execute_action_ast_list(
 
           let mut cond_passed = false
           let mut handled_getline = false
-          match awk_getline_target_from_condition_ast(cond_ast) {
+          match cond_getline {
             Some(target) => {
               handled_getline = true
               let next_idx = line_idx + consumed + 1
@@ -922,10 +860,10 @@ fn awk_execute_action_ast_list(
           }
         }
       }
-      If(cond_ast, then_stmts, else_stmts) => {
+      If(cond_ast, cond_getline, then_stmts, else_stmts) => {
         let mut cond_passed = false
         let mut handled_getline = false
-        match awk_getline_target_from_condition_ast(cond_ast) {
+        match cond_getline {
           Some(target) => {
             handled_getline = true
             let next_idx = line_idx + consumed + 1
