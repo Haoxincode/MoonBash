@@ -168,6 +168,93 @@ fn awk_execute_action_ast_list(
         vars[awk_ctrl_return_value_key] = value
         break
       }
+      PipeGetline(cmd_ast, target) => {
+        let command = awk_eval_expr_ast(
+          cmd_ast,
+          current_line,
+          current_fields,
+          current_nr,
+          current_fields.length(),
+          vars,
+          array_vars,
+        )
+        let line_from_cmd = awk_eval_getline_command_line(command)
+        if target.length() == 0 {
+          current_line = line_from_cmd
+          let current_fs = awk_current_fs(fs, vars)
+          current_fields = awk_split_fields(current_line, current_fs)
+          vars["NF"] = current_fields.length().to_string()
+        } else if awk_is_identifier(target) {
+          vars[target] = line_from_cmd
+        }
+      }
+      Getline(tail) => {
+        let read_from_file_idx = awk_find_top_level_token(tail, "<")
+        if read_from_file_idx > 0 {
+          let target = aj_trim(aj_substr(tail, 0, read_from_file_idx))
+          let path_expr = aj_trim(aj_substr(tail, read_from_file_idx + 1, tail.length()))
+          let path = awk_eval_expr(
+            path_expr,
+            current_line,
+            current_fields,
+            current_nr,
+            current_fields.length(),
+            vars,
+            array_vars,
+          )
+          let resolved = try {
+            @fs.resolve_path(ctx.cwd, path)
+          } catch {
+            @fs.FsError(_) => ""
+          }
+          if resolved.length() > 0 {
+            let content = try {
+              ctx.fs.read_file(resolved)
+            } catch {
+              @fs.FsError(_) => ""
+            }
+            let first_line = aj_first_line(content)
+            if target.length() == 0 {
+              current_line = first_line
+              let current_fs = awk_current_fs(fs, vars)
+              current_fields = awk_split_fields(current_line, current_fs)
+              vars["NF"] = current_fields.length().to_string()
+            } else if awk_is_identifier(target) {
+              vars[target] = first_line
+            }
+          }
+          continue
+        }
+
+        // Keep parity with current awk-spec skip assumptions:
+        // bare getline from BEGIN block stdin is still treated as unsupported.
+        if line_idx < 0 && tail.length() == 0 {
+          continue
+        }
+
+        let next_idx = line_idx + consumed + 1
+        if next_idx >= 0 && next_idx < lines.length() {
+          consumed += 1
+          let next_line = lines[next_idx]
+          current_nr += 1
+          vars["NR"] = current_nr.to_string()
+          vars["FNR"] = current_nr.to_string()
+          vars["FILENAME"] = filename
+          if tail.length() == 0 {
+            current_line = next_line
+            let current_fs = awk_current_fs(fs, vars)
+            current_fields = awk_split_fields(current_line, current_fs)
+            vars["NF"] = current_fields.length().to_string()
+          } else if awk_is_identifier(tail) {
+            vars[tail] = next_line
+          } else {
+            current_line = next_line
+            let current_fs = awk_current_fs(fs, vars)
+            current_fields = awk_split_fields(current_line, current_fs)
+            vars["NF"] = current_fields.length().to_string()
+          }
+        }
+      }
       Delete(target_expr) => {
         match awk_parse_array_ref(target_expr) {
           Some((arr_name, idx_expr)) => {
@@ -626,12 +713,16 @@ fn awk_execute_action_simple(
   array_vars : Map[String, String],
   out : StringBuilder
 ) -> (String, Array[String], Int, Int) {
+  ignore(ctx)
+  ignore(lines)
+  ignore(line_idx)
   ignore(nf)
+  ignore(filename)
   let act = aj_trim(action)
   let mut current_line = line
   let mut current_fields = fields
-  let mut current_nr = nr
-  let mut consumed = 0
+  let current_nr = nr
+  let consumed = 0
 
   if act.length() == 0 {
     out.write_string(current_line)
@@ -707,100 +798,6 @@ fn awk_execute_action_simple(
       vars[awk_ctrl_error_key] = "system() is not supported"
       vars[awk_ctrl_exit_key] = "1"
       break
-    }
-
-    let pipe_getline_idx = awk_find_top_level_token(stmt, "| getline")
-    if pipe_getline_idx > 0 {
-      let cmd_expr = aj_trim(aj_substr(stmt, 0, pipe_getline_idx))
-      let target = aj_trim(aj_substr(stmt, pipe_getline_idx + 9, stmt.length()))
-      let command = awk_eval_expr(
-        cmd_expr,
-        current_line,
-        current_fields,
-        current_nr,
-        current_fields.length(),
-        vars,
-        array_vars,
-      )
-      let line_from_cmd = awk_eval_getline_command_line(command)
-      if target.length() == 0 {
-        current_line = line_from_cmd
-        let current_fs = awk_current_fs(fs, vars)
-        current_fields = awk_split_fields(current_line, current_fs)
-        vars["NF"] = current_fields.length().to_string()
-      } else if awk_is_identifier(target) {
-        vars[target] = line_from_cmd
-      }
-      continue
-    }
-
-    if stmt == "getline" || aj_starts_with(stmt, "getline ") {
-      let tail = if stmt.length() > 7 { aj_trim(aj_substr(stmt, 7, stmt.length())) } else { "" }
-      let read_from_file_idx = awk_find_top_level_token(tail, "<")
-      if read_from_file_idx > 0 {
-        let target = aj_trim(aj_substr(tail, 0, read_from_file_idx))
-        let path_expr = aj_trim(aj_substr(tail, read_from_file_idx + 1, tail.length()))
-        let path = awk_eval_expr(
-          path_expr,
-          current_line,
-          current_fields,
-          current_nr,
-          current_fields.length(),
-          vars,
-          array_vars,
-        )
-        let resolved = try {
-          @fs.resolve_path(ctx.cwd, path)
-        } catch {
-          @fs.FsError(_) => ""
-        }
-        if resolved.length() > 0 {
-          let content = try {
-            ctx.fs.read_file(resolved)
-          } catch {
-            @fs.FsError(_) => ""
-          }
-          let first_line = aj_first_line(content)
-          if target.length() == 0 {
-            current_line = first_line
-            let current_fs = awk_current_fs(fs, vars)
-            current_fields = awk_split_fields(current_line, current_fs)
-            vars["NF"] = current_fields.length().to_string()
-          } else if awk_is_identifier(target) {
-            vars[target] = first_line
-          }
-        }
-        continue
-      }
-      // Keep parity with current awk-spec skip assumptions:
-      // bare getline from BEGIN block stdin is still treated as unsupported.
-      if line_idx < 0 && tail.length() == 0 {
-        continue
-      }
-
-      let next_idx = line_idx + consumed + 1
-      if next_idx >= 0 && next_idx < lines.length() {
-        consumed += 1
-        let next_line = lines[next_idx]
-        current_nr += 1
-        vars["NR"] = current_nr.to_string()
-        vars["FNR"] = current_nr.to_string()
-        vars["FILENAME"] = filename
-        if tail.length() == 0 {
-          current_line = next_line
-          let current_fs = awk_current_fs(fs, vars)
-          current_fields = awk_split_fields(current_line, current_fs)
-          vars["NF"] = current_fields.length().to_string()
-        } else if awk_is_identifier(tail) {
-          vars[tail] = next_line
-        } else {
-          current_line = next_line
-          let current_fs = awk_current_fs(fs, vars)
-          current_fields = awk_split_fields(current_line, current_fs)
-          vars["NF"] = current_fields.length().to_string()
-        }
-      }
-      continue
     }
 
     let is_gsub = aj_starts_with(stmt, "gsub(") && aj_ends_with(stmt, ")")

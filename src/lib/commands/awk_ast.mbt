@@ -11,6 +11,8 @@ priv enum AwkStmt {
   Printf(String)
   Print(String)
   Delete(String)
+  PipeGetline(AwkExprAst, String)
+  Getline(String)
 } derive(Show)
 
 fn awk_parse_statement_ast(stmt : String) -> AwkStmt {
@@ -41,6 +43,18 @@ fn awk_parse_statement_ast(stmt : String) -> AwkStmt {
     }
     let expr_ast = if expr_text.length() > 0 { Some(awk_parse_expr_ast(expr_text)) } else { None }
     return Return(expr_ast)
+  }
+
+  let pipe_getline_idx = awk_find_top_level_token(text, "| getline")
+  if pipe_getline_idx > 0 {
+    let cmd_expr = aj_trim(aj_substr(text, 0, pipe_getline_idx))
+    let target = aj_trim(aj_substr(text, pipe_getline_idx + 9, text.length()))
+    return PipeGetline(awk_parse_expr_ast(cmd_expr), target)
+  }
+
+  if text == "getline" || aj_starts_with(text, "getline ") {
+    let tail = if text.length() > 7 { aj_trim(aj_substr(text, 7, text.length())) } else { "" }
+    return Getline(tail)
   }
 
   if aj_starts_with(text, "delete ") {

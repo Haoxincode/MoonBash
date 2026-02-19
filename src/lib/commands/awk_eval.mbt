@@ -217,6 +217,12 @@ fn awk_execute_function_statements(
         vars[awk_ctrl_return_value_key] = value
         break
       }
+      PipeGetline(_cmd_ast, _target) => {
+        ()
+      }
+      Getline(_tail) => {
+        ()
+      }
       Delete(_target_expr) => {
         ()
       }
