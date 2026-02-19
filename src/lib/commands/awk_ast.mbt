@@ -13,6 +13,8 @@ priv enum AwkStmt {
   Delete(String)
   PipeGetline(AwkExprAst, String)
   Getline(String)
+  SystemStmt
+  SubstituteStmt(Bool, Array[String])
   FieldAssignStmt(String, AwkExprAst)
   AssignStmt(String, AwkExprAst)
   CompoundAssignStmt(String, String, AwkExprAst)
@@ -196,6 +198,18 @@ fn awk_parse_statement_ast(stmt : String) -> AwkStmt {
   if text == "getline" || aj_starts_with(text, "getline ") {
     let tail = if text.length() > 7 { aj_trim(aj_substr(text, 7, text.length())) } else { "" }
     return Getline(tail)
+  }
+
+  if aj_starts_with(text, "system(") && aj_ends_with(text, ")") {
+    return SystemStmt
+  }
+
+  let is_gsub = aj_starts_with(text, "gsub(") && aj_ends_with(text, ")")
+  let is_sub = aj_starts_with(text, "sub(") && aj_ends_with(text, ")")
+  if is_gsub || is_sub {
+    let offset = if is_gsub { 5 } else { 4 }
+    let inner = aj_substr(text, offset, text.length() - 1)
+    return SubstituteStmt(is_gsub, awk_split_csv_args(inner))
   }
 
   if aj_starts_with(text, "delete ") {

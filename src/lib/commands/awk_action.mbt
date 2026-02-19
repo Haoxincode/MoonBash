@@ -255,6 +255,83 @@ fn awk_execute_action_ast_list(
           }
         }
       }
+      SystemStmt => {
+        vars[awk_ctrl_error_key] = "system() is not supported"
+        vars[awk_ctrl_exit_key] = "1"
+        break
+      }
+      SubstituteStmt(is_gsub, args) => {
+        if args.length() >= 2 {
+          let pattern = awk_eval_sub_pattern(
+            args[0],
+            current_line,
+            current_fields,
+            current_nr,
+            current_fields.length(),
+            vars,
+            array_vars,
+          )
+          let replacement = awk_eval_expr(
+            args[1],
+            current_line,
+            current_fields,
+            current_nr,
+            current_fields.length(),
+            vars,
+            array_vars,
+          )
+          let mut target_expr : String? = None
+          if args.length() >= 3 {
+            target_expr = Some(aj_trim(args[2]))
+          }
+          let source = match target_expr {
+            Some(expr) => awk_eval_expr(
+              expr,
+              current_line,
+              current_fields,
+              current_nr,
+              current_fields.length(),
+              vars,
+              array_vars,
+            )
+            None => current_line
+          }
+          let (updated, _count) = if is_gsub {
+            awk_replace_all_literal(source, pattern, replacement)
+          } else {
+            awk_replace_first_literal(source, pattern, replacement)
+          }
+          match target_expr {
+            Some(expr) => {
+              if awk_is_identifier(expr) {
+                vars[expr] = updated
+              } else {
+                match awk_parse_array_ref(expr) {
+                  Some((arr_name, idx_expr)) => {
+                    let idx = awk_eval_expr(
+                      idx_expr,
+                      current_line,
+                      current_fields,
+                      current_nr,
+                      current_fields.length(),
+                      vars,
+                      array_vars,
+                    )
+                    array_vars[awk_array_key(arr_name, idx)] = updated
+                  }
+                  None => ()
+                }
+              }
+            }
+            None => {
+              current_line = updated
+              let current_fs = awk_current_fs(fs, vars)
+              current_fields = awk_split_fields(current_line, current_fs)
+              vars["NF"] = current_fields.length().to_string()
+            }
+          }
+        }
+      }
       ExprStmt(expr_ast) => {
         ignore(
           awk_eval_expr_ast(
@@ -842,117 +919,17 @@ fn awk_execute_action_simple(
   ignore(lines)
   ignore(line_idx)
   ignore(nf)
+  ignore(fs)
   ignore(filename)
+  ignore(vars)
+  ignore(array_vars)
   let act = aj_trim(action)
-  let mut current_line = line
-  let mut current_fields = fields
-  let current_nr = nr
-  let consumed = 0
 
   if act.length() == 0 {
-    out.write_string(current_line)
+    out.write_string(line)
     out.write_char('\n')
-    return (current_line, current_fields, consumed, current_nr)
+    return (line, fields, 0, nr)
   }
 
-  let statements = awk_merge_if_else_statements(awk_split_statements(act))
-  for stmt_raw in statements {
-    if vars.contains(awk_ctrl_exit_key) ||
-      vars.contains(awk_ctrl_next_key) ||
-      vars.contains(awk_ctrl_return_key) {
-      break
-    }
-    let stmt = aj_trim(stmt_raw)
-    if stmt.length() == 0 {
-      continue
-    }
-
-    if aj_starts_with(stmt, "system(") && aj_ends_with(stmt, ")") {
-      vars[awk_ctrl_error_key] = "system() is not supported"
-      vars[awk_ctrl_exit_key] = "1"
-      break
-    }
-
-    let is_gsub = aj_starts_with(stmt, "gsub(") && aj_ends_with(stmt, ")")
-    let is_sub = aj_starts_with(stmt, "sub(") && aj_ends_with(stmt, ")")
-    if is_gsub || is_sub {
-      let offset = if is_gsub { 5 } else { 4 }
-      let inner = aj_substr(stmt, offset, stmt.length() - 1)
-      let args = awk_split_csv_args(inner)
-      if args.length() >= 2 {
-        let pattern = awk_eval_sub_pattern(
-          args[0],
-          current_line,
-          current_fields,
-          current_nr,
-          current_fields.length(),
-          vars,
-          array_vars,
-        )
-        let replacement = awk_eval_expr(
-          args[1],
-          current_line,
-          current_fields,
-          current_nr,
-          current_fields.length(),
-          vars,
-          array_vars,
-        )
-        let mut target_expr : String? = None
-        if args.length() >= 3 {
-          target_expr = Some(aj_trim(args[2]))
-        }
-        let source = match target_expr {
-          Some(expr) => awk_eval_expr(
-            expr,
-            current_line,
-            current_fields,
-            current_nr,
-            current_fields.length(),
-            vars,
-            array_vars,
-          )
-          None => current_line
-        }
-        let (updated, _count) = if is_gsub {
-          awk_replace_all_literal(source, pattern, replacement)
-        } else {
-          awk_replace_first_literal(source, pattern, replacement)
-        }
-        match target_expr {
-          Some(expr) => {
-            if awk_is_identifier(expr) {
-              vars[expr] = updated
-            } else {
-              match awk_parse_array_ref(expr) {
-                Some((arr_name, idx_expr)) => {
-                  let idx = awk_eval_expr(
-                    idx_expr,
-                    current_line,
-                    current_fields,
-                    current_nr,
-                    current_fields.length(),
-                    vars,
-                    array_vars,
-                  )
-                  array_vars[awk_array_key(arr_name, idx)] = updated
-                }
-                None => ()
-              }
-            }
-          }
-          None => {
-            current_line = updated
-            let current_fs = awk_current_fs(fs, vars)
-            current_fields = awk_split_fields(current_line, current_fs)
-            vars["NF"] = current_fields.length().to_string()
-          }
-        }
-      }
-      continue
-    }
-
-  }
-
-  (current_line, current_fields, consumed, current_nr)
+  (line, fields, 0, nr)
 }
