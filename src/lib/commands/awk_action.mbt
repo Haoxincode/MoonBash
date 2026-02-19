@@ -88,7 +88,48 @@ fn awk_stringify_simple_expr_ast(expr_ast : AwkExprAst) -> String? {
   }
 }
 
-fn awk_getline_target_from_condition_ast(cond_ast : AwkExprAst) -> String? {
+fn awk_assign_getline_record(
+  line_value : String,
+  fs : String,
+  vars : Map[String, String],
+  current_line : String,
+  current_fields : Array[String]
+) -> (String, Array[String]) {
+  ignore(current_line)
+  ignore(current_fields)
+  let next_line = line_value
+  let current_fs = awk_current_fs(fs, vars)
+  let next_fields = awk_split_fields(next_line, current_fs)
+  vars["NF"] = next_fields.length().to_string()
+  (next_line, next_fields)
+}
+
+fn awk_apply_getline_target(
+  target : AwkGetlineTarget,
+  line_value : String,
+  fs : String,
+  vars : Map[String, String],
+  current_line : String,
+  current_fields : Array[String],
+  raw_sets_record : Bool
+) -> (String, Array[String]) {
+  match target {
+    Record => awk_assign_getline_record(line_value, fs, vars, current_line, current_fields)
+    Var(name) => {
+      vars[name] = line_value
+      (current_line, current_fields)
+    }
+    Raw(_) => {
+      if raw_sets_record {
+        awk_assign_getline_record(line_value, fs, vars, current_line, current_fields)
+      } else {
+        (current_line, current_fields)
+      }
+    }
+  }
+}
+
+fn awk_getline_target_from_condition_ast(cond_ast : AwkExprAst) -> AwkGetlineTarget? {
   match cond_ast {
     Binary(op, left, right) => {
       if op != ">" || not(awk_is_zero_literal_expr_ast(right)) {
@@ -98,9 +139,9 @@ fn awk_getline_target_from_condition_ast(cond_ast : AwkExprAst) -> String? {
         Some(left_text) => {
           let expr = awk_strip_outer_parens(aj_trim(left_text))
           if expr == "getline" {
-            Some("")
+            Some(Record)
           } else if aj_starts_with(expr, "getline ") {
-            Some(aj_trim(aj_substr(expr, 7, expr.length())))
+            Some(awk_parse_getline_target(aj_trim(aj_substr(expr, 7, expr.length()))))
           } else {
             None
           }
@@ -190,14 +231,17 @@ fn awk_execute_action_ast_list(
           array_vars,
         )
         let line_from_cmd = awk_eval_getline_command_line(command)
-        if target.length() == 0 {
-          current_line = line_from_cmd
-          let current_fs = awk_current_fs(fs, vars)
-          current_fields = awk_split_fields(current_line, current_fs)
-          vars["NF"] = current_fields.length().to_string()
-        } else if awk_is_identifier(target) {
-          vars[target] = line_from_cmd
-        }
+        let (next_line, next_fields) = awk_apply_getline_target(
+          target,
+          line_from_cmd,
+          fs,
+          vars,
+          current_line,
+          current_fields,
+          false,
+        )
+        current_line = next_line
+        current_fields = next_fields
       }
       Getline(target, path_ast) => {
         match path_ast {
@@ -223,14 +267,17 @@ fn awk_execute_action_ast_list(
                 @fs.FsError(_) => ""
               }
               let first_line = aj_first_line(content)
-              if target.length() == 0 {
-                current_line = first_line
-                let current_fs = awk_current_fs(fs, vars)
-                current_fields = awk_split_fields(current_line, current_fs)
-                vars["NF"] = current_fields.length().to_string()
-              } else if awk_is_identifier(target) {
-                vars[target] = first_line
-              }
+              let (next_line, next_fields) = awk_apply_getline_target(
+                target,
+                first_line,
+                fs,
+                vars,
+                current_line,
+                current_fields,
+                false,
+              )
+              current_line = next_line
+              current_fields = next_fields
             }
             continue
           }
@@ -239,8 +286,11 @@ fn awk_execute_action_ast_list(
 
         // Keep parity with current awk-spec skip assumptions:
         // bare getline from BEGIN block stdin is still treated as unsupported.
-        if line_idx < 0 && target.length() == 0 {
-          continue
+        if line_idx < 0 {
+          match target {
+            Record => continue
+            _ => ()
+          }
         }
 
         let next_idx = line_idx + consumed + 1
@@ -251,19 +301,17 @@ fn awk_execute_action_ast_list(
           vars["NR"] = current_nr.to_string()
           vars["FNR"] = current_nr.to_string()
           vars["FILENAME"] = filename
-          if target.length() == 0 {
-            current_line = next_line
-            let current_fs = awk_current_fs(fs, vars)
-            current_fields = awk_split_fields(current_line, current_fs)
-            vars["NF"] = current_fields.length().to_string()
-          } else if awk_is_identifier(target) {
-            vars[target] = next_line
-          } else {
-            current_line = next_line
-            let current_fs = awk_current_fs(fs, vars)
-            current_fields = awk_split_fields(current_line, current_fs)
-            vars["NF"] = current_fields.length().to_string()
-          }
+          let (next_line_value, next_fields_value) = awk_apply_getline_target(
+            target,
+            next_line,
+            fs,
+            vars,
+            current_line,
+            current_fields,
+            true,
+          )
+          current_line = next_line_value
+          current_fields = next_fields_value
         }
       }
       SystemStmt => {
@@ -767,14 +815,17 @@ fn awk_execute_action_ast_list(
                 current_nr += 1
                 vars["NR"] = current_nr.to_string()
                 vars["FNR"] = current_nr.to_string()
-                if awk_is_identifier(target) {
-                  vars[target] = next_line
-                } else {
-                  current_line = next_line
-                  let current_fs = awk_current_fs(fs, vars)
-                  current_fields = awk_split_fields(current_line, current_fs)
-                  vars["NF"] = current_fields.length().to_string()
-                }
+                let (next_line_value, next_fields_value) = awk_apply_getline_target(
+                  target,
+                  next_line,
+                  fs,
+                  vars,
+                  current_line,
+                  current_fields,
+                  true,
+                )
+                current_line = next_line_value
+                current_fields = next_fields_value
                 cond_passed = true
               } else {
                 cond_passed = false
@@ -843,14 +894,17 @@ fn awk_execute_action_ast_list(
               current_nr += 1
               vars["NR"] = current_nr.to_string()
               vars["FNR"] = current_nr.to_string()
-              if awk_is_identifier(target) {
-                vars[target] = next_line
-              } else {
-                current_line = next_line
-                let current_fs = awk_current_fs(fs, vars)
-                current_fields = awk_split_fields(current_line, current_fs)
-                vars["NF"] = current_fields.length().to_string()
-              }
+              let (next_line_value, next_fields_value) = awk_apply_getline_target(
+                target,
+                next_line,
+                fs,
+                vars,
+                current_line,
+                current_fields,
+                true,
+              )
+              current_line = next_line_value
+              current_fields = next_fields_value
               cond_passed = true
             } else {
               cond_passed = false

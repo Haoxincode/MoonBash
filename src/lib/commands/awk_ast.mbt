@@ -1,5 +1,22 @@
 // moon_bash Commands - awk statement AST parsing
 
+priv enum AwkGetlineTarget {
+  Record
+  Var(String)
+  Raw(String)
+} derive(Show)
+
+fn awk_parse_getline_target(target : String) -> AwkGetlineTarget {
+  let t = aj_trim(target)
+  if t.length() == 0 {
+    Record
+  } else if awk_is_identifier(t) {
+    Var(t)
+  } else {
+    Raw(t)
+  }
+}
+
 priv enum AwkStmt {
   If(AwkExprAst, Array[AwkStmt], Array[AwkStmt]?)
   For(Array[AwkStmt], AwkExprAst?, Array[AwkStmt], Array[AwkStmt])
@@ -11,8 +28,8 @@ priv enum AwkStmt {
   Printf(AwkExprAst, Array[AwkExprAst], AwkExprAst?, Bool)
   Print(Array[AwkExprAst], AwkExprAst?, Bool, Bool)
   Delete(String, AwkExprAst?)
-  PipeGetline(AwkExprAst, String)
-  Getline(String, AwkExprAst?)
+  PipeGetline(AwkExprAst, AwkGetlineTarget)
+  Getline(AwkGetlineTarget, AwkExprAst?)
   SystemStmt
   SubstituteStmt(Bool, Array[AwkExprAst])
   FieldAssignStmt(String, AwkExprAst)
@@ -153,7 +170,7 @@ fn awk_parse_statement_ast(stmt : String) -> AwkStmt {
   if pipe_getline_idx > 0 {
     let cmd_expr = aj_trim(aj_substr(text, 0, pipe_getline_idx))
     let target = aj_trim(aj_substr(text, pipe_getline_idx + 9, text.length()))
-    return PipeGetline(awk_parse_expr_ast(cmd_expr), target)
+    return PipeGetline(awk_parse_expr_ast(cmd_expr), awk_parse_getline_target(target))
   }
 
   if text == "getline" || aj_starts_with(text, "getline ") {
@@ -162,9 +179,9 @@ fn awk_parse_statement_ast(stmt : String) -> AwkStmt {
     if read_from_file_idx > 0 {
       let target = aj_trim(aj_substr(tail, 0, read_from_file_idx))
       let path_expr = aj_trim(aj_substr(tail, read_from_file_idx + 1, tail.length()))
-      return Getline(target, Some(awk_parse_expr_ast(path_expr)))
+      return Getline(awk_parse_getline_target(target), Some(awk_parse_expr_ast(path_expr)))
     }
-    return Getline(tail, None)
+    return Getline(awk_parse_getline_target(tail), None)
   }
 
   if aj_starts_with(text, "system(") && aj_ends_with(text, ")") {
