@@ -30,10 +30,11 @@ describe("Parse Errors - Comparison Tests", () => {
         stderr?: string;
         status?: number;
       };
+      const exitCode = typeof err.status === "number" ? err.status : 1;
       return {
         stdout: err.stdout || "",
         stderr: err.stderr || "",
-        exitCode: err.status || 1,
+        exitCode,
       };
     }
   };
