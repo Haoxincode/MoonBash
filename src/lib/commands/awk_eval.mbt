@@ -172,6 +172,115 @@ fn awk_execute_function_body(
   array_vars : Map[String, String],
   out : StringBuilder
 ) -> Unit {
+  let statements = awk_parse_action_ast(body)
+  awk_execute_function_statements(statements, line, fields, nr, vars, array_vars, out)
+}
+
+fn awk_execute_function_statements(
+  statements : Array[AwkStmt],
+  line : String,
+  fields : Array[String],
+  nr : Int,
+  vars : Map[String, String],
+  array_vars : Map[String, String],
+  out : StringBuilder
+) -> Unit {
+  for stmt in statements {
+    if vars.contains(awk_ctrl_exit_key) || vars.contains(awk_ctrl_return_key) {
+      break
+    }
+    match stmt {
+      ForIn(loop_var, arr_name, body_stmts) => {
+        let key_prefix = arr_name + "#"
+        let indices : Array[String] = []
+        for key, _value in array_vars {
+          if aj_starts_with(key, key_prefix) {
+            indices.push(aj_substr(key, key_prefix.length(), key.length()))
+          }
+        }
+        for idx_value in indices {
+          if vars.contains(awk_ctrl_exit_key) || vars.contains(awk_ctrl_return_key) {
+            break
+          }
+          vars[loop_var] = idx_value
+          if body_stmts.length() > 0 {
+            awk_execute_function_statements(body_stmts, line, fields, nr, vars, array_vars, out)
+          }
+        }
+      }
+      For(init_stmts, cond_expr, update_stmts, body_stmts) => {
+        if init_stmts.length() > 0 {
+          awk_execute_function_statements(init_stmts, line, fields, nr, vars, array_vars, out)
+        }
+        let mut loop_count = 0
+        while true {
+          if vars.contains(awk_ctrl_exit_key) || vars.contains(awk_ctrl_return_key) {
+            break
+          }
+          if cond_expr.length() > 0 &&
+            not(
+              awk_eval_condition(
+                cond_expr,
+                line,
+                fields,
+                nr,
+                fields.length(),
+                vars,
+                array_vars,
+              ),
+            ) {
+            break
+          }
+          if body_stmts.length() > 0 {
+            awk_execute_function_statements(body_stmts, line, fields, nr, vars, array_vars, out)
+          }
+          if vars.contains(awk_ctrl_exit_key) || vars.contains(awk_ctrl_return_key) {
+            break
+          }
+          if update_stmts.length() > 0 {
+            awk_execute_function_statements(update_stmts, line, fields, nr, vars, array_vars, out)
+          }
+          loop_count += 1
+          if loop_count > awk_loop_guard_limit {
+            break
+          }
+        }
+      }
+      If(cond_expr, then_stmts, else_stmts) => {
+        if awk_eval_condition(
+          cond_expr,
+          line,
+          fields,
+          nr,
+          fields.length(),
+          vars,
+          array_vars,
+        ) {
+          awk_execute_function_statements(then_stmts, line, fields, nr, vars, array_vars, out)
+        } else {
+          match else_stmts {
+            Some(else_branch) =>
+              awk_execute_function_statements(else_branch, line, fields, nr, vars, array_vars, out)
+            None => ()
+          }
+        }
+      }
+      Simple(raw_stmt) => {
+        awk_execute_function_body_legacy(raw_stmt, line, fields, nr, vars, array_vars, out)
+      }
+    }
+  }
+}
+
+fn awk_execute_function_body_legacy(
+  body : String,
+  line : String,
+  fields : Array[String],
+  nr : Int,
+  vars : Map[String, String],
+  array_vars : Map[String, String],
+  out : StringBuilder
+) -> Unit {
   let statements = awk_merge_if_else_statements(awk_split_statements(body))
   for stmt_raw in statements {
     if vars.contains(awk_ctrl_exit_key) || vars.contains(awk_ctrl_return_key) {
@@ -197,7 +306,7 @@ fn awk_execute_function_body(
           }
           vars[loop_var] = idx_value
           if body_stmt.length() > 0 {
-            awk_execute_function_body(body_stmt, line, fields, nr, vars, array_vars, out)
+            awk_execute_function_body_legacy(body_stmt, line, fields, nr, vars, array_vars, out)
           }
         }
         continue
@@ -230,7 +339,7 @@ fn awk_execute_function_body(
             break
           }
           if body_stmt.length() > 0 {
-            awk_execute_function_body(body_stmt, line, fields, nr, vars, array_vars, out)
+            awk_execute_function_body_legacy(body_stmt, line, fields, nr, vars, array_vars, out)
           }
           if vars.contains(awk_ctrl_exit_key) || vars.contains(awk_ctrl_return_key) {
             break
@@ -270,11 +379,11 @@ fn awk_execute_function_body(
           vars,
           array_vars,
         ) {
-          awk_execute_function_body(then_body, line, fields, nr, vars, array_vars, out)
+          awk_execute_function_body_legacy(then_body, line, fields, nr, vars, array_vars, out)
         } else {
           match else_body {
             Some(else_stmt) =>
-              awk_execute_function_body(else_stmt, line, fields, nr, vars, array_vars, out)
+              awk_execute_function_body_legacy(else_stmt, line, fields, nr, vars, array_vars, out)
             None => ()
           }
         }
@@ -622,4 +731,3 @@ fn awk_mutate_numeric_reference(
     None => None
   }
 }
-

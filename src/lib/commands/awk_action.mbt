@@ -17,6 +17,363 @@ fn awk_execute_action(
 ) -> (String, Array[String], Int, Int) {
   ignore(nf)
   let act = aj_trim(action)
+  if act.length() == 0 {
+    out.write_string(line)
+    out.write_char('\n')
+    return (line, fields, 0, nr)
+  }
+  let statements = awk_parse_action_ast(act)
+  awk_execute_action_ast_list(
+    ctx,
+    statements,
+    lines,
+    line_idx,
+    line,
+    fields,
+    nr,
+    fs,
+    filename,
+    vars,
+    array_vars,
+    out,
+  )
+}
+
+fn awk_execute_action_ast_list(
+  ctx : CommandContext,
+  statements : Array[AwkStmt],
+  lines : Array[String],
+  line_idx : Int,
+  line : String,
+  fields : Array[String],
+  nr : Int,
+  fs : String,
+  filename : String,
+  vars : Map[String, String],
+  array_vars : Map[String, String],
+  out : StringBuilder
+) -> (String, Array[String], Int, Int) {
+  let mut current_line = line
+  let mut current_fields = fields
+  let mut current_nr = nr
+  let mut consumed = 0
+
+  for stmt in statements {
+    if vars.contains(awk_ctrl_exit_key) ||
+      vars.contains(awk_ctrl_next_key) ||
+      vars.contains(awk_ctrl_return_key) {
+      break
+    }
+    match stmt {
+      ForIn(loop_var, arr_name, body_stmts) => {
+        let key_prefix = arr_name + "#"
+        let indices : Array[String] = []
+        for key, _value in array_vars {
+          if aj_starts_with(key, key_prefix) {
+            indices.push(aj_substr(key, key_prefix.length(), key.length()))
+          }
+        }
+        for idx_value in indices {
+          if vars.contains(awk_ctrl_exit_key) ||
+            vars.contains(awk_ctrl_next_key) ||
+            vars.contains(awk_ctrl_return_key) {
+            break
+          }
+          vars[loop_var] = idx_value
+          if body_stmts.length() > 0 {
+            let (next_line, next_fields, consumed_body, new_nr) = awk_execute_action_ast_list(
+              ctx,
+              body_stmts,
+              lines,
+              line_idx + consumed,
+              current_line,
+              current_fields,
+              current_nr,
+              fs,
+              filename,
+              vars,
+              array_vars,
+              out,
+            )
+            current_line = next_line
+            current_fields = next_fields
+            consumed += consumed_body
+            current_nr = new_nr
+          }
+        }
+      }
+      For(init_stmts, cond_expr, update_stmts, body_stmts) => {
+        if init_stmts.length() > 0 {
+          let (next_line, next_fields, consumed_init, new_nr) = awk_execute_action_ast_list(
+            ctx,
+            init_stmts,
+            lines,
+            line_idx + consumed,
+            current_line,
+            current_fields,
+            current_nr,
+            fs,
+            filename,
+            vars,
+            array_vars,
+            out,
+          )
+          current_line = next_line
+          current_fields = next_fields
+          consumed += consumed_init
+          current_nr = new_nr
+        }
+
+        let mut loop_count = 0
+        while true {
+          if vars.contains(awk_ctrl_exit_key) ||
+            vars.contains(awk_ctrl_next_key) ||
+            vars.contains(awk_ctrl_return_key) {
+            break
+          }
+          if cond_expr.length() > 0 &&
+            not(
+              awk_eval_condition(
+                cond_expr,
+                current_line,
+                current_fields,
+                current_nr,
+                current_fields.length(),
+                vars,
+                array_vars,
+              ),
+            ) {
+            break
+          }
+
+          if body_stmts.length() > 0 {
+            let (next_line, next_fields, consumed_body, new_nr) = awk_execute_action_ast_list(
+              ctx,
+              body_stmts,
+              lines,
+              line_idx + consumed,
+              current_line,
+              current_fields,
+              current_nr,
+              fs,
+              filename,
+              vars,
+              array_vars,
+              out,
+            )
+            current_line = next_line
+            current_fields = next_fields
+            consumed += consumed_body
+            current_nr = new_nr
+          }
+
+          if vars.contains(awk_ctrl_exit_key) ||
+            vars.contains(awk_ctrl_next_key) ||
+            vars.contains(awk_ctrl_return_key) {
+            break
+          }
+
+          if update_stmts.length() > 0 {
+            let (next_line, next_fields, consumed_update, new_nr) = awk_execute_action_ast_list(
+              ctx,
+              update_stmts,
+              lines,
+              line_idx + consumed,
+              current_line,
+              current_fields,
+              current_nr,
+              fs,
+              filename,
+              vars,
+              array_vars,
+              out,
+            )
+            current_line = next_line
+            current_fields = next_fields
+            consumed += consumed_update
+            current_nr = new_nr
+          }
+
+          loop_count += 1
+          if loop_count > awk_loop_guard_limit {
+            break
+          }
+        }
+      }
+      If(cond_expr, then_stmts, else_stmts) => {
+        let mut cond_passed = false
+        let cond_text = awk_strip_outer_parens(cond_expr)
+        let gt_idx = awk_find_top_level_token(cond_text, ">")
+        let mut handled_getline = false
+        if gt_idx > 0 {
+          let left_expr = awk_strip_outer_parens(aj_trim(aj_substr(cond_text, 0, gt_idx)))
+          let right_expr = aj_trim(aj_substr(cond_text, gt_idx + 1, cond_text.length()))
+          if right_expr == "0" && (left_expr == "getline" || aj_starts_with(left_expr, "getline ")) {
+            handled_getline = true
+            let target = if left_expr.length() > 7 {
+              aj_trim(aj_substr(left_expr, 7, left_expr.length()))
+            } else {
+              ""
+            }
+            let next_idx = line_idx + consumed + 1
+            if next_idx >= 0 && next_idx < lines.length() {
+              let next_line = lines[next_idx]
+              consumed += 1
+              current_nr += 1
+              vars["NR"] = current_nr.to_string()
+              vars["FNR"] = current_nr.to_string()
+              if awk_is_identifier(target) {
+                vars[target] = next_line
+              } else {
+                current_line = next_line
+                let current_fs = awk_current_fs(fs, vars)
+                current_fields = awk_split_fields(current_line, current_fs)
+                vars["NF"] = current_fields.length().to_string()
+              }
+              cond_passed = true
+            } else {
+              cond_passed = false
+            }
+          }
+        }
+        if not(handled_getline) {
+          cond_passed = awk_eval_condition(
+            cond_expr,
+            current_line,
+            current_fields,
+            current_nr,
+            current_fields.length(),
+            vars,
+            array_vars,
+          )
+        }
+        if cond_passed {
+          let (next_line, next_fields, consumed_if, new_nr) = if then_stmts.length() == 0 {
+            // Keep historical behavior for empty if-body branches.
+            awk_execute_action_legacy(
+              ctx,
+              "",
+              lines,
+              line_idx + consumed,
+              current_line,
+              current_fields,
+              current_nr,
+              current_fields.length(),
+              fs,
+              filename,
+              vars,
+              array_vars,
+              out,
+            )
+          } else {
+            awk_execute_action_ast_list(
+              ctx,
+              then_stmts,
+              lines,
+              line_idx + consumed,
+              current_line,
+              current_fields,
+              current_nr,
+              fs,
+              filename,
+              vars,
+              array_vars,
+              out,
+            )
+          }
+          current_line = next_line
+          current_fields = next_fields
+          consumed += consumed_if
+          current_nr = new_nr
+        } else {
+          match else_stmts {
+            Some(else_branch) => {
+              let (next_line, next_fields, consumed_if, new_nr) = if else_branch.length() == 0 {
+                // Keep historical behavior for explicit else {}.
+                awk_execute_action_legacy(
+                  ctx,
+                  "",
+                  lines,
+                  line_idx + consumed,
+                  current_line,
+                  current_fields,
+                  current_nr,
+                  current_fields.length(),
+                  fs,
+                  filename,
+                  vars,
+                  array_vars,
+                  out,
+                )
+              } else {
+                awk_execute_action_ast_list(
+                  ctx,
+                  else_branch,
+                  lines,
+                  line_idx + consumed,
+                  current_line,
+                  current_fields,
+                  current_nr,
+                  fs,
+                  filename,
+                  vars,
+                  array_vars,
+                  out,
+                )
+              }
+              current_line = next_line
+              current_fields = next_fields
+              consumed += consumed_if
+              current_nr = new_nr
+            }
+            None => ()
+          }
+        }
+      }
+      Simple(raw_stmt) => {
+        let (next_line, next_fields, consumed_stmt, new_nr) = awk_execute_action_legacy(
+          ctx,
+          raw_stmt,
+          lines,
+          line_idx + consumed,
+          current_line,
+          current_fields,
+          current_nr,
+          current_fields.length(),
+          fs,
+          filename,
+          vars,
+          array_vars,
+          out,
+        )
+        current_line = next_line
+        current_fields = next_fields
+        consumed += consumed_stmt
+        current_nr = new_nr
+      }
+    }
+  }
+
+  (current_line, current_fields, consumed, current_nr)
+}
+
+fn awk_execute_action_legacy(
+  ctx : CommandContext,
+  action : String,
+  lines : Array[String],
+  line_idx : Int,
+  line : String,
+  fields : Array[String],
+  nr : Int,
+  nf : Int,
+  fs : String,
+  filename : String,
+  vars : Map[String, String],
+  array_vars : Map[String, String],
+  out : StringBuilder
+) -> (String, Array[String], Int, Int) {
+  ignore(nf)
+  let act = aj_trim(action)
   let mut current_line = line
   let mut current_fields = fields
   let mut current_nr = nr
@@ -57,7 +414,7 @@ fn awk_execute_action(
           }
           vars[loop_var] = idx_value
           if body_stmt.length() > 0 {
-            let (next_line, next_fields, consumed_body, new_nr) = awk_execute_action(
+            let (next_line, next_fields, consumed_body, new_nr) = awk_execute_action_legacy(
               ctx,
               body_stmt,
               lines,
@@ -86,7 +443,7 @@ fn awk_execute_action(
     match awk_parse_for_statement(stmt) {
       Some((init_stmt, cond_expr, update_stmt, body_stmt)) => {
         if init_stmt.length() > 0 {
-          let (next_line, next_fields, consumed_init, new_nr) = awk_execute_action(
+          let (next_line, next_fields, consumed_init, new_nr) = awk_execute_action_legacy(
             ctx,
             init_stmt,
             lines,
@@ -130,7 +487,7 @@ fn awk_execute_action(
           }
 
           if body_stmt.length() > 0 {
-            let (next_line, next_fields, consumed_body, new_nr) = awk_execute_action(
+            let (next_line, next_fields, consumed_body, new_nr) = awk_execute_action_legacy(
               ctx,
               body_stmt,
               lines,
@@ -152,7 +509,7 @@ fn awk_execute_action(
           }
 
           if update_stmt.length() > 0 {
-            let (next_line, next_fields, consumed_update, new_nr) = awk_execute_action(
+            let (next_line, next_fields, consumed_update, new_nr) = awk_execute_action_legacy(
               ctx,
               update_stmt,
               lines,
@@ -233,7 +590,7 @@ fn awk_execute_action(
           )
         }
         if cond_passed {
-          let (next_line, next_fields, consumed_if, new_nr) = awk_execute_action(
+          let (next_line, next_fields, consumed_if, new_nr) = awk_execute_action_legacy(
             ctx,
             then_body,
             lines,
@@ -255,7 +612,7 @@ fn awk_execute_action(
         } else {
           match else_body {
             Some(else_stmt) => {
-              let (next_line, next_fields, consumed_if, new_nr) = awk_execute_action(
+              let (next_line, next_fields, consumed_if, new_nr) = awk_execute_action_legacy(
                 ctx,
                 else_stmt,
                 lines,
@@ -1029,4 +1386,3 @@ fn awk_execute_action(
 
   (current_line, current_fields, consumed, current_nr)
 }
-
