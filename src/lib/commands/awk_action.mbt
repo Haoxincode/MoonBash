@@ -115,6 +115,7 @@ fn awk_apply_getline_target(
   current_nr : Int,
   raw_sets_record : Bool
 ) -> (String, Array[String]) {
+  ignore(raw_sets_record)
   match target {
     Record => awk_assign_getline_record(line_value, fs, vars, current_line, current_fields)
     Var(name) => {
@@ -160,12 +161,10 @@ fn awk_apply_getline_target(
       array_vars[awk_array_key(arr_name, idx)] = line_value
       (current_line, current_fields)
     }
-    Raw(_) => {
-      if raw_sets_record {
-        awk_assign_getline_record(line_value, fs, vars, current_line, current_fields)
-      } else {
-        (current_line, current_fields)
-      }
+    Raw(raw_target) => {
+      vars[awk_ctrl_error_key] = "invalid getline target: " + raw_target
+      vars[awk_ctrl_exit_key] = "1"
+      (current_line, current_fields)
     }
   }
 }

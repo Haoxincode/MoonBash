@@ -228,7 +228,10 @@ fn awk_apply_getline_target_for_function(
       )
       array_vars[awk_array_key(arr_name, idx)] = line_value
     }
-    Raw(_) => ()
+    Raw(raw_target) => {
+      vars[awk_ctrl_error_key] = "invalid getline target: " + raw_target
+      vars[awk_ctrl_exit_key] = "1"
+    }
   }
 }
 
