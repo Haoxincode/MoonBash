@@ -46,6 +46,7 @@
 - 函数执行器补齐部分语义：`Delete`、`PipeGetline -> Var`、`SystemStmt` 错误退出、`SubstituteStmt`（显式目标）、`FieldAssignStmt`（字段视图更新）
 - 函数执行器继续补齐：`PipeGetline -> Record` 与 `SubstituteStmt` 默认 `$0` 路径（通过字段视图更新近似）
 - 函数执行器补齐 `Getline` 无路径子集：`getline var`/`getline` 在无输入流上下文下回退为“当前记录视图”语义
+- 函数执行器对 `Getline < file` 改为显式报错退出，避免静默吞语义（无 `CommandContext/FS` 时）
 
 ## 验证方式
 
@@ -56,5 +57,5 @@
 ## 仍待收口（下一阶段）
 
 1. 继续减少语句节点里的原始字符串负担（例如把 `Raw` 目标逐步收敛到更严格语义，减少运行时分支歧义）。
-2. 继续补齐函数体里剩余 no-op 分支（重点是 `Getline < file` 的函数态策略）。
+2. 统一函数态 `Getline < file` 的长期策略（当前为显式不支持；后续可评估是否引入受控 FS 上下文）。
 3. 迁移完成后清理剩余中间兼容辅助函数与重复逻辑。

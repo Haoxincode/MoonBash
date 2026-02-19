@@ -243,8 +243,12 @@ fn awk_execute_function_statements(
       }
       Getline(target, path_ast) => {
         match path_ast {
-          // No file-system context in function executor; keep path-based getline conservative.
-          Some(_) => ()
+          // Function executor has no CommandContext/FS handle for path reads.
+          Some(_) => {
+            vars[awk_ctrl_error_key] = "getline < file is not supported in function context"
+            vars[awk_ctrl_exit_key] = "1"
+            break
+          }
           None => {
             match target {
               Var(name) => vars[name] = line
