@@ -1,39 +1,50 @@
-# AWK 解释器 AST 化改造记录（2026-02-19）
+# AWK 解释器 AST 迁移记录（2026-02-19）
 
-## 背景
+## 目标
 
-当前 AWK 解释器原实现以字符串切分 + 逐条匹配执行为主，维护成本较高，控制流分支（`if` / `for` / `for in`）难以稳定扩展。
+把 AWK 执行链从「运行时字符串分发」迁移为「解析期结构化 + 运行时 AST 分发」，降低维护成本并减少循环内重复解析。
 
-## 本次改造范围
+## 当前进度（已完成）
 
-本次完成 **语句级 AST（Statement AST）** 迁移：
+### 1. 语句层 AST 主干已落地
 
-- 新增 `AwkStmt` 语句节点：`Simple` / `If` / `For` / `ForIn`
-- 新增递归解析入口：`awk_parse_action_ast`
-- `cmd_awk` 主执行链改为：
-  - 先解析语句 AST
-  - 再按 AST 解释执行控制流
-- 用户函数体执行（`awk_execute_function_body`）同样切换到语句 AST 分发
+`AwkStmt` 已覆盖控制流与主要语句类型：
 
-为确保行为稳定：
+- 控制流：`If` / `For` / `ForIn` / `While`
+- 流程控制：`Next` / `Exit` / `Return`
+- 输出与 I/O：`Print` / `Printf` / `Getline` / `PipeGetline`
+- 赋值相关：`AssignStmt` / `CompoundAssignStmt` / `FieldAssignStmt`
+- 其他：`Delete` / `SystemStmt` / `SubstituteStmt` / `ExprStmt`
 
-- 非控制流语句（表达式、赋值、print/printf、内建调用等）仍通过 legacy 分支执行
-- 原行为兼容优先，控制流从字符串走向结构化，叶子语句暂不一次性重写
+`Simple(String)` 已完全移除，`awk_execute_action_simple` 路径已删除。
 
-## 新增/改动文件
+### 2. 表达式层 AST 已成为统一入口
 
-- 新增：`src/lib/commands/awk_ast.mbt`
-- 改动：`src/lib/commands/awk_action.mbt`
-- 改动：`src/lib/commands/awk_eval.mbt`
+- `awk_eval_expr` 已统一为：`parse_expr_ast -> eval_expr_ast`
+- 条件判断统一走 `awk_eval_condition_ast`
+- `If/For/While` 条件都使用 `AwkExprAst`，不再在循环内重复字符串解析
+- 函数调用参数已携带 AST（同时保留 raw 形态用于 `split/match` 等语义）
 
-## 验证结果
+### 3. 执行器双路径同步
 
-- `cd src && moon check --target js` 通过
-- `npx vitest run tests/comparison/awk.comparison.test.ts` 通过
-- `npx vitest run tests/spec/awk/awk-spec.test.ts` 通过
+- 主 action 执行器：`awk_execute_action_ast_list` 全量按 `AwkStmt` 分发
+- 函数体执行器：`awk_execute_function_statements` 同步按 `AwkStmt` 分发
 
-## 后续建议（Phase 2）
+## 本轮新增
 
-1. 表达式层从字符串递归求值迁移到 Pratt/precedence AST。
-2. 将 `Simple` 叶子节点拆分为更细粒度语句节点（如 `Print`/`Assign`/`Getline`）。
-3. 最终移除 `*_legacy` 路径，统一执行栈。
+- 新增 `While(AwkExprAst, Array[AwkStmt])` 语句节点
+- 新增 `awk_parse_while_statement`
+- 在语句合并阶段补齐 bare `while (...)` header 识别，保证与 `if/for` 一致的拼接行为
+- 在 action/function 两条执行链新增 `While` 执行分支
+
+## 验证方式
+
+- `cd src && moon check --target js`
+- `npx vitest run tests/comparison/awk.comparison.test.ts`
+- `npx vitest run tests/spec/awk/awk-spec.test.ts`
+
+## 仍待收口（下一阶段）
+
+1. 继续减少语句节点里的原始字符串负担（例如 `Print/Printf/SubstituteStmt` 的参数结构化）。
+2. 评估并补齐函数体里当前保守 no-op 语句分支（按兼容性逐项推进）。
+3. 迁移完成后清理可删除的中间兼容辅助函数与重复逻辑。

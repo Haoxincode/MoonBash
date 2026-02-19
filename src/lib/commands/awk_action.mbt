@@ -762,6 +762,90 @@ fn awk_execute_action_ast_list(
           }
         }
       }
+      While(cond_ast, body_stmts) => {
+        let mut loop_count = 0
+        while true {
+          if vars.contains(awk_ctrl_exit_key) ||
+            vars.contains(awk_ctrl_next_key) ||
+            vars.contains(awk_ctrl_return_key) {
+            break
+          }
+
+          let mut cond_passed = false
+          let mut handled_getline = false
+          match awk_getline_target_from_condition_ast(cond_ast) {
+            Some(target) => {
+              handled_getline = true
+              let next_idx = line_idx + consumed + 1
+              if next_idx >= 0 && next_idx < lines.length() {
+                let next_line = lines[next_idx]
+                consumed += 1
+                current_nr += 1
+                vars["NR"] = current_nr.to_string()
+                vars["FNR"] = current_nr.to_string()
+                if awk_is_identifier(target) {
+                  vars[target] = next_line
+                } else {
+                  current_line = next_line
+                  let current_fs = awk_current_fs(fs, vars)
+                  current_fields = awk_split_fields(current_line, current_fs)
+                  vars["NF"] = current_fields.length().to_string()
+                }
+                cond_passed = true
+              } else {
+                cond_passed = false
+              }
+            }
+            None => ()
+          }
+          if not(handled_getline) {
+            cond_passed = awk_eval_condition_ast(
+              cond_ast,
+              current_line,
+              current_fields,
+              current_nr,
+              current_fields.length(),
+              vars,
+              array_vars,
+            )
+          }
+          if not(cond_passed) {
+            break
+          }
+
+          if body_stmts.length() > 0 {
+            let (next_line, next_fields, consumed_body, new_nr) = awk_execute_action_ast_list(
+              ctx,
+              body_stmts,
+              lines,
+              line_idx + consumed,
+              current_line,
+              current_fields,
+              current_nr,
+              fs,
+              filename,
+              vars,
+              array_vars,
+              out,
+            )
+            current_line = next_line
+            current_fields = next_fields
+            consumed += consumed_body
+            current_nr = new_nr
+          }
+
+          if vars.contains(awk_ctrl_exit_key) ||
+            vars.contains(awk_ctrl_next_key) ||
+            vars.contains(awk_ctrl_return_key) {
+            break
+          }
+
+          loop_count += 1
+          if loop_count > awk_loop_guard_limit {
+            break
+          }
+        }
+      }
       If(cond_ast, then_stmts, else_stmts) => {
         let mut cond_passed = false
         let mut handled_getline = false

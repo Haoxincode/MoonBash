@@ -523,12 +523,67 @@ fn awk_merge_if_else_statements(statements : Array[String]) -> Array[String] {
     tail.length() == 0
   }
 
+  fn is_bare_while_header(stmt : String) -> Bool {
+    let text = aj_trim(stmt)
+    if not(aj_starts_with(text, "while")) {
+      return false
+    }
+    if text.length() > 5 {
+      let boundary = text[5].to_int().unsafe_to_char()
+      if not(awk_is_space(boundary)) && boundary != '(' {
+        return false
+      }
+    }
+    let mut i = 5
+    while i < text.length() && awk_is_space(text[i].to_int().unsafe_to_char()) {
+      i += 1
+    }
+    if i >= text.length() || text[i].to_int().unsafe_to_char() != '(' {
+      return false
+    }
+    let mut depth = 1
+    let mut j = i + 1
+    let mut quote : Char? = None
+    while j < text.length() {
+      let ch = text[j].to_int().unsafe_to_char()
+      match quote {
+        Some(q) => {
+          if ch == '\\' && j + 1 < text.length() {
+            j += 2
+            continue
+          }
+          if ch == q {
+            quote = None
+          }
+        }
+        None => {
+          if ch == '"' || ch == '\'' {
+            quote = Some(ch)
+          } else if ch == '(' {
+            depth += 1
+          } else if ch == ')' {
+            depth -= 1
+            if depth == 0 {
+              break
+            }
+          }
+        }
+      }
+      j += 1
+    }
+    if j >= text.length() || depth != 0 {
+      return false
+    }
+    let tail = aj_trim(aj_substr(text, j + 1, text.length()))
+    tail.length() == 0
+  }
+
   fn statement_has_dangling_control(stmt : String) -> Bool {
     let text = aj_trim(stmt)
     if text.length() == 0 {
       return false
     }
-    if is_bare_if_header(text) || is_bare_for_header(text) {
+    if is_bare_if_header(text) || is_bare_for_header(text) || is_bare_while_header(text) {
       return true
     }
     match awk_parse_for_statement(text) {
@@ -538,6 +593,11 @@ fn awk_merge_if_else_statements(statements : Array[String]) -> Array[String] {
     }
     match awk_parse_for_in_statement(text) {
       Some((_loop_var, _arr_name, body_stmt)) =>
+        return statement_has_dangling_control(body_stmt)
+      None => ()
+    }
+    match awk_parse_while_statement(text) {
+      Some((_cond_expr, body_stmt)) =>
         return statement_has_dangling_control(body_stmt)
       None => ()
     }
@@ -603,6 +663,74 @@ fn awk_merge_if_else_statements(statements : Array[String]) -> Array[String] {
 }
 
 let awk_loop_guard_limit : Int = 10_000
+
+fn awk_parse_while_statement(stmt : String) -> (String, String)? {
+  let text = aj_trim(stmt)
+  if not(aj_starts_with(text, "while")) {
+    return None
+  }
+  if text.length() > 5 {
+    let boundary = text[5].to_int().unsafe_to_char()
+    if not(awk_is_space(boundary)) && boundary != '(' {
+      return None
+    }
+  }
+
+  let mut i = 5
+  while i < text.length() && awk_is_space(text[i].to_int().unsafe_to_char()) {
+    i += 1
+  }
+  if i >= text.length() || text[i].to_int().unsafe_to_char() != '(' {
+    return None
+  }
+
+  let mut depth = 1
+  let mut j = i + 1
+  let mut quote : Char? = None
+  while j < text.length() {
+    let ch = text[j].to_int().unsafe_to_char()
+    match quote {
+      Some(q) => {
+        if ch == '\\' && j + 1 < text.length() {
+          j += 2
+          continue
+        }
+        if ch == q {
+          quote = None
+        }
+      }
+      None => {
+        if ch == '"' || ch == '\'' {
+          quote = Some(ch)
+        } else if ch == '(' {
+          depth += 1
+        } else if ch == ')' {
+          depth -= 1
+          if depth == 0 {
+            break
+          }
+        }
+      }
+    }
+    j += 1
+  }
+  if j >= text.length() || depth != 0 {
+    return None
+  }
+
+  let cond = aj_trim(aj_substr(text, i + 1, j))
+  let cond = if cond.length() == 0 { "0" } else { cond }
+  let mut body = aj_trim(aj_substr(text, j + 1, text.length()))
+  if body.length() == 0 {
+    return None
+  }
+  if body.length() >= 2 &&
+    body[0].to_int().unsafe_to_char() == '{' &&
+    body[body.length() - 1].to_int().unsafe_to_char() == '}' {
+    body = aj_trim(aj_substr(body, 1, body.length() - 1))
+  }
+  Some((cond, body))
+}
 
 fn awk_split_for_header(header : String) -> Array[String] {
   let parts : Array[String] = []

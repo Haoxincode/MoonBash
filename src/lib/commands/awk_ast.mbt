@@ -4,6 +4,7 @@ priv enum AwkStmt {
   If(AwkExprAst, Array[AwkStmt], Array[AwkStmt]?)
   For(Array[AwkStmt], AwkExprAst?, Array[AwkStmt], Array[AwkStmt])
   ForIn(String, String, Array[AwkStmt])
+  While(AwkExprAst, Array[AwkStmt])
   Next
   Exit(AwkExprAst?)
   Return(AwkExprAst?)
@@ -218,6 +219,15 @@ fn awk_parse_statement_ast(stmt : String) -> AwkStmt {
       let update_ast = awk_parse_action_ast(update_stmt)
       let body_ast = awk_parse_action_ast(body_stmt)
       return For(init_ast, cond_ast, update_ast, body_ast)
+    }
+    None => ()
+  }
+
+  match awk_parse_while_statement(text) {
+    Some((cond_expr, body_stmt)) => {
+      let cond_ast = awk_parse_expr_ast(cond_expr)
+      let body_ast = awk_parse_action_ast(body_stmt)
+      return While(cond_ast, body_ast)
     }
     None => ()
   }
