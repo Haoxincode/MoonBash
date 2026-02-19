@@ -268,6 +268,85 @@ fn awk_execute_action_ast_list(
           ),
         )
       }
+      CompoundAssignStmt(lhs, op, rhs_ast) => {
+        let right = awk_parse_number(
+          awk_eval_expr_ast(
+            rhs_ast,
+            current_line,
+            current_fields,
+            current_nr,
+            current_fields.length(),
+            vars,
+            array_vars,
+          ),
+        )
+        if awk_is_identifier(lhs) {
+          let left = awk_parse_number(vars.get(lhs).unwrap_or(""))
+          let value = match op {
+            "+=" => left + right
+            "-=" => left - right
+            "*=" => left * right
+            "/=" => if right == 0.0 { 0.0 } else { left / right }
+            _ => left
+          }
+          vars[lhs] = awk_number_to_string(value)
+        } else {
+          match awk_parse_array_ref(lhs) {
+            Some((arr_name, idx_expr)) => {
+              let idx = awk_eval_expr(
+                idx_expr,
+                current_line,
+                current_fields,
+                current_nr,
+                current_fields.length(),
+                vars,
+                array_vars,
+              )
+              let key = awk_array_key(arr_name, idx)
+              let left = awk_parse_number(array_vars.get(key).unwrap_or(""))
+              let value = match op {
+                "+=" => left + right
+                "-=" => left - right
+                "*=" => left * right
+                "/=" => if right == 0.0 { 0.0 } else { left / right }
+                _ => left
+              }
+              array_vars[key] = awk_number_to_string(value)
+            }
+            None => ()
+          }
+        }
+      }
+      AssignStmt(lhs, rhs_ast) => {
+        let value = awk_eval_expr_ast(
+          rhs_ast,
+          current_line,
+          current_fields,
+          current_nr,
+          current_fields.length(),
+          vars,
+          array_vars,
+        )
+        if awk_is_identifier(lhs) {
+          vars[lhs] = value
+        } else {
+          match awk_parse_array_ref(lhs) {
+            Some((arr_name, idx_expr)) => {
+              let idx = awk_eval_expr(
+                idx_expr,
+                current_line,
+                current_fields,
+                current_nr,
+                current_fields.length(),
+                vars,
+                array_vars,
+              )
+              array_vars[awk_array_key(arr_name, idx)] = value
+            }
+            None => ()
+          }
+        }
+      }
       Delete(target_expr) => {
         match awk_parse_array_ref(target_expr) {
           Some((arr_name, idx_expr)) => {
@@ -971,160 +1050,6 @@ fn awk_execute_action_simple(
             let key = awk_array_key(arr_name, idx)
             let value = awk_parse_number(array_vars.get(key).unwrap_or(""))
             array_vars[key] = awk_number_to_string(value + 1.0)
-          }
-          None => ()
-        }
-      }
-      continue
-    }
-
-    let plus_eq_idx = awk_find_top_level_token(stmt, "+=")
-    if plus_eq_idx > 0 {
-      let name = aj_trim(aj_substr(stmt, 0, plus_eq_idx))
-      let rhs = aj_trim(aj_substr(stmt, plus_eq_idx + 2, stmt.length()))
-      let right = awk_eval_number(
-        rhs,
-        current_line,
-        current_fields,
-        current_nr,
-        current_fields.length(),
-        vars,
-        array_vars,
-      )
-      if awk_is_identifier(name) {
-        let left = awk_parse_number(vars.get(name).unwrap_or(""))
-        vars[name] = awk_number_to_string(left + right)
-      } else {
-        match awk_parse_array_ref(name) {
-          Some((arr_name, idx_expr)) => {
-            let idx = awk_eval_expr(
-              idx_expr,
-              current_line,
-              current_fields,
-              current_nr,
-              current_fields.length(),
-              vars,
-              array_vars,
-            )
-            let key = awk_array_key(arr_name, idx)
-            let left = awk_parse_number(array_vars.get(key).unwrap_or(""))
-            array_vars[key] = awk_number_to_string(left + right)
-          }
-          None => ()
-        }
-      }
-      continue
-    }
-
-    let minus_eq_idx = awk_find_top_level_token(stmt, "-=")
-    if minus_eq_idx > 0 {
-      let name = aj_trim(aj_substr(stmt, 0, minus_eq_idx))
-      let rhs = aj_trim(aj_substr(stmt, minus_eq_idx + 2, stmt.length()))
-      let right = awk_eval_number(
-        rhs,
-        current_line,
-        current_fields,
-        current_nr,
-        current_fields.length(),
-        vars,
-        array_vars,
-      )
-      if awk_is_identifier(name) {
-        let left = awk_parse_number(vars.get(name).unwrap_or(""))
-        vars[name] = awk_number_to_string(left - right)
-      } else {
-        match awk_parse_array_ref(name) {
-          Some((arr_name, idx_expr)) => {
-            let idx = awk_eval_expr(
-              idx_expr,
-              current_line,
-              current_fields,
-              current_nr,
-              current_fields.length(),
-              vars,
-              array_vars,
-            )
-            let key = awk_array_key(arr_name, idx)
-            let left = awk_parse_number(array_vars.get(key).unwrap_or(""))
-            array_vars[key] = awk_number_to_string(left - right)
-          }
-          None => ()
-        }
-      }
-      continue
-    }
-
-    let mul_eq_idx = awk_find_top_level_token(stmt, "*=")
-    if mul_eq_idx > 0 {
-      let name = aj_trim(aj_substr(stmt, 0, mul_eq_idx))
-      let rhs = aj_trim(aj_substr(stmt, mul_eq_idx + 2, stmt.length()))
-      let right = awk_eval_number(
-        rhs,
-        current_line,
-        current_fields,
-        current_nr,
-        current_fields.length(),
-        vars,
-        array_vars,
-      )
-      if awk_is_identifier(name) {
-        let left = awk_parse_number(vars.get(name).unwrap_or(""))
-        vars[name] = awk_number_to_string(left * right)
-      } else {
-        match awk_parse_array_ref(name) {
-          Some((arr_name, idx_expr)) => {
-            let idx = awk_eval_expr(
-              idx_expr,
-              current_line,
-              current_fields,
-              current_nr,
-              current_fields.length(),
-              vars,
-              array_vars,
-            )
-            let key = awk_array_key(arr_name, idx)
-            let left = awk_parse_number(array_vars.get(key).unwrap_or(""))
-            array_vars[key] = awk_number_to_string(left * right)
-          }
-          None => ()
-        }
-      }
-      continue
-    }
-
-    let div_eq_idx = awk_find_top_level_token(stmt, "/=")
-    if div_eq_idx > 0 {
-      let name = aj_trim(aj_substr(stmt, 0, div_eq_idx))
-      let rhs = aj_trim(aj_substr(stmt, div_eq_idx + 2, stmt.length()))
-      let right = awk_eval_number(
-        rhs,
-        current_line,
-        current_fields,
-        current_nr,
-        current_fields.length(),
-        vars,
-        array_vars,
-      )
-      if awk_is_identifier(name) {
-        let left = awk_parse_number(vars.get(name).unwrap_or(""))
-        let value = if right == 0.0 { 0.0 } else { left / right }
-        vars[name] = awk_number_to_string(value)
-      } else {
-        match awk_parse_array_ref(name) {
-          Some((arr_name, idx_expr)) => {
-            let idx = awk_eval_expr(
-              idx_expr,
-              current_line,
-              current_fields,
-              current_nr,
-              current_fields.length(),
-              vars,
-              array_vars,
-            )
-            let key = awk_array_key(arr_name, idx)
-            let left = awk_parse_number(array_vars.get(key).unwrap_or(""))
-            let value = if right == 0.0 { 0.0 } else { left / right }
-            array_vars[key] = awk_number_to_string(value)
           }
           None => ()
         }
