@@ -69,3 +69,57 @@ pnpm exec vitest run --no-cache --pool=forks --maxWorkers=1 --fileParallelism=fa
 ## 建议 issue 标题
 
 - `tests: fix false failures and stale skips in official imported suites (parse-errors/grep/jq)`
+
+## 当前失败快照（2026-02-19，已复核）
+
+复核命令（与 `test-safe` 同参数）：
+
+```bash
+pnpm exec vitest run --no-cache --pool=forks --maxWorkers=1 --fileParallelism=false --silent <suite>
+```
+
+### 通过套件
+
+- `tests/unit`：`168 passed`
+- `tests/comparison`：`523 passed`
+- `tests/spec/sed`：`237 passed`
+- `tests/spec/awk`：`152 passed | 1 skipped`
+- `tests/security/sandbox`：`178 passed`
+- `tests/security/limits`：`86 passed | 1 skipped`
+- `tests/security/prototype-pollution`：`420 passed`
+- `tests/agent-examples/*`：本轮抽检全部通过
+
+### 未通过套件（需要继续修）
+
+1. `tests/spec/grep/grep-spec.test.ts`
+   - `54 failed | 227 passed | 51 skipped`
+   - 失败构成：实现缺口（regex 兼容）+ 过期 skip（`UNEXPECTED PASS`）
+
+2. `tests/spec/jq/jq-spec.test.ts`
+   - `170 failed | 598 passed`
+   - 失败构成：实现缺口（jq 语义/内建函数）+ 过期 skip（`UNEXPECTED PASS`）
+
+3. `tests/security/attacks`
+   - `1 failed | 187 passed`
+   - 失败点：`tests/security/attacks/filename-attacks.test.ts:288`
+   - 用例名：`should handle broken symlinks gracefully`
+   - 现象：`expect(result.stderr).toBeTruthy()` 断言失败（`stderr` 为空）
+
+4. `tests/spec/bash/spec.test.ts`（按 `test-safe` 分片）
+   - `[1/10]` `205 failed | 179 passed | 1952 skipped`
+   - `[2/10]` `142 failed | 135 passed | 2059 skipped`
+   - `[3/10]` `146 failed | 194 passed | 1996 skipped`
+   - `[4/10]` `51 failed | 133 passed | 2152 skipped`
+   - `[5/10]` `138 failed | 87 passed | 2111 skipped`
+   - `[6/10]` 超时（120s，无 summary）
+   - `[7/10]` 超时（120s，无 summary）
+   - `[8/10]` 超时（120s，无 summary）
+   - `[9/10]` 超时（120s，无 summary）
+   - `[10/10]` `1 failed | 2 passed | 2333 skipped`
+
+### 追踪建议（优先级）
+
+1. 先清理 `grep/jq` 过期 skip（低风险、高收益，能快速去掉 `UNEXPECTED PASS` 噪音）
+2. 单独修复 `security/attacks` 那个 broken symlink 断言（范围小，易收敛）
+3. 再处理 `grep` regex 兼容缺口
+4. 最后集中攻 `bash spec`（量级最大，且存在超时分片）
