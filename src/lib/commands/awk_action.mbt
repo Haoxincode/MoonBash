@@ -569,7 +569,7 @@ fn awk_execute_action_ast_list(
             )
             array_vars.remove(awk_array_key(arr_name, idx))
           }
-          None => ()
+          None => awk_remove_array_namespace(array_vars, arr_name)
         }
       }
       Printf(fmt_ast, arg_asts, target_ast, append) => {

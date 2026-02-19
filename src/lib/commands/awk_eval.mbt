@@ -454,7 +454,7 @@ fn awk_execute_function_statements(
             let idx = awk_eval_expr_ast(expr_ast, line, fields, nr, fields.length(), vars, array_vars)
             array_vars.remove(awk_array_key(arr_name, idx))
           }
-          None => ()
+          None => awk_remove_array_namespace(array_vars, arr_name)
         }
       }
       Printf(fmt_ast, arg_asts, _target_ast, _append) => {
