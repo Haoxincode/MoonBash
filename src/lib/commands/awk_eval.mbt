@@ -204,8 +204,21 @@ fn awk_execute_function_statements(
         vars[awk_ctrl_return_value_key] = value
         break
       }
-      PipeGetline(_cmd_ast, _target) => {
-        ()
+      PipeGetline(cmd_ast, target) => {
+        let command = awk_eval_expr_ast(
+          cmd_ast,
+          line,
+          fields,
+          nr,
+          fields.length(),
+          vars,
+          array_vars,
+        )
+        let line_from_cmd = awk_eval_getline_command_line(command)
+        match target {
+          Var(name) => vars[name] = line_from_cmd
+          _ => ()
+        }
       }
       Getline(_target, _path_ast) => {
         ()
@@ -269,8 +282,14 @@ fn awk_execute_function_statements(
       FieldAssignStmt(_lhs, _rhs_ast) => {
         ()
       }
-      Delete(_arr_name, _idx_ast) => {
-        ()
+      Delete(arr_name, idx_ast) => {
+        match idx_ast {
+          Some(expr_ast) => {
+            let idx = awk_eval_expr_ast(expr_ast, line, fields, nr, fields.length(), vars, array_vars)
+            array_vars.remove(awk_array_key(arr_name, idx))
+          }
+          None => ()
+        }
       }
       Printf(fmt_ast, arg_asts, _target_ast, _append) => {
         let fmt_value = awk_eval_expr_ast(
