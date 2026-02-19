@@ -430,13 +430,15 @@ fn awk_execute_function_statements(
           }
         }
       }
-      FieldAssignStmt(lhs, rhs_ast) => {
+      FieldAssignStmt(idx_ast, rhs_ast) => {
         let value = awk_eval_expr_ast(rhs_ast, line, fields, nr, fields.length(), vars, array_vars)
-        if lhs == "$0" {
+        let field_idx = awk_parse_number(
+          awk_eval_expr_ast(idx_ast, line, fields, nr, fields.length(), vars, array_vars),
+        ).to_int()
+        if field_idx == 0 {
           // Function executor has no mutable `line` slot, so only refresh field view.
           awk_sync_fields_from_record_for_function(value, fields, vars)
         } else {
-          let field_idx = aj_parse_int(aj_substr(lhs, 1, lhs.length()))
           if field_idx > 0 {
             while fields.length() < field_idx {
               fields.push("")

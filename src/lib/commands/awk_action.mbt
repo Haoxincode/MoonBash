@@ -517,7 +517,7 @@ fn awk_execute_action_ast_list(
           }
         }
       }
-      FieldAssignStmt(lhs, rhs_ast) => {
+      FieldAssignStmt(idx_ast, rhs_ast) => {
         let value = awk_eval_expr_ast(
           rhs_ast,
           current_line,
@@ -527,19 +527,24 @@ fn awk_execute_action_ast_list(
           vars,
           array_vars,
         )
-        if lhs == "$0" {
+        let field_idx = awk_parse_number(
+          awk_eval_expr_ast(
+            idx_ast,
+            current_line,
+            current_fields,
+            current_nr,
+            current_fields.length(),
+            vars,
+            array_vars,
+          ),
+        ).to_int()
+        if field_idx == 0 {
           current_line = value
           let current_fs = awk_current_fs(fs, vars)
           current_fields = awk_split_fields(current_line, current_fs)
           vars["NF"] = current_fields.length().to_string()
         } else {
-          let field_idx = aj_parse_int(aj_substr(lhs, 1, lhs.length()))
-          if field_idx == 0 {
-            current_line = value
-            let current_fs = awk_current_fs(fs, vars)
-            current_fields = awk_split_fields(current_line, current_fs)
-            vars["NF"] = current_fields.length().to_string()
-          } else if field_idx > 0 {
+          if field_idx > 0 {
             while current_fields.length() < field_idx {
               current_fields.push("")
             }

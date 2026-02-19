@@ -51,6 +51,7 @@
 - 函数执行器 `PipeGetline/Getline` 已支持结构化目标赋值（`Var`/`Record`/`Field`/`ArrayElem`）
 - `Invalid` 目标策略已收敛：action/function 执行器统一显式报错退出（不再隐式回退）
 - `AssignStmt` / `CompoundAssignStmt` 左值已迁移为 `AwkAssignTarget`（`Var`/`ArrayElem`），执行期不再重复 `parse_array_ref`
+- `FieldAssignStmt` 左值已迁移为字段索引 AST，执行期按表达式求值索引（不再依赖 `"$n"` 字符串切片）
 
 ## 验证方式
 
