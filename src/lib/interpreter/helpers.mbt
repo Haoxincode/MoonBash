@@ -5,13 +5,16 @@ fn is_shell_builtin(name : String) -> Bool {
   match name {
     "export" | "unset" | "set" | "shift" | "exit" | "return" | "break"
     | "continue" | "read" | "test" | "[" | "[[" | "printf" | "eval" | "source"
-    | "." | "local" | "readonly" | "declare" | "typeset" | "getopts" | "let" | ":" | "type" | "command" | "basename"
+    | "." | "local" | "readonly" | "declare" | "typeset" | "getopts" | "let"
+    | ":" | "type" | "command" | "builtin" | "hash" | "shopt" | "complete"
+    | "compgen" | "compopt" | "pushd" | "popd" | "dirs" | "basename"
     | "dirname" | "seq" | "rev" | "nl" | "fold" | "expand" | "unexpand" | "paste"
     | "column" | "join" | "tr" | "sort" | "uniq" | "cut" | "tee" | "sed" | "grep"
     | "egrep" | "fgrep" | "rg" | "xargs" | "date" | "env" | "printenv"
     | "which" | "whoami" | "hostname" | "help" | "clear" | "history" | "tac"
     | "od" | "alias" | "unalias" | "bash" | "sh" | "time" | "sleep"
-    | "timeout" | "mapfile" | "readarray" => true
+    | "timeout" | "mapfile" | "readarray" | "cd" | "pwd" | "echo" | "true"
+    | "false" => true
     _ => false
   }
 }

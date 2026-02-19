@@ -347,9 +347,13 @@ fn ExecContext::execute_simple(
 
   // Process variable assignments
   if cmd.assignments.length() > 0 {
+    let mut keep_expansion_status = false
     for assign in cmd.assignments {
       match assign.value {
         Some(word) => {
+          if word_has_status_sensitive_expansion(word) {
+            keep_expansion_status = true
+          }
           if self.try_store_array_assignment(assign.name, word, assign.append) {
             continue
           }
@@ -401,7 +405,7 @@ fn ExecContext::execute_simple(
     }
     // If no words follow, we're done (assignment-only command)
     if not(has_words) {
-      if not(self.should_exit) {
+      if not(self.should_exit) && not(keep_expansion_status) {
         self.exit_code = 0
       }
       return
@@ -504,8 +508,12 @@ fn ExecContext::execute_simple(
   let saved_stdin = self.stdin_buf
   let mut redirected_file : String? = None
   let mut redirect_append = false
+  let mut redirected_stderr_file : String? = None
+  let mut redirect_stderr_append = false
   let mut null_output = false
+  let mut null_stderr = false
   let mut stdout_to_stderr = false
+  let mut stderr_to_stdout = false
   let mut input_from_file = false
   let exec_builtin = cmd_name == "exec"
 
@@ -519,6 +527,20 @@ fn ExecContext::execute_simple(
         }
         if exec_builtin && source_fd != 1 {
           self.store_fd_output_mapping(source_fd, target, false)
+          continue
+        }
+        if source_fd == 2 {
+          if target == "/dev/null" {
+            null_stderr = true
+            self.stderr_buf = StringBuilder::new()
+          } else if target == "/dev/stdout" || target == "1" {
+            stderr_to_stdout = true
+            self.stderr_buf = StringBuilder::new()
+          } else {
+            redirected_stderr_file = Some(target)
+            redirect_stderr_append = false
+            self.stderr_buf = StringBuilder::new()
+          }
           continue
         }
         if source_fd != 1 {
@@ -544,6 +566,20 @@ fn ExecContext::execute_simple(
         }
         if exec_builtin && source_fd != 1 {
           self.store_fd_output_mapping(source_fd, target, true)
+          continue
+        }
+        if source_fd == 2 {
+          if target == "/dev/null" {
+            null_stderr = true
+            self.stderr_buf = StringBuilder::new()
+          } else if target == "/dev/stdout" || target == "1" {
+            stderr_to_stdout = true
+            self.stderr_buf = StringBuilder::new()
+          } else {
+            redirected_stderr_file = Some(target)
+            redirect_stderr_append = true
+            self.stderr_buf = StringBuilder::new()
+          }
           continue
         }
         if source_fd != 1 {
@@ -633,6 +669,13 @@ fn ExecContext::execute_simple(
             None => ()
           }
         }
+        if source_fd == 2 && (target == "1" || target == "/dev/stdout") {
+          stderr_to_stdout = true
+          self.stderr_buf = StringBuilder::new()
+        } else if source_fd == 2 && target == "-" {
+          null_stderr = true
+          self.stderr_buf = StringBuilder::new()
+        }
         if source_fd == 1 && (target == "2" || target == "/dev/stderr") {
           stdout_to_stderr = true
           self.stdout_buf = StringBuilder::new()
@@ -687,10 +730,115 @@ fn ExecContext::execute_simple(
     }
   }
 
+  match redirected_stderr_file {
+    Some(path) => {
+      let output = self.stderr_buf.to_string()
+      let resolved = try {
+        @fs.resolve_path(self.cwd, path)
+      } catch {
+        _ => path
+      }
+      try {
+        if redirect_stderr_append {
+          self.fs.append_file(resolved, output)
+        } else {
+          self.fs.write_file(resolved, output)
+        }
+      } catch {
+        @fs.FsError(msg) =>
+          saved_stderr.write_string("moon_bash: \{msg}\n")
+      }
+      self.stderr_buf = saved_stderr
+    }
+    None => {
+      if stderr_to_stdout {
+        let output = self.stderr_buf.to_string()
+        saved_stdout.write_string(output)
+        self.stderr_buf = saved_stderr
+      } else if null_stderr {
+        self.stderr_buf = saved_stderr
+      }
+    }
+  }
+
   if input_from_file {
     self.stdin_buf = saved_stdin
   }
   self.enforce_output_size_limit()
+}
+
+fn word_has_status_sensitive_expansion(word : @ast.Word) -> Bool {
+  for part in word.parts {
+    if word_part_has_status_sensitive_expansion(part) {
+      return true
+    }
+  }
+  false
+}
+
+fn word_part_has_status_sensitive_expansion(part : @ast.WordPart) -> Bool {
+  match part {
+    @ast.WordPart::CommandSubstitution(_) => true
+    @ast.WordPart::ArithmeticExpansion(_) => true
+    @ast.WordPart::DoubleQuoted(inner) => {
+      for nested in inner {
+        if word_part_has_status_sensitive_expansion(nested) {
+          return true
+        }
+      }
+      false
+    }
+    @ast.WordPart::BraceExpansion(options) => {
+      for option in options {
+        for nested in option {
+          if word_part_has_status_sensitive_expansion(nested) {
+            return true
+          }
+        }
+      }
+      false
+    }
+    @ast.WordPart::ParameterExpansion(expansion) =>
+      param_expansion_has_status_sensitive_expansion(expansion)
+    _ => false
+  }
+}
+
+fn param_expansion_has_status_sensitive_expansion(
+  expansion : @ast.ParamExpansion
+) -> Bool {
+  match expansion {
+    @ast.ParamExpansion::Default(_, word, _) => word_has_status_sensitive_expansion(word)
+    @ast.ParamExpansion::Assign(_, word, _) => word_has_status_sensitive_expansion(word)
+    @ast.ParamExpansion::Error(_, maybe_word, _) =>
+      match maybe_word {
+        Some(word) => word_has_status_sensitive_expansion(word)
+        None => false
+      }
+    @ast.ParamExpansion::Alternative(_, word, _) => word_has_status_sensitive_expansion(word)
+    @ast.ParamExpansion::PrefixRemove(_, word, _) => word_has_status_sensitive_expansion(word)
+    @ast.ParamExpansion::SuffixRemove(_, word, _) => word_has_status_sensitive_expansion(word)
+    @ast.ParamExpansion::Replace(_, pattern, maybe_repl, _) => {
+      if word_has_status_sensitive_expansion(pattern) {
+        return true
+      }
+      match maybe_repl {
+        Some(repl) => word_has_status_sensitive_expansion(repl)
+        None => false
+      }
+    }
+    @ast.ParamExpansion::Uppercase(_, maybe_pattern, _) =>
+      match maybe_pattern {
+        Some(pattern) => word_has_status_sensitive_expansion(pattern)
+        None => false
+      }
+    @ast.ParamExpansion::Lowercase(_, maybe_pattern, _) =>
+      match maybe_pattern {
+        Some(pattern) => word_has_status_sensitive_expansion(pattern)
+        None => false
+      }
+    _ => false
+  }
 }
 
 fn is_grep_like_command(cmd_name : String) -> Bool {
@@ -727,4 +875,3 @@ fn ExecContext::store_scalar_assignment_with_options(
   self.env[name] = final_value
   true
 }
-

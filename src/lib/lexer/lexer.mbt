@@ -606,7 +606,16 @@ fn Lexer::scan_parenthesized_assignment_value(
       '\\' => {
         self.pos += 1
         if not(self.at_end()) {
-          buf.write_char(self.advance())
+          let next = self.advance()
+          if next == '$' ||
+            next == '`' ||
+            next == '\\' ||
+            next == '"' ||
+            next == '\'' {
+            // Preserve escape marker for expansion parser.
+            buf.write_char('\\')
+          }
+          buf.write_char(next)
         }
       }
       _ => {

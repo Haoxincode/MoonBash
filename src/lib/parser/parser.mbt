@@ -121,7 +121,11 @@ fn Parser::is_word(self : Parser) -> Bool {
     | @ast.Token::Function
     | @ast.Token::Select
     | @ast.Token::Bang
-    | @ast.Token::Time => true
+    | @ast.Token::Time
+    | @ast.Token::LeftBrace
+    | @ast.Token::RightBrace
+    | @ast.Token::DoubleBracketOpen
+    | @ast.Token::DoubleBracketClose => true
     _ => false
   }
 }
@@ -155,6 +159,10 @@ fn token_to_string(tok : @ast.Token) -> String {
     @ast.Token::Select => "select"
     @ast.Token::Bang => "!"
     @ast.Token::Time => "time"
+    @ast.Token::LeftBrace => "{"
+    @ast.Token::RightBrace => "}"
+    @ast.Token::DoubleBracketOpen => "[["
+    @ast.Token::DoubleBracketClose => "]]"
     _ => ""
   }
 }

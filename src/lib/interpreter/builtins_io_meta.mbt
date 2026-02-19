@@ -337,22 +337,220 @@ fn ExecContext::builtin_type(
   self : ExecContext,
   args : Array[String]
 ) -> Unit {
-  for arg in args {
-    if self.functions.contains(arg) {
-      self.stdout_buf.write_string("\{arg} is a function\n")
-    } else if is_shell_builtin(arg) {
-      self.stdout_buf.write_string("\{arg} is a shell builtin\n")
-    } else {
-      match @commands.find_command(arg) {
-        Some(_) => self.stdout_buf.write_string("\{arg} is /usr/bin/\{arg}\n")
-        None =>
-          self.stderr_buf.write_string(
-            "moon_bash: type: \{arg}: not found\n",
+  let mut opt_a = false
+  let mut opt_t = false
+  let mut opt_p = false
+  let mut opt_upper_p = false
+  let mut opt_f = false
+
+  let mut i = 0
+  while i < args.length() {
+    let arg = args[i]
+    if arg == "--" {
+      i += 1
+      break
+    }
+    if arg.length() >= 2 && arg[0].to_int().unsafe_to_char() == '-' {
+      let mut recognized = true
+      for j = 1; j < arg.length(); j = j + 1 {
+        let flag = arg[j].to_int().unsafe_to_char()
+        match flag {
+          'a' => opt_a = true
+          't' => opt_t = true
+          'p' => opt_p = true
+          'P' => opt_upper_p = true
+          'f' => opt_f = true
+          _ => recognized = false
+        }
+      }
+      if recognized {
+        i += 1
+        continue
+      }
+    }
+    break
+  }
+
+  if i >= args.length() {
+    self.exit_code = 1
+    return
+  }
+
+  let mut all_found = true
+  let file_only_mode = opt_p || opt_upper_p
+
+  for idx = i; idx < args.length(); idx = idx + 1 {
+    let name = args[idx]
+    if name.length() == 0 {
+      all_found = false
+      continue
+    }
+
+    if opt_t {
+      let mut found = false
+      if self.lookup_alias_value(name) is Some(_) {
+        self.stdout_buf.write_string("alias\n")
+        found = true
+      } else if not(opt_f) && self.functions.contains(name) {
+        self.stdout_buf.write_string("function\n")
+        found = true
+      } else if is_lookup_shell_keyword(name) {
+        self.stdout_buf.write_string("keyword\n")
+        found = true
+      } else if is_lookup_shell_builtin(name) {
+        self.stdout_buf.write_string("builtin\n")
+        found = true
+      } else {
+        match self.first_path_command_match(name, false, true) {
+          Some((_display, _resolved, _is_virtual)) => {
+            self.stdout_buf.write_string("file\n")
+            found = true
+          }
+          None => ()
+        }
+      }
+      if not(found) {
+        all_found = false
+      }
+      continue
+    }
+
+    if file_only_mode {
+      if type_builtin_without_external_path(name) {
+        all_found = false
+        continue
+      }
+
+      let force_path_lookup = opt_upper_p || opt_a
+      if not(force_path_lookup) {
+        let shadowed_by_non_file = self.lookup_alias_value(name) is Some(_) ||
+          (not(opt_f) && self.functions.contains(name)) ||
+          is_lookup_shell_keyword(name) ||
+          is_lookup_shell_builtin(name)
+        if shadowed_by_non_file {
+          all_found = false
+          continue
+        }
+      }
+
+      let matches = self.all_path_command_matches(name, false, true)
+      let mut found = false
+      if opt_a {
+        for match_item in matches {
+          let (display, _resolved, _is_virtual) = match_item
+          self.stdout_buf.write_string(display + "\n")
+          found = true
+        }
+      } else {
+        if matches.length() > 0 {
+          let (display, _resolved, _is_virtual) = matches[0]
+          self.stdout_buf.write_string(display + "\n")
+          found = true
+        }
+      }
+      if not(found) {
+        all_found = false
+      }
+      continue
+    }
+
+    if opt_a {
+      let mut found = false
+      match self.lookup_alias_value(name) {
+        Some(alias_value) => {
+          self.stdout_buf.write_string(
+            "\{name} is an alias for \"\{alias_value}\"\n",
           )
+          found = true
+        }
+        None => ()
+      }
+      if not(opt_f) {
+        match self.functions.get(name) {
+          Some(fndef) => {
+            self.print_type_function_definition(name, fndef)
+            found = true
+          }
+          None => ()
+        }
+      }
+      if is_lookup_shell_keyword(name) {
+        self.stdout_buf.write_string("\{name} is a shell keyword\n")
+        found = true
+      }
+      if is_lookup_shell_builtin(name) {
+        let builtin_kind = if is_special_shell_builtin(name) {
+          "special shell builtin"
+        } else {
+          "shell builtin"
+        }
+        self.stdout_buf.write_string("\{name} is a \{builtin_kind}\n")
+        found = true
+      }
+      if not(type_builtin_without_external_path(name)) {
+        for match_item in self.all_path_command_matches(
+          name,
+          false,
+          true,
+        ) {
+          let (display, _resolved, _is_virtual) = match_item
+          self.stdout_buf.write_string("\{name} is \{display}\n")
+          found = true
+        }
+      }
+      if not(found) {
+        self.stderr_buf.write_string("\{name}: not found\n")
+        all_found = false
+      }
+      continue
+    }
+
+    match self.lookup_alias_value(name) {
+      Some(alias_value) => {
+        self.stdout_buf.write_string(
+          "\{name} is an alias for \"\{alias_value}\"\n",
+        )
+        continue
+      }
+      None => ()
+    }
+
+    if not(opt_f) {
+      match self.functions.get(name) {
+        Some(fndef) => {
+          self.print_type_function_definition(name, fndef)
+          continue
+        }
+        None => ()
+      }
+    }
+
+    if is_lookup_shell_keyword(name) {
+      self.stdout_buf.write_string("\{name} is a shell keyword\n")
+      continue
+    }
+
+    if is_lookup_shell_builtin(name) {
+      let builtin_kind = if is_special_shell_builtin(name) {
+        "special shell builtin"
+      } else {
+        "shell builtin"
+      }
+      self.stdout_buf.write_string("\{name} is a \{builtin_kind}\n")
+      continue
+    }
+
+    match self.first_path_command_match(name, false, true) {
+      Some((display, _resolved, _is_virtual)) => {
+        self.stdout_buf.write_string("\{name} is \{display}\n")
+      }
+      None => {
+        self.stderr_buf.write_string("\{name}: not found\n")
+        all_found = false
       }
     }
   }
-  self.exit_code = 0
+  self.exit_code = if all_found { 0 } else { 1 }
 }
 
 fn ExecContext::builtin_command(
@@ -363,41 +561,286 @@ fn ExecContext::builtin_command(
     self.exit_code = 0
     return
   }
-  // Skip -v flag
-  let mut start = 0
-  if args[0] == "-v" {
-    start = 1
+
+  let mut mode = 0
+  // 0: exec, 1: -v, 2: -V
+  let mut use_default_path = false
+
+  let mut i = 0
+  while i < args.length() {
+    let arg = args[i]
+    if arg == "--" {
+      i += 1
+      break
+    }
+    if arg.length() >= 2 && arg[0].to_int().unsafe_to_char() == '-' {
+      let mut recognized = true
+      for j = 1; j < arg.length(); j = j + 1 {
+        let flag = arg[j].to_int().unsafe_to_char()
+        match flag {
+          'v' => mode = 1
+          'V' => mode = 2
+          'p' => use_default_path = true
+          _ => recognized = false
+        }
+      }
+      if recognized {
+        i += 1
+        continue
+      }
+    }
+    break
   }
-  if start >= args.length() {
+
+  if i >= args.length() {
     self.exit_code = 0
     return
   }
-  let cmd_name = args[start]
-  let cmd_args : Array[String] = []
-  for i = start + 1; i < args.length(); i = i + 1 {
-    cmd_args.push(args[i])
-  }
-  // Execute without function lookup
-  if self.run_builtin(cmd_name, cmd_args) {
+
+  if mode == 1 {
+    let mut all_found = true
+    for idx = i; idx < args.length(); idx = idx + 1 {
+      let name = args[idx]
+      if name.length() == 0 {
+        all_found = false
+        continue
+      }
+      if self.lookup_alias_value(name) is Some(_) {
+        self.stdout_buf.write_string(name + "\n")
+        continue
+      }
+      if self.functions.contains(name) {
+        self.stdout_buf.write_string(name + "\n")
+        continue
+      }
+      if is_lookup_shell_builtin(name) {
+        self.stdout_buf.write_string(name + "\n")
+        continue
+      }
+      if is_lookup_shell_keyword(name) {
+        self.stdout_buf.write_string(name + "\n")
+        continue
+      }
+      match self.first_path_command_match(name, use_default_path, true) {
+        Some((display, _resolved, _is_virtual)) => {
+          self.stdout_buf.write_string(display + "\n")
+        }
+        None => all_found = false
+      }
+    }
+    self.exit_code = if all_found { 0 } else { 1 }
     return
   }
-  match @commands.find_command(cmd_name) {
-    Some(cmd_fn) => {
-      let ctx : @commands.CommandContext = {
-        args: cmd_args,
-        stdin_content: self.stdin_buf,
-        cwd: self.cwd,
-        env: self.env,
-        fs: self.fs,
+
+  if mode == 2 {
+    let mut all_found = true
+    for idx = i; idx < args.length(); idx = idx + 1 {
+      let name = args[idx]
+      if name.length() == 0 {
+        self.stderr_buf.write_string(": not found\n")
+        all_found = false
+        continue
       }
-      let result = cmd_fn(ctx)
-      self.stdout_buf.write_string(result.stdout)
-      self.stderr_buf.write_string(result.stderr)
-      self.exit_code = result.exit_code
+      match self.lookup_alias_value(name) {
+        Some(alias_value) => {
+          self.stdout_buf.write_string(
+            "\{name} is an alias for \"\{alias_value}\"\n",
+          )
+          continue
+        }
+        None => ()
+      }
+      if self.functions.contains(name) {
+        self.stdout_buf.write_string("\{name} is a function\n")
+        continue
+      }
+      if is_lookup_shell_builtin(name) {
+        self.stdout_buf.write_string("\{name} is a shell builtin\n")
+        continue
+      }
+      if is_lookup_shell_keyword(name) {
+        self.stdout_buf.write_string("\{name} is a shell keyword\n")
+        continue
+      }
+      match self.first_path_command_match(name, use_default_path, true) {
+        Some((display, _resolved, _is_virtual)) => {
+          self.stdout_buf.write_string("\{name} is \{display}\n")
+        }
+        None => {
+          self.stderr_buf.write_string("\{name}: not found\n")
+          all_found = false
+        }
+      }
     }
-    None => {
-      self.stderr_buf.write_string("moon_bash: \{cmd_name}: command not found\n")
-      self.exit_code = 127
+    self.exit_code = if all_found { 0 } else { 1 }
+    return
+  }
+
+  let cmd_name = args[i]
+  let cmd_args : Array[String] = []
+  for idx = i + 1; idx < args.length(); idx = idx + 1 {
+    cmd_args.push(args[idx])
+  }
+
+  let saved_skip = self.env.get(command_skip_function_lookup_key)
+  let saved_default = self.env.get(command_default_path_lookup_key)
+  self.env[command_skip_function_lookup_key] = "1"
+  if use_default_path {
+    self.env[command_default_path_lookup_key] = "1"
+  } else {
+    self.env.remove(command_default_path_lookup_key)
+  }
+  self.run_command(cmd_name, cmd_args)
+  match saved_skip {
+    Some(value) => self.env[command_skip_function_lookup_key] = value
+    None => self.env.remove(command_skip_function_lookup_key)
+  }
+  match saved_default {
+    Some(value) => self.env[command_default_path_lookup_key] = value
+    None => self.env.remove(command_default_path_lookup_key)
+  }
+}
+
+fn type_word_part_to_text(part : @ast.WordPart) -> String {
+  match part {
+    @ast.WordPart::Literal(text) => text
+    @ast.WordPart::SingleQuoted(text) => text
+    @ast.WordPart::DoubleQuoted(parts) => {
+      let buf = StringBuilder::new()
+      for inner in parts {
+        buf.write_string(type_word_part_to_text(inner))
+      }
+      buf.to_string()
     }
+    @ast.WordPart::Variable(name) => "$" + name
+    @ast.WordPart::ParameterExpansion(_) => ""
+    @ast.WordPart::CommandSubstitution(_) => ""
+    @ast.WordPart::ArithmeticExpansion(_) => ""
+    @ast.WordPart::BraceExpansion(_) => ""
+    @ast.WordPart::TildePrefix(prefix) => "~" + prefix
+    @ast.WordPart::Glob(pattern) => pattern.pattern
+  }
+}
+
+fn type_word_to_text(word : @ast.Word) -> String {
+  let buf = StringBuilder::new()
+  for part in word.parts {
+    buf.write_string(type_word_part_to_text(part))
+  }
+  buf.to_string()
+}
+
+fn type_render_simple_command(simple : @ast.SimpleCommand) -> String {
+  let pieces : Array[String] = []
+  for assign in simple.assignments {
+    match assign.value {
+      Some(value_word) => {
+        let value = type_word_to_text(value_word)
+        if assign.append {
+          pieces.push("\{assign.name}+=\{value}")
+        } else {
+          pieces.push("\{assign.name}=\{value}")
+        }
+      }
+      None => {
+        if assign.append {
+          pieces.push(assign.name + "+=")
+        } else {
+          pieces.push(assign.name + "=")
+        }
+      }
+    }
+  }
+  for word in simple.words {
+    pieces.push(type_word_to_text(word))
+  }
+  if pieces.length() == 0 {
+    return ""
+  }
+  pieces.iter().fold(
+    init="",
+    fn(acc, piece) { if acc.length() == 0 { piece } else { acc + " " + piece } },
+  )
+}
+
+fn type_collect_pipeline_line(
+  pipeline : @ast.Pipeline,
+  lines : Array[String]
+) -> Unit {
+  if pipeline.commands.length() == 0 {
+    return
+  }
+  if pipeline.commands.length() > 1 {
+    return
+  }
+  match pipeline.commands[0] {
+    @ast.Command::Simple(simple) => {
+      let rendered = type_render_simple_command(simple)
+      if rendered.length() > 0 {
+        lines.push(rendered)
+      }
+    }
+    _ => ()
+  }
+}
+
+fn type_collect_statement_lines(
+  stmt : @ast.Statement,
+  lines : Array[String]
+) -> Unit {
+  match stmt {
+    @ast.Statement::Pipeline(pipeline) => type_collect_pipeline_line(pipeline, lines)
+    @ast.Statement::Sequence(pipeline, right) => {
+      type_collect_pipeline_line(pipeline, lines)
+      type_collect_statement_lines(right, lines)
+    }
+    @ast.Statement::AndList(pipeline, right) => {
+      type_collect_pipeline_line(pipeline, lines)
+      type_collect_statement_lines(right, lines)
+    }
+    @ast.Statement::OrList(pipeline, right) => {
+      type_collect_pipeline_line(pipeline, lines)
+      type_collect_statement_lines(right, lines)
+    }
+    @ast.Statement::Background(pipeline) => type_collect_pipeline_line(pipeline, lines)
+  }
+}
+
+fn type_render_function_body_lines(body : @ast.CompoundCommand) -> Array[String] {
+  let lines : Array[String] = []
+  match body {
+    @ast.CompoundCommand::Group(script) => {
+      for stmt in script.statements {
+        type_collect_statement_lines(stmt, lines)
+      }
+    }
+    _ => ()
+  }
+  lines
+}
+
+fn ExecContext::print_type_function_definition(
+  self : ExecContext,
+  name : String,
+  fndef : @ast.FunctionDef
+) -> Unit {
+  self.stdout_buf.write_string("\{name} is a function\n")
+  self.stdout_buf.write_string("\{name} () \n")
+  self.stdout_buf.write_string("{ \n")
+  let lines = type_render_function_body_lines(fndef.body)
+  if lines.length() == 0 {
+    self.stdout_buf.write_string("    :\n")
+  } else {
+    for line in lines {
+      self.stdout_buf.write_string("    \{line}\n")
+    }
+  }
+  self.stdout_buf.write_string("}\n")
+}
+
+fn type_builtin_without_external_path(name : String) -> Bool {
+  match name {
+    "cd" | "type" | "builtin" | "command" => true
+    _ => false
   }
 }

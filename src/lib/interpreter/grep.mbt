@@ -134,7 +134,9 @@ fn ExecContext::builtin_grep(
   let mut ignore_case = false
   let mut line_number = false
   let mut list_files_only = false
+  let mut list_files_without_match = false
   let mut only_matching = false
+  let mut whole_line = false
   let mut word_match = false
   let mut no_filename = false
   let mut recursive = false
@@ -166,8 +168,14 @@ fn ExecContext::builtin_grep(
       line_number = true
     } else if arg == "-l" {
       list_files_only = true
+      list_files_without_match = false
+    } else if arg == "-L" {
+      list_files_without_match = true
+      list_files_only = false
     } else if arg == "-o" {
       only_matching = true
+    } else if arg == "-x" {
+      whole_line = true
     } else if arg == "-w" {
       word_match = true
     } else if arg == "-h" {
@@ -208,8 +216,16 @@ fn ExecContext::builtin_grep(
           'c' => count_only = true
           'i' => ignore_case = true
           'n' => line_number = true
-          'l' => list_files_only = true
+          'l' => {
+            list_files_only = true
+            list_files_without_match = false
+          }
+          'L' => {
+            list_files_without_match = true
+            list_files_only = false
+          }
           'o' => only_matching = true
+          'x' => whole_line = true
           'w' => word_match = true
           'h' => no_filename = true
           'r' | 'R' => recursive = true
@@ -358,6 +374,7 @@ fn ExecContext::builtin_grep(
 
   let show_filename = not(no_filename) && (targets.length() > 1 || recursive)
   let mut total_selected = 0
+  let mut listed_file_count = 0
 
   for target in targets {
     let lines = split_lines_no_trailing(target.content)
@@ -368,7 +385,8 @@ fn ExecContext::builtin_grep(
     for line_idx = 0; line_idx < lines.length(); line_idx = line_idx + 1 {
       let line = lines[line_idx]
       let raw_ranges = matcher.find_all(line)
-      let ranges = filter_word_ranges(raw_ranges, line, word_match)
+      let word_ranges = filter_word_ranges(raw_ranges, line, word_match)
+      let ranges = filter_whole_line_ranges(word_ranges, line, whole_line)
       let has_match = ranges.length() > 0
       let selected = if invert { not(has_match) } else { has_match }
       line_matches.push(ranges)
@@ -387,9 +405,15 @@ fn ExecContext::builtin_grep(
       return
     }
 
-    if list_files_only {
-      if selected_count > 0 {
+    if list_files_only || list_files_without_match {
+      let should_list = if list_files_without_match {
+        selected_count == 0
+      } else {
+        selected_count > 0
+      }
+      if should_list {
         self.stdout_buf.write_string(target.display_path + "\n")
+        listed_file_count += 1
       }
       continue
     }
@@ -466,7 +490,26 @@ fn ExecContext::builtin_grep(
 
   if had_io_error {
     self.exit_code = 2
+  } else if list_files_only || list_files_without_match {
+    self.exit_code = if listed_file_count > 0 { 0 } else { 1 }
   } else {
     self.exit_code = if total_selected > 0 { 0 } else { 1 }
   }
+}
+
+fn filter_whole_line_ranges(
+  ranges : Array[(Int, Int)],
+  line : String,
+  whole_line : Bool
+) -> Array[(Int, Int)] {
+  if not(whole_line) {
+    return ranges
+  }
+  let filtered : Array[(Int, Int)] = []
+  for range in ranges {
+    if range.0 == 0 && range.1 == line.length() {
+      filtered.push(range)
+    }
+  }
+  filtered
 }

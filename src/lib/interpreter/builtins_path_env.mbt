@@ -216,15 +216,26 @@ fn ExecContext::builtin_which(
   self : ExecContext,
   args : Array[String]
 ) -> Unit {
+  if args.length() == 0 {
+    self.exit_code = 1
+    return
+  }
+
+  let mut all_found = true
   for arg in args {
-    if is_shell_builtin(arg) || @commands.find_command(arg) is Some(_) {
-      self.stdout_buf.write_string("/usr/bin/\{arg}\n")
-    } else {
-      self.stderr_buf.write_string("which: no \{arg} in PATH\n")
-      self.exit_code = 1
+    match self.first_path_command_match(arg, false, true) {
+      Some((display, _resolved, _is_virtual)) => {
+        self.stdout_buf.write_string(display + "\n")
+      }
+      None => {
+        if is_lookup_shell_builtin(arg) {
+          self.stdout_buf.write_string(arg + "\n")
+        } else {
+          self.stderr_buf.write_string("which: no \{arg} in PATH\n")
+          all_found = false
+        }
+      }
     }
   }
-  if self.exit_code != 1 {
-    self.exit_code = 0
-  }
+  self.exit_code = if all_found { 0 } else { 1 }
 }

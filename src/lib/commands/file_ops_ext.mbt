@@ -446,6 +446,26 @@ fn parse_octal(s : String) -> Int {
   result
 }
 
+fn chmod_apply_mode(
+  entry : @fs.FsEntry,
+  absolute_mode : Int,
+  add_exec : Bool,
+  remove_exec : Bool
+) -> Int {
+  let current = match entry {
+    @fs.FsEntry::File(data) => data.mode
+    @fs.FsEntry::Directory(data) => data.mode
+    @fs.FsEntry::Symlink(data) => data.mode
+  }
+  if add_exec {
+    current | 0o111
+  } else if remove_exec {
+    current & 0o666
+  } else {
+    absolute_mode
+  }
+}
+
 /// chmod: change file mode
 fn cmd_chmod(ctx : CommandContext) -> @ast.ExecResult {
   let mut recursive = false
@@ -461,6 +481,23 @@ fn cmd_chmod(ctx : CommandContext) -> @ast.ExecResult {
     return @ast.ExecResult::err("chmod: missing operand\n")
   }
   let mode_str = args[0]
+  let mut add_exec = false
+  let mut remove_exec = false
+  if mode_str == "+x" ||
+    mode_str == "a+x" ||
+    mode_str == "u+x" ||
+    mode_str == "go+x" ||
+    mode_str == "ug+x" ||
+    mode_str == "ugo+x" {
+    add_exec = true
+  } else if mode_str == "-x" ||
+    mode_str == "a-x" ||
+    mode_str == "u-x" ||
+    mode_str == "go-x" ||
+    mode_str == "ug-x" ||
+    mode_str == "ugo-x" {
+    remove_exec = true
+  }
   let mode = parse_octal(mode_str)
   let errbuf = StringBuilder::new()
   let mut exit_code = 0
@@ -480,8 +517,12 @@ fn cmd_chmod(ctx : CommandContext) -> @ast.ExecResult {
       exit_code = 1
       continue
     }
+    let target_mode = match ctx.fs.entries.get(resolved) {
+      Some(entry) => chmod_apply_mode(entry, mode, add_exec, remove_exec)
+      None => mode
+    }
     try {
-      ctx.fs.chmod(resolved, mode)
+      ctx.fs.chmod(resolved, target_mode)
     } catch {
       @fs.FsError(msg) => {
         errbuf.write_string("chmod: \{msg}\n")
@@ -498,8 +539,12 @@ fn cmd_chmod(ctx : CommandContext) -> @ast.ExecResult {
         }
       })
       for child_path in child_paths {
+        let child_mode = match ctx.fs.entries.get(child_path) {
+          Some(entry) => chmod_apply_mode(entry, mode, add_exec, remove_exec)
+          None => mode
+        }
         try {
-          ctx.fs.chmod(child_path, mode)
+          ctx.fs.chmod(child_path, child_mode)
         } catch {
           @fs.FsError(msg) => {
             errbuf.write_string("chmod: \{msg}\n")

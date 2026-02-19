@@ -103,6 +103,42 @@ fn ExecContext::run_builtin(
       self.builtin_command(args)
       true
     }
+    "builtin" => {
+      self.builtin_builtin(args)
+      true
+    }
+    "hash" => {
+      self.builtin_hash(args)
+      true
+    }
+    "shopt" => {
+      self.builtin_shopt(args)
+      true
+    }
+    "complete" => {
+      self.builtin_complete(args)
+      true
+    }
+    "compgen" => {
+      self.builtin_compgen(args)
+      true
+    }
+    "compopt" => {
+      self.builtin_compopt(args)
+      true
+    }
+    "pushd" => {
+      self.builtin_pushd(args)
+      true
+    }
+    "popd" => {
+      self.builtin_popd(args)
+      true
+    }
+    "dirs" => {
+      self.builtin_dirs(args)
+      true
+    }
     "basename" => {
       self.builtin_basename(args)
       true

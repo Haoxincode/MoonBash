@@ -351,9 +351,46 @@ fn parse_sed_substitute_matcher(
       ignore_case~,
     )
   } catch {
-    _ => return None
+    _ => {
+      if sed_pattern_has_regex_meta(pattern) {
+        return None
+      }
+      try {
+        @regex.compile_grep_matcher(
+          pattern,
+          extended~,
+          fixed=true,
+          ignore_case~,
+        )
+      } catch {
+        _ => return None
+      }
+    }
   }
   Some(compiled)
+}
+
+fn sed_pattern_has_regex_meta(pattern : String) -> Bool {
+  for i = 0; i < pattern.length(); i = i + 1 {
+    let ch = pattern[i].to_int().unsafe_to_char()
+    if ch == '.' ||
+      ch == '*' ||
+      ch == '+' ||
+      ch == '?' ||
+      ch == '^' ||
+      ch == '$' ||
+      ch == '[' ||
+      ch == ']' ||
+      ch == '(' ||
+      ch == ')' ||
+      ch == '{' ||
+      ch == '}' ||
+      ch == '|' ||
+      ch == '\\' {
+      return true
+    }
+  }
+  false
 }
 
 fn parse_sed_address_prefix(

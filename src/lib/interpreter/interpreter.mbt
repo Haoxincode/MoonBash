@@ -49,6 +49,7 @@ pub fn ExecContext::new(
   limits~ : @ast.ExecutionLimits = @ast.ExecutionLimits::default()
 ) -> ExecContext {
   let default_env : Map[String, String] = {}
+  let default_exported : Map[String, Bool] = {}
   default_env["HOME"] = "/home/user"
   default_env["PATH"] = "/usr/bin:/bin"
   default_env["USER"] = "user"
@@ -56,13 +57,17 @@ pub fn ExecContext::new(
   default_env["IFS"] = " \t\n"
   default_env["SHELL"] = "/bin/bash"
   default_env["BASH_VERSION"] = "5.1.0(1)-release"
+  for k, _v in default_env {
+    default_exported[k] = true
+  }
   // Merge user-provided env over defaults
   for k, v in env {
     default_env[k] = v
+    default_exported[k] = true
   }
   {
     env: default_env,
-    exported: {},
+    exported: default_exported,
     cwd,
     functions: {},
     options: @ast.ShellOptions::default(),

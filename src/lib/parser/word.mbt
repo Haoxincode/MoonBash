@@ -65,6 +65,22 @@ pub fn parse_word_parts(s : String) -> Array[@ast.WordPart] {
         parts.push(@ast.WordPart::SingleQuoted(quoted_text))
       }
       continue
+    } else if ch == '\\' {
+      if i + 1 < len {
+        let next = wchar_at(s, i + 1)
+        if next == '`' ||
+          next == '$' ||
+          next == '\\' ||
+          next == '"' ||
+          next == '\'' {
+          buf.write_char(next)
+          i += 2
+          continue
+        }
+      }
+      buf.write_char('\\')
+      i += 1
+      continue
     } else if ch == '$' && i + 1 < len {
       // Flush literal buffer
       let lit = buf.to_string()
@@ -112,6 +128,11 @@ pub fn parse_word_parts(s : String) -> Array[@ast.WordPart] {
         continue
       }
     } else if ch == '`' {
+      if not(has_closing_backtick(s, i + 1)) {
+        buf.write_char('`')
+        i += 1
+        continue
+      }
       // Backtick command substitution
       let lit = buf.to_string()
       if lit.length() > 0 {
@@ -146,6 +167,22 @@ pub fn parse_word_parts(s : String) -> Array[@ast.WordPart] {
   }
 
   parts
+}
+
+fn has_closing_backtick(s : String, start : Int) -> Bool {
+  let mut i = start
+  while i < s.length() {
+    let ch = wchar_at(s, i)
+    if ch == '`' {
+      return true
+    }
+    if ch == '\\' && i + 1 < s.length() {
+      i += 2
+    } else {
+      i += 1
+    }
+  }
+  false
 }
 
 // ============================================================================

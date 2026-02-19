@@ -1,5 +1,7 @@
 // Shell interpreter - array/FD helpers and command runner
 
+let command_stub_marker_prefix : String = "# moon_bash command stub:"
+
 fn fd_output_key(fd : Int) -> String {
   "__MOON_BASH_FD_OUT__" + fd.to_string()
 }
@@ -534,79 +536,239 @@ fn ExecContext::collect_array_values(self : ExecContext, name : String) -> Array
 // Command Dispatch
 // ============================================================================
 
+fn is_virtual_command_stub_content(content : String) -> Bool {
+  content.length() == 0 || string_has_prefix(content, command_stub_marker_prefix)
+}
+
+fn ExecContext::run_virtual_command(
+  self : ExecContext,
+  name : String,
+  args : Array[String]
+) -> Bool {
+  if self.run_builtin(name, args) {
+    self.remember_hashed_command(name)
+    return true
+  }
+
+  match @commands.find_command(name) {
+    Some(cmd_fn) => {
+      let ctx : @commands.CommandContext = {
+        args,
+        stdin_content: self.stdin_buf,
+        cwd: self.cwd,
+        env: self.env,
+        fs: self.fs,
+      }
+      let result = cmd_fn(ctx)
+      self.stdout_buf.write_string(result.stdout)
+      self.stderr_buf.write_string(result.stderr)
+      self.exit_code = result.exit_code
+      self.remember_hashed_command(name)
+      true
+    }
+    None => false
+  }
+}
+
+fn ExecContext::try_dispatch_virtual_command_stub(
+  self : ExecContext,
+  resolved_path : String,
+  args : Array[String]
+) -> Bool {
+  let parent = @fs.parent_path(resolved_path)
+  if parent != "/bin" && parent != "/usr/bin" {
+    return false
+  }
+
+  match self.fs.entries.get(resolved_path) {
+    Some(@fs.FsEntry::File(data)) => {
+      if not(is_virtual_command_stub_content(data.content)) {
+        return false
+      }
+      let name = @fs.basename(resolved_path)
+      self.run_virtual_command(name, args)
+    }
+    _ => false
+  }
+}
+
+fn ExecContext::execute_script_file_command(
+  self : ExecContext,
+  resolved_path : String,
+  args : Array[String],
+  display_name : String
+) -> Unit {
+  let content = try {
+    self.fs.read_file(resolved_path)
+  } catch {
+    @fs.FsError(msg) => {
+      self.stderr_buf.write_string("moon_bash: \{display_name}: \{msg}\n")
+      self.exit_code = 126
+      return
+    }
+  }
+  let parsed = try {
+    @parser.parse(content)
+  } catch {
+    @ast.BashError(msg) => {
+      self.stderr_buf.write_string("moon_bash: \{display_name}: \{msg}\n")
+      self.exit_code = 2
+      return
+    }
+  }
+
+  let saved_count = parse_int32_str(self.env.get("#").unwrap_or("0"))
+  let saved_values : Array[String] = []
+  for i = 1; i <= saved_count; i = i + 1 {
+    saved_values.push(self.env.get(i.to_string()).unwrap_or(""))
+  }
+
+  self.set_positional_parameters(args)
+  self.execute_script(parsed)
+  self.set_positional_parameters(saved_values)
+}
+
+fn ExecContext::try_execute_resolved_path_command(
+  self : ExecContext,
+  original_name : String,
+  resolved_path : String,
+  args : Array[String]
+) -> Bool {
+  if self.try_dispatch_virtual_command_stub(resolved_path, args) {
+    return true
+  }
+  match self.fs.entries.get(resolved_path) {
+    Some(entry) => {
+      match entry {
+        @fs.FsEntry::Directory(_) => false
+        _ => {
+          if not(command_is_executable_entry(entry)) {
+            false
+          } else {
+            self.execute_script_file_command(resolved_path, args, original_name)
+            true
+          }
+        }
+      }
+    }
+    None => false
+  }
+}
+
+fn ExecContext::run_explicit_path_command(
+  self : ExecContext,
+  original_name : String,
+  args : Array[String]
+) -> Unit {
+  let resolved_path = try {
+    @fs.resolve_path(self.cwd, original_name)
+  } catch {
+    _ => {
+      self.stderr_buf.write_string("moon_bash: \{original_name}: command not found\n")
+      self.exit_code = 127
+      return
+    }
+  }
+
+  match self.fs.entries.get(resolved_path) {
+    Some(@fs.FsEntry::Directory(_)) => {
+      self.stderr_buf.write_string("moon_bash: \{original_name}: Is a directory\n")
+      self.exit_code = 126
+      return
+    }
+    Some(entry) => {
+      if self.try_dispatch_virtual_command_stub(resolved_path, args) {
+        return
+      }
+      if not(command_is_executable_entry(entry)) {
+        self.stderr_buf.write_string("moon_bash: \{original_name}: Permission denied\n")
+        self.exit_code = 126
+        return
+      }
+      self.execute_script_file_command(resolved_path, args, original_name)
+      return
+    }
+    None => ()
+  }
+
+  let parent = @fs.parent_path(resolved_path)
+  if parent == "/bin" || parent == "/usr/bin" {
+    let basename = @fs.basename(resolved_path)
+    if command_has_virtual_external(basename) || is_lookup_shell_builtin(basename) {
+      let saved_skip = self.env.get(command_skip_function_lookup_key)
+      self.env[command_skip_function_lookup_key] = "1"
+      self.run_command(basename, args)
+      match saved_skip {
+        Some(value) => self.env[command_skip_function_lookup_key] = value
+        None => self.env.remove(command_skip_function_lookup_key)
+      }
+      return
+    }
+  }
+
+  self.stderr_buf.write_string("moon_bash: \{original_name}: command not found\n")
+  self.exit_code = 127
+}
+
 fn ExecContext::run_command(
   self : ExecContext,
   name : String,
   args : Array[String]
 ) -> Unit {
   let original_name = name
-  let mut dispatch_name = name
+  let dispatch_name = name
+  let skip_functions = self.skip_function_lookup_enabled()
+  let use_default_path = self.default_path_lookup_enabled()
 
-  // Support path-style command invocation (/bin/echo) by resolving to basename.
-  if contains_slash(name) {
-    let resolved_path = try {
-      @fs.resolve_path(self.cwd, name)
-    } catch {
-      _ => name
-    }
-    match self.fs.entries.get(resolved_path) {
-      Some(@fs.FsEntry::File(_)) | Some(@fs.FsEntry::Symlink(_)) =>
-        dispatch_name = @fs.basename(resolved_path)
-      Some(@fs.FsEntry::Directory(_)) => {
-        self.stderr_buf.write_string("moon_bash: \{original_name}: Is a directory\n")
-        self.exit_code = 126
-        return
-      }
-      None => {
-        self.stderr_buf.write_string("moon_bash: \{original_name}: command not found\n")
-        self.exit_code = 127
-        return
-      }
-    }
+  if contains_slash(dispatch_name) {
+    self.run_explicit_path_command(original_name, args)
+    return
   }
 
-  // 1. Check functions
-  match self.functions.get(dispatch_name) {
-    Some(fndef) => {
-      self.call_depth += 1
-      if self.call_depth > self.limits.max_call_depth {
-        self.fail_execution_limit("maximum recursion depth exceeded")
+  // 1. Check functions (unless command/builtin explicitly disabled function lookup).
+  if not(skip_functions) {
+    match self.functions.get(dispatch_name) {
+      Some(fndef) => {
+        self.call_depth += 1
+        if self.call_depth > self.limits.max_call_depth {
+          self.fail_execution_limit("maximum recursion depth exceeded")
+          self.call_depth -= 1
+          return
+        }
+        let saved_funcname_entries = snapshot_array_env_entries(self.env, "FUNCNAME")
+        let previous_func_stack = self.collect_array_values("FUNCNAME")
+        let current_func_stack : Array[String] = [dispatch_name]
+        for fn_name in previous_func_stack {
+          current_func_stack.push(fn_name)
+        }
+        self.store_array_assignment("FUNCNAME", current_func_stack)
+        // Save positional params
+        let saved_args = self.env.get("@").unwrap_or("")
+        let saved_argc = self.env.get("#").unwrap_or("")
+        self.env["@"] = args.iter().fold(
+          init="",
+          fn(acc, a) { if acc.length() == 0 { a } else { acc + " " + a } },
+        )
+        self.env["#"] = args.length().to_string()
+        for i = 0; i < args.length(); i = i + 1 {
+          self.env[(i + 1).to_string()] = args[i]
+        }
+        // Execute function body
+        match fndef.body {
+          @ast.CompoundCommand::Group(script) => self.execute_script(script)
+          other => self.execute_compound(other)
+        }
+        self.return_requested = false
+        self.restore_local_bindings(self.call_depth)
+        // Restore
+        self.env["@"] = saved_args
+        self.env["#"] = saved_argc
+        self.restore_array_env_entries("FUNCNAME", saved_funcname_entries)
         self.call_depth -= 1
         return
       }
-      let saved_funcname_entries = snapshot_array_env_entries(self.env, "FUNCNAME")
-      let previous_func_stack = self.collect_array_values("FUNCNAME")
-      let current_func_stack : Array[String] = [dispatch_name]
-      for fn_name in previous_func_stack {
-        current_func_stack.push(fn_name)
-      }
-      self.store_array_assignment("FUNCNAME", current_func_stack)
-      // Save positional params
-      let saved_args = self.env.get("@").unwrap_or("")
-      let saved_argc = self.env.get("#").unwrap_or("")
-      self.env["@"] = args.iter().fold(
-        init="",
-        fn(acc, a) { if acc.length() == 0 { a } else { acc + " " + a } },
-      )
-      self.env["#"] = args.length().to_string()
-      for i = 0; i < args.length(); i = i + 1 {
-        self.env[(i + 1).to_string()] = args[i]
-      }
-      // Execute function body
-      match fndef.body {
-        @ast.CompoundCommand::Group(script) => self.execute_script(script)
-        other => self.execute_compound(other)
-      }
-      self.return_requested = false
-      self.restore_local_bindings(self.call_depth)
-      // Restore
-      self.env["@"] = saved_args
-      self.env["#"] = saved_argc
-      self.restore_array_env_entries("FUNCNAME", saved_funcname_entries)
-      self.call_depth -= 1
-      return
+      None => ()
     }
-    None => ()
   }
 
   // 2. Optional command allowlist
@@ -616,7 +778,7 @@ fn ExecContext::run_command(
     return
   }
 
-  // 2. Handle cd specially (needs to modify cwd)
+  // 3. Handle cd specially (needs to modify cwd)
   if dispatch_name == "cd" {
     let target = if args.length() == 0 {
       self.env.get("HOME").unwrap_or("/home/user")
@@ -640,6 +802,8 @@ fn ExecContext::run_command(
         self.cwd = resolved
         self.env["PWD"] = resolved
         self.env["OLDPWD"] = old_pwd
+        self.sync_directory_stack_with_cwd()
+        self.remember_hashed_command(dispatch_name)
         self.exit_code = 0
       }
       Some(_) => {
@@ -654,31 +818,47 @@ fn ExecContext::run_command(
     return
   }
 
-  // 3. Check builtins
-  if self.run_builtin(dispatch_name, args) {
-    return
+  // 4. Real shell builtins have higher precedence than PATH.
+  if is_lookup_shell_builtin(dispatch_name) {
+    if self.run_virtual_command(dispatch_name, args) {
+      return
+    }
   }
 
-  // 4. Check command registry
-  match @commands.find_command(dispatch_name) {
-    Some(cmd_fn) => {
-      let ctx : @commands.CommandContext = {
-        args,
-        stdin_content: self.stdin_buf,
-        cwd: self.cwd,
-        env: self.env,
-        fs: self.fs,
+  // 5. Check hashed path entries unless command -p forced default PATH.
+  if not(use_default_path) {
+    match self.lookup_hashed_command_path(dispatch_name) {
+      Some(hashed_path) => {
+        if self.try_execute_resolved_path_command(
+          original_name,
+          hashed_path,
+          args,
+        ) {
+          return
+        }
+        self.clear_hashed_command(dispatch_name)
       }
-      let result = cmd_fn(ctx)
-      self.stdout_buf.write_string(result.stdout)
-      self.stderr_buf.write_string(result.stderr)
-      self.exit_code = result.exit_code
-      return
+      None => ()
+    }
+  }
+
+  // 6. Check PATH for executable files.
+  match self.first_path_command_match(dispatch_name, use_default_path, false) {
+    Some((_display, resolved_path, _is_virtual)) => {
+      if self.try_execute_resolved_path_command(original_name, resolved_path, args) {
+        self.remember_hashed_command_path(dispatch_name, resolved_path)
+        return
+      }
     }
     None => ()
   }
 
-  // 5. Command not found
+  // 7. Fallback to in-kernel virtual commands (builtin + command registry).
+  if self.run_virtual_command(dispatch_name, args) {
+    return
+  }
+
+  // 8. Command not found
   self.stderr_buf.write_string("moon_bash: \{original_name}: command not found\n")
   self.exit_code = 127
 }

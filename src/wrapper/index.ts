@@ -194,6 +194,7 @@ const DEFAULT_COMMAND_NAMES: string[] = [
   "sleep",
   "timeout",
 ];
+const DEFAULT_BIN_STUB_PREFIX = "# moon_bash command stub:";
 
 interface PyodideFsLike {
   analyzePath(path: string): { exists: boolean };
@@ -606,7 +607,7 @@ export class Bash {
     for (const commandName of DEFAULT_COMMAND_NAMES) {
       const stubPath = `/bin/${commandName}`;
       if (!Object.prototype.hasOwnProperty.call(this.files, stubPath)) {
-        this.files[stubPath] = "";
+        this.files[stubPath] = `${DEFAULT_BIN_STUB_PREFIX}${commandName}\n`;
       }
       if (!Object.prototype.hasOwnProperty.call(this.modes, stubPath)) {
         this.modes[stubPath] = executableMode;

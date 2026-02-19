@@ -191,7 +191,6 @@ fn ExecContext::builtin_sort(
           let label = input_file.unwrap_or("(stdin)")
           let msg = "sort: \{label}:\{j + 1}: disorder: \{sorted[j]}\n"
           self.stderr_buf.write_string(msg)
-          self.stdout_buf.write_string(msg)
           self.exit_code = 1
           return
         }
