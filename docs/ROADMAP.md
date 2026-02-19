@@ -14,25 +14,29 @@ Phase 2: Shell Feature Completeness          ✅ COMPLETE
   → Redirections and pipes
   → 20 additional commands
 
-Phase 3: Text Processing Powerhouse          🔧 MOSTLY COMPLETE
+Phase 3: Text Processing Powerhouse          ✅ COMPLETE
   → grep, sed, awk (full implementations)
-  → jq (JSON processor)
-  → sort, cut, tr, diff, and remaining text commands
+  → jq (via bobzhang/moonjq community package)
+  → diff, comm, base64, md5sum, sha256sum, gzip, tar
+  → All 87 target commands implemented
 
-Phase 4: Production Hardening                ⬜ NOT STARTED
-  → OverlayFs, MountableFs
-  → Network (curl)
-  → Defense-in-depth
-  → Comparison test suite against real bash
-  → npm publish
+Phase 4: Production Hardening                🔧 IN PROGRESS
+  → Comparison test suite: 523/523 (100%)
+  → Security test suite: 27 files (fuzzing, prototype-pollution, sandbox)
+  → Network: curl, html-to-markdown
+  → Custom command bridge
+  → Remaining: AgentFS adapter, npm publish
+  → OverlayFs/MountableFs ⏸️ superseded by AgentFS
 
-Phase 5: Multi-Platform Expansion            ⬜ NOT STARTED
-  → WASM target for Python/Rust embedding
-  → Browser bundle
-  → Interactive shell (REPL)
+Phase 5: Multi-Platform Expansion            🔧 PARTIALLY COMPLETE
+  → Data processors: yq, xan, csvlook (done)
+  → Compression: gzip, gunzip, zcat, tar (done)
+  → VM bridges: python3, sqlite3 (done)
+  → Remaining: WASM target, browser bundle, REPL
 ```
 
 **Current comparison test pass rate: 523/523 (100%)**
+**Command coverage: 87/87 (100%)**
 
 ---
 
@@ -177,13 +181,13 @@ Phase 5: Multi-Platform Expansion            ⬜ NOT STARTED
 - [x] Assignment (`VAR=value`)
 - [x] Local variables (`local VAR=value`)
 - [x] Export (`export VAR=value`)
-- [ ] Readonly (`readonly VAR=value`)
+- [x] Readonly (`readonly VAR=value`)
 - [x] Unset (`unset VAR`)
 - [x] Indexed arrays (`arr=(a b c)`, `${arr[0]}`, `${arr[@]}`)
 - [ ] Associative arrays (`declare -A map`, `${map[key]}`)
 - [x] Special variables (`$?`, `$#`, `$@`, `$*`, `$0`, `$$`, `$!`, `$RANDOM`, `$LINENO`)
 - [x] `declare` with attributes (`-i`, `-l`, `-u`, `-n`, `-r`, `-a`, `-A`)
-- [ ] Namerefs (`declare -n ref=var`)
+- [x] Namerefs (`declare -n ref=var`)
 
 ### 2.3 Full Expansion Engine
 
@@ -207,6 +211,7 @@ Phase 5: Multi-Platform Expansion            ⬜ NOT STARTED
 - [x] Assignment operators (`=`, `+=`, `-=`, `*=`, `/=`, etc.)
 - [x] Pre/post increment/decrement (`++`, `--`)
 - [x] Parenthesized grouping
+- [x] Int64 semantics (matching bash 64-bit wrap-around)
 
 ### 2.5 Conditionals
 
@@ -216,8 +221,9 @@ Phase 5: Multi-Platform Expansion            ⬜ NOT STARTED
 - [x] String tests (`-z`, `-n`, `=`, `!=`, `<`, `>`)
 - [x] Numeric tests (`-eq`, `-ne`, `-lt`, `-le`, `-gt`, `-ge`)
 - [x] Pattern matching in `[[ ]]` (`==`, `!=` with globs)
-- [x] Regex matching (`=~`)
+- [x] Regex matching (`=~`) with `BASH_REMATCH`
 - [x] Logical operators (`-a`, `-o`, `!`, `&&`, `||`)
+- [x] Variable test (`-v`)
 
 ### 2.6 Redirections
 
@@ -241,10 +247,11 @@ Phase 5: Multi-Platform Expansion            ⬜ NOT STARTED
 
 ### 2.8 Shell Builtins
 
-- [x] `set` (options + positional params)
+- [x] `set` (options + positional params, `set -o`/`+o`)
 - [ ] `shopt` (shell options)
 - [x] `alias` / `unalias`
 - [x] `read` (with `-r`, `-p`, `-a`, `-d`, `-t`, `-n`)
+- [x] `mapfile` / `readarray`
 - [x] `printf` (full format string support)
 - [x] `source` / `.`
 - [ ] `pushd` / `popd` / `dirs`
@@ -253,7 +260,10 @@ Phase 5: Multi-Platform Expansion            ⬜ NOT STARTED
 - [ ] `hash`
 - [ ] `enable`
 - [x] `eval`
-- [ ] `exec` (redirection context only)
+- [x] `exec` (redirection context + command dispatch)
+- [x] `getopts`
+- [x] `let`
+- [x] `bash` / `sh` (sub-script execution)
 
 ### 2.9 Phase 2 Commands
 
@@ -266,17 +276,17 @@ Phase 5: Multi-Platform Expansion            ⬜ NOT STARTED
 | `dirname` | ✅ | Path manipulation |
 | `which` | ✅ | Command lookup |
 | `seq` | ✅ | Number sequences |
-| `date` | ✅ | Date formatting |
-| `sleep` | ⬜ | Delay (via FFI) |
-| `expr` | ⬜ | Expression evaluation |
+| `date` | ✅ | Date formatting (FFI timer) |
+| `sleep` | ✅ | Delay (via FFI timer bridge) |
+| `expr` | ✅ | Expression evaluation (Pratt parser) |
 | `tee` | ✅ | Stdin to file + stdout |
 | `sort` | ✅ | Sort lines |
 | `uniq` | ✅ | Deduplicate lines |
-| `grep` | ✅ | Basic pattern matching |
+| `grep` | ✅ | Pattern matching (BRE/ERE/fixed) |
 | `cut` | ✅ | Field extraction |
 | `tr` | ✅ | Character translation |
 | `rev` | ✅ | Reverse lines |
-| `tac` | ⬜ | Reverse file |
+| `tac` | ✅ | Reverse file |
 | `paste` | ✅ | Merge lines |
 | `nl` | ✅ | Number lines |
 
@@ -287,12 +297,12 @@ Phase 5: Multi-Platform Expansion            ⬜ NOT STARTED
 - [x] Implement `sort`, `uniq`, `cut`, `tr`, `rev`, `paste`, `nl` with composable iterator/text helpers, not command-specific ad hoc loops.
 - [x] Implement `seq` on top of the math/eval helper module with strict numeric bounds.
 - [x] Implement `date` with adapter; keep output format compatibility tests in comparison suite.
-- [ ] Implement `sleep` via FFI timer bridge only; enforce cancellation + timeout behavior in security tests.
+- [x] Implement `sleep` via FFI timer bridge only; enforce cancellation + timeout behavior in security tests.
 - [x] Before Phase 3, run a reuse audit documenting which commands still require custom engines (`awk` and parser-related paths).
 
 ---
 
-## Phase 3: Text Processing Powerhouse 🔧
+## Phase 3: Text Processing Powerhouse ✅
 
 **Goal:** Implement the complex text processing commands that make the sandbox useful for real data pipeline work.
 
@@ -307,20 +317,24 @@ Phase 5: Multi-Platform Expansion            ⬜ NOT STARTED
 - [x] Multiple patterns (`-e`)
 - [ ] Pattern file (`-f`)
 - [x] Integration with `@regexp` library
+- [x] `egrep`, `fgrep`, `rg` aliases
 
 ### 3.2 sed (Full) ✅
 
-- [x] Address types (line number, `$`, `/regex/`, range, step)
-- [x] Substitute command (`s/pattern/replacement/flags`)
+- [x] Address types (line number, `$`, `/regex/`, range, step, negation `!`)
+- [x] Substitute command (`s/pattern/replacement/flags`) with `g`, `p`, `i`, occurrence count
 - [x] Delete (`d`), Print (`p`), Append (`a`), Insert (`i`), Change (`c`)
 - [x] Transliterate (`y`)
-- [ ] Read/Write file (`r`, `w`)
-- [ ] Branch (`b`), Test (`t`, `T`)
+- [x] Read/Write file (`r`, `w`)
+- [x] Branch (`b`), Test (`t`, `T`)
 - [x] Hold space operations (`h`, `H`, `g`, `G`, `x`)
-- [ ] Multiline (`N`, `P`, `D`)
-- [ ] In-place editing simulation (`-i`)
+- [x] Multiline (`N`, `P`, `D`)
+- [x] In-place editing simulation (`-i`)
 - [x] Multiple expressions (`-e`)
 - [ ] Script file (`-f`)
+- [x] Label resolution and branch execution
+- [x] Quit (`q`, `Q`), List (`l`), Line number (`=`)
+- [x] BRE/ERE support, empty-regex reuse
 - [x] Iteration limit enforcement
 
 ### 3.3 awk (Full) ✅
@@ -328,107 +342,128 @@ Phase 5: Multi-Platform Expansion            ⬜ NOT STARTED
 - [x] AWK lexer and parser
 - [x] Pattern-action rules (BEGIN, END, `/regex/`, expression)
 - [x] Field splitting (`$0`, `$1`, ..., `$NF`)
-- [x] Built-in variables (`NR`, `NF`, `FS`, `RS`, `OFS`, `ORS`, `FILENAME`, etc.)
+- [x] Built-in variables (`NR`, `NF`, `FNR`, `FS`, `RS`, `OFS`, `ORS`, `SUBSEP`, `FILENAME`, `ENVIRON`, etc.)
 - [x] String functions (`length`, `substr`, `index`, `split`, `gsub`, `sub`, `match`, `sprintf`, `printf`, `tolower`, `toupper`)
-- [ ] Math functions (`sin`, `cos`, `sqrt`, `int`, `log`, `exp`, `rand`, `srand`)
-- [ ] User-defined functions
-- [ ] Arrays (associative)
-- [x] Control flow (`if/else`, `for`, `while`, `do-while`, `break`, `continue`)
-- [ ] Getline
-- [ ] Multiple input files
+- [x] Math functions (`sin`, `cos`, `atan2`, `sqrt`, `int`, `log`, `exp`, `rand`, `srand`)
+- [x] User-defined functions (with array parameter pass-by-reference)
+- [x] Arrays (associative, `for-in` loops, `in` operator, `delete`)
+- [x] Control flow (`if/else`, `for`, `while`, `do-while`, `for-in`, `break`, `continue`, `next`, `exit`, `return`)
+- [x] Getline (bare, from file, from command pipe)
+- [x] I/O: `print`, `printf`, `close()`, `system()`
+- [x] Print/printf redirection to files (`>`, `>>`)
+- [x] Ternary expressions, string concatenation
+- [x] `OFMT` formatting
 - [x] Iteration limit enforcement
+- [x] Prototype-pollution hardening (for-in, function params, getline vars)
 
-### 3.4 jq (Full) ✅
+### 3.4 jq ✅ (Community Package: `bobzhang/moonjq`)
 
-- [x] JQ filter lexer and parser
-- [x] Identity (`.`), field access (`.field`, `.["field"]`)
-- [x] Array/object index (`.[0]`, `.[-1]`, `.[2:5]`)
-- [x] Pipe (`|`), comma (`,`)
-- [x] Object/array construction (`{...}`, `[...]`)
-- [x] Conditionals (`if-then-elif-else-end`)
-- [x] Comparison and logical operators
-- [x] String interpolation (`\(expr)`)
-- [ ] Try-catch
-- [ ] Alternative (`//`)
-- [ ] Variable binding (`as $var`)
-- [ ] Reduce (`reduce`)
-- [ ] `foreach`, `limit`, `first`, `last`, `nth`
-- [ ] Recursive descent (`..`)
-- [ ] Path expressions (`path()`, `getpath()`, `setpath()`, `delpaths()`)
-- [ ] Format strings (`@base64`, `@csv`, `@tsv`, `@html`, `@json`, `@text`, `@uri`)
-- [x] All core built-in functions (`length`, `keys`, `values`, `has`, `in`, `map`, `select`, `empty`, `type`, `sort_by`, `group_by`, `unique_by`, `flatten`, `range`, `tostring`, `tonumber`, `ascii_downcase`, `ascii_upcase`, `ltrimstr`, `rtrimstr`, `startswith`, `endswith`, `split`, `join`, `test`, `gsub`, `sub`, etc.)
-- [x] Iteration limit enforcement
+Migrated from handwritten evaluator to `bobzhang/moonjq` (MoonBit creator's package, commit `dbc5247`). Full jq language support provided by the community package, including:
 
-### 3.5 Remaining Text Commands
+- [x] Identity, field access, array/object indexing, slicing
+- [x] Pipes, comma, object/array construction
+- [x] Conditionals, comparison, logical operators
+- [x] String interpolation
+- [x] Try-catch, alternative (`//`), variable binding (`as $var`)
+- [x] Reduce, foreach, recursive descent (`..`)
+- [x] Path expressions, format strings
+- [x] All core built-in functions
+- [x] Iteration limit enforcement (via wrapper)
 
-- [ ] `diff` (unified, context formats)
-- [ ] `comm` (compare sorted files)
+### 3.5 Remaining Text Commands ✅
+
+- [x] `diff` (unified format, via `moonbit-community/piediff`)
+- [x] `cmp` (byte-level file comparison)
+- [x] `comm` (compare sorted files)
 - [x] `join` (join on common field)
 - [x] `column` (columnate)
 - [x] `fold` (wrap lines)
 - [x] `expand` / `unexpand` (tabs ↔ spaces)
-- [ ] `od` (octal dump)
+- [x] `od` (octal dump)
 - [x] `strings` (find printable strings)
 - [x] `xargs` (build commands from stdin)
 - [x] `split` (split files)
 
-### 3.6 Hash Commands
+### 3.6 Hash & Encoding Commands ✅
 
-- [ ] `md5sum`
-- [ ] `sha1sum`
-- [ ] `sha256sum`
-- [ ] `base64` (encode/decode)
+- [x] `md5sum` (via `gmlewis/md5`)
+- [x] `sha1sum` (via `gmlewis/sha1`)
+- [x] `sha256sum` (via `shu-kitamura/sha256`)
+- [x] `base64` (encode/decode, via `gmlewis/base64`)
 
-### 3.7 Remaining Commands
+### 3.7 Compression & Archives ✅
 
-- [x] `find` (with `-name`, `-type`, `-path`, `-exec`, `-maxdepth`, etc.)
-- [ ] `du` (disk usage)
-- [ ] `stat` (file status)
-- [ ] `file` (file type detection)
-- [ ] `tree` (directory tree)
-- [ ] `ln` (symbolic links)
-- [ ] `readlink`
-- [ ] `rmdir`
-- [ ] `chmod` (as standalone command; VFS `chmod` exists)
-- [ ] `hostname`
-- [ ] `whoami`
-- [ ] `time`
-- [ ] `timeout`
-- [ ] `history`
-- [ ] `help`
-- [ ] `clear`
+- [x] `gzip` (via `gmlewis/gzip` + `gmlewis/flate`)
+- [x] `gunzip` (via `gmlewis/gzip`)
+- [x] `zcat` (via `gmlewis/gzip`)
+- [x] `tar` (via `bobzhang/tar`, pure-memory byte stream)
+
+### 3.8 File System Commands ✅
+
+- [x] `find` (with `-name`, `-type`, `-path`, `-exec`, `-maxdepth`, `-perm`, etc.)
+- [x] `du` (disk usage, with `-h`, `-s`, `-d`)
+- [x] `stat` (file status)
+- [x] `file` (file type detection)
+- [x] `tree` (directory tree display)
+- [x] `ln` (symbolic links)
+- [x] `readlink` (resolve symlinks)
+- [x] `rmdir` (remove empty directories)
+- [x] `chmod` (standalone command)
+
+### 3.9 Shell Utility Commands ✅
+
+- [x] `hostname`
+- [x] `whoami`
+- [x] `time` (command timing)
+- [x] `timeout` (run with time limit)
+- [x] `history` (command history)
+- [x] `help` (help text)
+- [x] `clear` (no-op in sandbox)
 
 ---
 
-## Phase 4: Production Hardening
+## Phase 4: Production Hardening 🔧
 
 **Goal:** Production-ready release with comprehensive testing, security hardening, and advanced filesystem support.
 
-### 4.1 OverlayFs
+### 4.1 OverlayFs — ⏸️ 由 AgentFS 替代
 
-- [ ] FFI-backed disk read layer
-- [ ] Memory write layer
-- [ ] Deleted file tracking
-- [ ] Path security validation
-- [ ] Size limits on disk reads
+> **架构决策（2026-02-19）：** AI agent 主场景下，OverlayFs 的"宿主磁盘读层 + 内存写层"设计
+> 被 AgentFS（Turso，SQLite-backed VFS）完整替代。AgentFS 天然提供 COW（`fs_whiteout` 表）、
+> 持久化、可审计、可快照能力，且已有 just-bash 一等集成。详见 `docs/AGENTFS_ANALYSIS.md`。
+>
+> 若未来需支持本地开发工具场景（直接读宿主项目目录、不预装进 SQLite），可重新激活此计划。
 
-### 4.2 MountableFs
+- [ ] ~~FFI-backed disk read layer~~ → AgentFS SQLite 替代
+- [ ] ~~Memory write layer~~ → AgentFS 写回 SQLite
+- [ ] ~~Deleted file tracking~~ → AgentFS `fs_whiteout` 表
+- [ ] ~~Path security validation~~ → AgentFS 内部处理
+- [ ] ~~Size limits on disk reads~~ → AgentFS 内部处理
+- [ ] AgentFS adapter in TypeScript wrapper layer (NEW)
 
-- [ ] Multi-mount point routing
-- [ ] Mount/unmount API
-- [ ] Path normalization across mounts
+### 4.2 MountableFs — ⏸️ 由 AgentFS 替代
 
-### 4.3 Network
+> **架构决策（2026-02-19）：** AgentFS 单个 SQLite 即完整命名空间，无需多后端路由。
+> MountableFs 的多挂载点设计在 AgentFS 模式下不再必要。详见 `docs/AGENTFS_ANALYSIS.md`。
 
-- [x] `curl` command implementation
+- [ ] ~~Multi-mount point routing~~ → AgentFS 单一命名空间
+- [ ] ~~Mount/unmount API~~ → 不再需要
+- [ ] ~~Path normalization across mounts~~ → 不再需要
+
+### 4.3 Network ✅
+
+- [x] `curl` command implementation (via `globalThis.fetch` FFI)
+- [x] `html-to-markdown` command
 - [ ] URL prefix allowlist enforcement
 - [ ] HTTP method restriction
 - [ ] Redirect following with validation
 - [ ] Timeout and response size limits
-- [x] `html-to-markdown` command
 
-### 4.4 Defense-in-Depth
+### 4.4 Defense-in-Depth 🔧
 
+- [x] Prototype-pollution hardening (AWK for-in, function params, getline vars, builtins)
+- [x] Execution limit enforcement (commands, loops, call depth, string size)
+- [x] Pipefail semantics
 - [ ] JS global patching (Function, eval, etc.)
 - [ ] Audit mode
 - [ ] Violation callbacks
@@ -440,17 +475,26 @@ Phase 5: Multi-Platform Expansion            ⬜ NOT STARTED
 - [ ] AST visitor infrastructure
 - [ ] Built-in plugins (CommandCollector, Tee)
 
-### 4.6 Custom Commands
+### 4.6 Custom Commands ✅
 
-- [ ] `defineCommand` helper
+- [x] Custom command bridge (`__moon_bash_custom__` via FFI)
+- [x] User-provided command handlers (async, via TS wrapper)
 - [ ] Lazy command loading
 - [ ] Command filtering (`commands` option)
 
-### 4.7 Testing
+### 4.7 Testing ✅
 
-- [x] Comparison test framework (record + replay)
-- [x] Test fixtures against real bash output
-- [ ] Security fuzz testing
+- [x] Comparison test framework (record + replay, 26 fixture files)
+- [x] Test fixtures against real bash output: **523/523 (100%)**
+- [x] Bash spec tests: 136 cases (from Oils project)
+- [x] AWK spec tests: 317 cases
+- [x] grep/sed/jq spec tests
+- [x] Security fuzz testing (grammar-based, flag-driven, malformed, coverage-boost generators)
+- [x] Prototype-pollution test suite (6 files, comprehensive coverage)
+- [x] Sandbox escape tests (command security, injection, dynamic execution, information disclosure)
+- [x] Resource limit tests (DoS, memory, output size, pipeline limits)
+- [x] Agent workflow tests: 13 real-world scenarios
+- [x] OOM-safe batched test execution (`pnpm test:safe`)
 - [ ] Edge case coverage (Unicode, binary, huge files)
 - [ ] Performance benchmarks vs just-bash
 
@@ -464,7 +508,7 @@ Phase 5: Multi-Platform Expansion            ⬜ NOT STARTED
 
 ---
 
-## Phase 5: Multi-Platform Expansion
+## Phase 5: Multi-Platform Expansion 🔧
 
 **Goal:** Extend MoonBash beyond the npm ecosystem.
 
@@ -491,13 +535,57 @@ Phase 5: Multi-Platform Expansion            ⬜ NOT STARTED
 - [ ] Prompt customization (`PS1`)
 - [ ] CLI binary (`npx moon-bash`)
 
-### 5.4 Advanced Features
+### 5.4 Advanced Features (Partially Complete)
 
-- [ ] `yq` (YAML/XML/TOML processor)
-- [ ] `xan` (CSV processor)
-- [ ] `rg` (ripgrep-compatible search)
-- [ ] Compression (`gzip`, `gunzip`, `zcat`, `tar`)
-- [ ] `python3` integration (optional, via Pyodide)
+- [x] `yq` (YAML processor, via `moonbit-community/yaml`)
+- [x] `xan` (CSV processor, via `xunyoyo/NyaCSV`)
+- [x] `csvlook` (CSV display, via `xunyoyo/NyaCSV`)
+- [x] `rg` (ripgrep-compatible search, mapped to grep `-E`)
+- [x] `python3` integration (optional, via Pyodide FFI bridge)
+- [x] `sqlite3` integration (optional, via sql.js FFI bridge)
+- [ ] `yq` extended: XML/TOML support
+
+---
+
+## Remaining Gaps (Low Priority)
+
+Shell features not yet implemented, roughly ordered by impact:
+
+| Feature | Category | Notes |
+|---|---|---|
+| Associative arrays (`declare -A`) | Variable system | `-A` attribute parsed but full data structure pending |
+| `shopt` (shell options) | Builtin | e.g. `nullglob`, `extglob`, `globstar` |
+| `trap` (signal handling) | Builtin | Would be simulated in sandbox |
+| `pushd` / `popd` / `dirs` | Builtin | Directory stack |
+| Process substitution (`<(cmd)`) | Expansion | Requires /dev/fd emulation |
+| Extended globbing (`?(pat)`, etc.) | Expansion | Requires `shopt -s extglob` |
+| Globstar (`**`) | Expansion | Requires `shopt -s globstar` |
+| FD variables (`{var}>file`) | Redirection | Bash 4.1+ feature |
+| `hash` / `enable` | Builtin | Command hash table management |
+| grep `-f` / sed `-f` | Commands | Pattern/script file loading |
+| CI/CD pipeline | Infra | GitHub Actions |
+| AST `to_json()` | Debug | AST serialization |
+
+---
+
+## Community Packages Used
+
+All binary/codec work is pure MoonBit (zero JS runtime dependencies). Community packages are compile-time only, fully inlined via DCE.
+
+| Package | Used By | Purpose |
+|---|---|---|
+| `bobzhang/moonjq` | `jq` | Full jq language interpreter |
+| `bobzhang/tar` | `tar` | Pure-memory tar archiver |
+| `moonbit-community/piediff` | `diff`, `cmp` | Myers + Patience diff algorithms |
+| `moonbit-community/yaml` | `yq` | YAML parser/emitter |
+| `gmlewis/gzip` + `gmlewis/flate` | `gzip`, `gunzip`, `zcat` | Pure DEFLATE compression |
+| `gmlewis/base64` | `base64` | Base64 encode/decode |
+| `gmlewis/md5` | `md5sum` | MD5 hash |
+| `gmlewis/sha1` | `sha1sum` | SHA-1 hash |
+| `shu-kitamura/sha256` | `sha256sum` | SHA-256 hash |
+| `xunyoyo/NyaCSV` | `xan`, `csvlook` | CSV parsing |
+| `moonbitlang/regexp` | `grep`, `sed`, `awk` | Regular expressions |
+| `justjavac/glob` | VFS glob | Glob pattern matching |
 
 ---
 
@@ -508,7 +596,11 @@ Phase 5: Multi-Platform Expansion            ⬜ NOT STARTED
 | API compatibility | 100% drop-in for just-bash | ✅ 100% |
 | Bundle size (gzip) | <100 KB | TBD |
 | Cold start time | <5 ms | TBD |
-| Command coverage | 87 commands (matching just-bash) | ~49 (57%) |
+| Command coverage | 87 commands (matching just-bash) | ✅ 87 (100%) |
 | Bash behavior accuracy | >95% (comparison tests) | ✅ 100% (523/523) |
+| Spec test coverage | Oils bash + awk + sed + grep + jq | ✅ 473+ cases |
+| Security test files | Comprehensive | ✅ 27 files |
+| Agent workflow tests | Real-world scenarios | ✅ 13 scenarios |
 | ReDoS vulnerability | 0 (VM-based regex) | ✅ 0 |
 | Zero-day filesystem escapes | 0 (architectural guarantee) | ✅ 0 |
+| FFI boundaries | Minimal (4 system primitives) | ✅ 4 (fetch, timer, VM, custom) |
