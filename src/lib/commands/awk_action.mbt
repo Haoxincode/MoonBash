@@ -168,6 +168,161 @@ fn awk_execute_action_ast_list(
         vars[awk_ctrl_return_value_key] = value
         break
       }
+      Delete(target_expr) => {
+        match awk_parse_array_ref(target_expr) {
+          Some((arr_name, idx_expr)) => {
+            let idx = awk_eval_expr(
+              idx_expr,
+              current_line,
+              current_fields,
+              current_nr,
+              current_fields.length(),
+              vars,
+              array_vars,
+            )
+            array_vars.remove(awk_array_key(arr_name, idx))
+          }
+          None => ()
+        }
+      }
+      Printf(rest) => {
+        let (printf_expr, target_expr, append) = match awk_parse_print_redirection(rest) {
+          Some(parsed) => parsed
+          None => (rest, "", false)
+        }
+        let (fmt_expr, arg_exprs) = awk_parse_printf("printf " + printf_expr)
+        let fmt_value = awk_eval_expr(
+          fmt_expr,
+          current_line,
+          current_fields,
+          current_nr,
+          current_fields.length(),
+          vars,
+          array_vars,
+        )
+        let fmt_args : Array[String] = []
+        for expr in arg_exprs {
+          fmt_args.push(
+            awk_eval_expr(
+              expr,
+              current_line,
+              current_fields,
+              current_nr,
+              current_fields.length(),
+              vars,
+              array_vars,
+            ),
+          )
+        }
+        let payload = awk_format_printf(fmt_value, fmt_args)
+        if target_expr.length() == 0 {
+          out.write_string(payload)
+        } else {
+          let target = awk_eval_expr(
+            target_expr,
+            current_line,
+            current_fields,
+            current_nr,
+            current_fields.length(),
+            vars,
+            array_vars,
+          )
+          let resolved = try {
+            @fs.resolve_path(ctx.cwd, target)
+          } catch {
+            @fs.FsError(msg) => {
+              vars[awk_ctrl_error_key] = msg
+              vars[awk_ctrl_exit_key] = "1"
+              break
+            }
+          }
+          let existing = if append {
+            try {
+              ctx.fs.read_file(resolved)
+            } catch {
+              @fs.FsError(_) => ""
+            }
+          } else {
+            ""
+          }
+          try {
+            ctx.fs.write_file(resolved, existing + payload)
+          } catch {
+            @fs.FsError(msg) => {
+              vars[awk_ctrl_error_key] = msg
+              vars[awk_ctrl_exit_key] = "1"
+              break
+            }
+          }
+        }
+      }
+      Print(rest) => {
+        if awk_find_top_level_token(rest, "|") >= 0 {
+          vars[awk_ctrl_error_key] = "piping to external commands is not supported"
+          vars[awk_ctrl_exit_key] = "1"
+          break
+        }
+        match awk_parse_print_redirection(rest) {
+          Some((value_expr, target_expr, append)) => {
+            let payload = awk_render_print_output(
+              value_expr,
+              current_line,
+              current_fields,
+              current_nr,
+              vars,
+              array_vars,
+            )
+            let target = awk_eval_expr(
+              target_expr,
+              current_line,
+              current_fields,
+              current_nr,
+              current_fields.length(),
+              vars,
+              array_vars,
+            )
+            let resolved = try {
+              @fs.resolve_path(ctx.cwd, target)
+            } catch {
+              @fs.FsError(msg) => {
+                vars[awk_ctrl_error_key] = msg
+                vars[awk_ctrl_exit_key] = "1"
+                break
+              }
+            }
+            let existing = if append {
+              try {
+                ctx.fs.read_file(resolved)
+              } catch {
+                @fs.FsError(_) => ""
+              }
+            } else {
+              ""
+            }
+            try {
+              ctx.fs.write_file(resolved, existing + payload)
+            } catch {
+              @fs.FsError(msg) => {
+                vars[awk_ctrl_error_key] = msg
+                vars[awk_ctrl_exit_key] = "1"
+                break
+              }
+            }
+          }
+          None => {
+            out.write_string(
+              awk_render_print_output(
+                rest,
+                current_line,
+                current_fields,
+                current_nr,
+                vars,
+                array_vars,
+              ),
+            )
+          }
+        }
+      }
       ForIn(loop_var, arr_name, body_stmts) => {
         let key_prefix = arr_name + "#"
         let indices : Array[String] = []
@@ -648,26 +803,6 @@ fn awk_execute_action_simple(
       continue
     }
 
-    if aj_starts_with(stmt, "delete ") {
-      let target = aj_trim(aj_substr(stmt, 6, stmt.length()))
-      match awk_parse_array_ref(target) {
-        Some((arr_name, idx_expr)) => {
-          let idx = awk_eval_expr(
-            idx_expr,
-            current_line,
-            current_fields,
-            current_nr,
-            current_fields.length(),
-            vars,
-            array_vars,
-          )
-          array_vars.remove(awk_array_key(arr_name, idx))
-        }
-        None => ()
-      }
-      continue
-    }
-
     let is_gsub = aj_starts_with(stmt, "gsub(") && aj_ends_with(stmt, ")")
     let is_sub = aj_starts_with(stmt, "sub(") && aj_ends_with(stmt, ")")
     if is_gsub || is_sub {
@@ -814,150 +949,6 @@ fn awk_execute_action_simple(
           array_vars[awk_array_key(arr_name, (j + 1).to_string())] = pieces[j]
         }
         vars[arr_name] = pieces.length().to_string()
-      }
-      continue
-    }
-
-    if aj_starts_with(stmt, "printf") {
-      let rest = aj_trim(aj_substr(stmt, 6, stmt.length()))
-      let (printf_expr, target_expr, append) = match awk_parse_print_redirection(rest) {
-        Some(parsed) => parsed
-        None => (rest, "", false)
-      }
-      let (fmt_expr, arg_exprs) = awk_parse_printf("printf " + printf_expr)
-      let fmt_value = awk_eval_expr(
-        fmt_expr,
-        current_line,
-        current_fields,
-        current_nr,
-        current_fields.length(),
-        vars,
-        array_vars,
-      )
-      let fmt_args : Array[String] = []
-      for expr in arg_exprs {
-        fmt_args.push(
-          awk_eval_expr(
-            expr,
-            current_line,
-            current_fields,
-            current_nr,
-            current_fields.length(),
-            vars,
-            array_vars,
-          ),
-        )
-      }
-      let payload = awk_format_printf(fmt_value, fmt_args)
-      if target_expr.length() == 0 {
-        out.write_string(payload)
-      } else {
-        let target = awk_eval_expr(
-          target_expr,
-          current_line,
-          current_fields,
-          current_nr,
-          current_fields.length(),
-          vars,
-          array_vars,
-        )
-        let resolved = try {
-          @fs.resolve_path(ctx.cwd, target)
-        } catch {
-          @fs.FsError(msg) => {
-            vars[awk_ctrl_error_key] = msg
-            vars[awk_ctrl_exit_key] = "1"
-            break
-          }
-        }
-        let existing = if append {
-          try {
-            ctx.fs.read_file(resolved)
-          } catch {
-            @fs.FsError(_) => ""
-          }
-        } else {
-          ""
-        }
-        try {
-          ctx.fs.write_file(resolved, existing + payload)
-        } catch {
-          @fs.FsError(msg) => {
-            vars[awk_ctrl_error_key] = msg
-            vars[awk_ctrl_exit_key] = "1"
-            break
-          }
-        }
-      }
-      continue
-    }
-
-    if aj_starts_with(stmt, "print") {
-      let rest = aj_trim(aj_substr(stmt, 5, stmt.length()))
-      if awk_find_top_level_token(rest, "|") >= 0 {
-        vars[awk_ctrl_error_key] = "piping to external commands is not supported"
-        vars[awk_ctrl_exit_key] = "1"
-        break
-      }
-      match awk_parse_print_redirection(rest) {
-        Some((value_expr, target_expr, append)) => {
-          let payload = awk_render_print_output(
-            value_expr,
-            current_line,
-            current_fields,
-            current_nr,
-            vars,
-            array_vars,
-          )
-          let target = awk_eval_expr(
-            target_expr,
-            current_line,
-            current_fields,
-            current_nr,
-            current_fields.length(),
-            vars,
-            array_vars,
-          )
-          let resolved = try {
-            @fs.resolve_path(ctx.cwd, target)
-          } catch {
-            @fs.FsError(msg) => {
-              vars[awk_ctrl_error_key] = msg
-              vars[awk_ctrl_exit_key] = "1"
-              break
-            }
-          }
-          let existing = if append {
-            try {
-              ctx.fs.read_file(resolved)
-            } catch {
-              @fs.FsError(_) => ""
-            }
-          } else {
-            ""
-          }
-          try {
-            ctx.fs.write_file(resolved, existing + payload)
-          } catch {
-            @fs.FsError(msg) => {
-              vars[awk_ctrl_error_key] = msg
-              vars[awk_ctrl_exit_key] = "1"
-              break
-            }
-          }
-        }
-        None => {
-          out.write_string(
-            awk_render_print_output(
-              rest,
-              current_line,
-              current_fields,
-              current_nr,
-              vars,
-              array_vars,
-            ),
-          )
-        }
       }
       continue
     }

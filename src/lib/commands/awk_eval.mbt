@@ -217,6 +217,30 @@ fn awk_execute_function_statements(
         vars[awk_ctrl_return_value_key] = value
         break
       }
+      Delete(_target_expr) => {
+        ()
+      }
+      Printf(rest) => {
+        let (fmt_expr, arg_exprs) = awk_parse_printf("printf " + rest)
+        let fmt_value = awk_eval_expr(fmt_expr, line, fields, nr, fields.length(), vars, array_vars)
+        let fmt_args : Array[String] = []
+        for expr in arg_exprs {
+          fmt_args.push(awk_eval_expr(expr, line, fields, nr, fields.length(), vars, array_vars))
+        }
+        out.write_string(awk_format_printf(fmt_value, fmt_args))
+      }
+      Print(rest) => {
+        out.write_string(
+          awk_render_print_output(
+            rest,
+            line,
+            fields,
+            nr,
+            vars,
+            array_vars,
+          ),
+        )
+      }
       ForIn(loop_var, arr_name, body_stmts) => {
         let key_prefix = arr_name + "#"
         let indices : Array[String] = []

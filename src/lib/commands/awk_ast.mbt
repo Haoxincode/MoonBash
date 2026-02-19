@@ -8,6 +8,9 @@ priv enum AwkStmt {
   Next
   Exit(AwkExprAst?)
   Return(AwkExprAst?)
+  Printf(String)
+  Print(String)
+  Delete(String)
 } derive(Show)
 
 fn awk_parse_statement_ast(stmt : String) -> AwkStmt {
@@ -38,6 +41,18 @@ fn awk_parse_statement_ast(stmt : String) -> AwkStmt {
     }
     let expr_ast = if expr_text.length() > 0 { Some(awk_parse_expr_ast(expr_text)) } else { None }
     return Return(expr_ast)
+  }
+
+  if aj_starts_with(text, "delete ") {
+    return Delete(aj_trim(aj_substr(text, 6, text.length())))
+  }
+
+  if aj_starts_with(text, "printf") {
+    return Printf(aj_trim(aj_substr(text, 6, text.length())))
+  }
+
+  if aj_starts_with(text, "print") && not(aj_starts_with(text, "printf")) {
+    return Print(aj_trim(aj_substr(text, 5, text.length())))
   }
 
   match awk_parse_for_in_statement(text) {
