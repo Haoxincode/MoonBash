@@ -5,7 +5,7 @@ priv enum AwkGetlineTarget {
   Var(String)
   Field(AwkExprAst)
   ArrayElem(String, AwkExprAst)
-  Raw(String)
+  Invalid(String)
 } derive(Show)
 
 fn awk_parse_getline_target(target : String) -> AwkGetlineTarget {
@@ -19,7 +19,7 @@ fn awk_parse_getline_target(target : String) -> AwkGetlineTarget {
   } else {
     match awk_parse_array_ref(t) {
       Some((arr_name, idx_expr)) => ArrayElem(arr_name, awk_parse_expr_ast(idx_expr))
-      None => Raw(t)
+      None => Invalid(t)
     }
   }
 }

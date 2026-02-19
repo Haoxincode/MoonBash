@@ -161,7 +161,7 @@ fn awk_apply_getline_target(
       array_vars[awk_array_key(arr_name, idx)] = line_value
       (current_line, current_fields)
     }
-    Raw(raw_target) => {
+    Invalid(raw_target) => {
       vars[awk_ctrl_error_key] = "invalid getline target: " + raw_target
       vars[awk_ctrl_exit_key] = "1"
       (current_line, current_fields)
