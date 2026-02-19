@@ -224,10 +224,63 @@ fn awk_execute_function_statements(
         ()
       }
       SystemStmt => {
-        ()
+        vars[awk_ctrl_error_key] = "system() is not supported"
+        vars[awk_ctrl_exit_key] = "1"
+        break
       }
-      SubstituteStmt(_is_gsub, _args_ast) => {
-        ()
+      SubstituteStmt(is_gsub, args_ast) => {
+        if args_ast.length() >= 3 {
+          let pattern = awk_eval_sub_pattern_ast(
+            args_ast[0],
+            line,
+            fields,
+            nr,
+            fields.length(),
+            vars,
+            array_vars,
+          )
+          let replacement = awk_eval_expr_ast(
+            args_ast[1],
+            line,
+            fields,
+            nr,
+            fields.length(),
+            vars,
+            array_vars,
+          )
+          match args_ast[2] {
+            Raw(raw_target) => {
+              let target = aj_trim(raw_target)
+              let source = awk_eval_expr_ast(
+                args_ast[2],
+                line,
+                fields,
+                nr,
+                fields.length(),
+                vars,
+                array_vars,
+              )
+              let (updated, _count) = if is_gsub {
+                awk_replace_all_literal(source, pattern, replacement)
+              } else {
+                awk_replace_first_literal(source, pattern, replacement)
+              }
+              ignore(
+                awk_assign_reference(
+                  target,
+                  updated,
+                  line,
+                  fields,
+                  nr,
+                  fields.length(),
+                  vars,
+                  array_vars,
+                ),
+              )
+            }
+            _ => ()
+          }
+        }
       }
       ExprStmt(expr_ast) => {
         ignore(awk_eval_expr_ast(expr_ast, line, fields, nr, fields.length(), vars, array_vars))
@@ -279,8 +332,33 @@ fn awk_execute_function_statements(
           }
         }
       }
-      FieldAssignStmt(_lhs, _rhs_ast) => {
-        ()
+      FieldAssignStmt(lhs, rhs_ast) => {
+        let value = awk_eval_expr_ast(rhs_ast, line, fields, nr, fields.length(), vars, array_vars)
+        if lhs == "$0" {
+          // Function executor has no mutable `line` slot, so only refresh field view.
+          let current_fs = awk_current_fs(vars.get("FS").unwrap_or(" "), vars)
+          let next_fields = awk_split_fields(value, current_fs)
+          while fields.length() > next_fields.length() {
+            let _ = fields.pop()
+          }
+          for i = 0; i < next_fields.length(); i = i + 1 {
+            if i < fields.length() {
+              fields[i] = next_fields[i]
+            } else {
+              fields.push(next_fields[i])
+            }
+          }
+          vars["NF"] = fields.length().to_string()
+        } else {
+          let field_idx = aj_parse_int(aj_substr(lhs, 1, lhs.length()))
+          if field_idx > 0 {
+            while fields.length() < field_idx {
+              fields.push("")
+            }
+            fields[field_idx - 1] = value
+            vars["NF"] = fields.length().to_string()
+          }
+        }
       }
       Delete(arr_name, idx_ast) => {
         match idx_ast {
