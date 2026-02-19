@@ -283,22 +283,6 @@ fn awk_match_regex_pattern(pattern_expr : String, line : String) -> Bool {
   aj_find_substring(line, pat) >= 0
 }
 
-fn awk_eval_condition(
-  expr : String,
-  line : String,
-  fields : Array[String],
-  nr : Int,
-  nf : Int,
-  vars : Map[String, String],
-  array_vars : Map[String, String]
-) -> Bool {
-  let p = awk_strip_outer_parens(expr)
-  if p.length() == 0 {
-    return true
-  }
-  awk_eval_condition_ast(awk_parse_expr_ast(p), line, fields, nr, nf, vars, array_vars)
-}
-
 fn awk_pattern_match_program(
   prog : AwkProgram,
   line : String,
@@ -313,11 +297,11 @@ fn awk_pattern_match_program(
     return (false, in_range)
   }
 
-  match (prog.range_start, prog.range_end) {
-    (Some(start_expr), Some(end_expr)) => {
+  match (prog.range_start_ast, prog.range_end_ast) {
+    (Some(start_ast), Some(end_ast)) => {
       if in_range {
-        let end_hit = awk_eval_condition(
-          end_expr,
+        let end_hit = awk_eval_condition_ast(
+          end_ast,
           line,
           fields,
           nr,
@@ -327,8 +311,8 @@ fn awk_pattern_match_program(
         )
         (true, not(end_hit))
       } else {
-        let start_hit = awk_eval_condition(
-          start_expr,
+        let start_hit = awk_eval_condition_ast(
+          start_ast,
           line,
           fields,
           nr,
@@ -339,8 +323,8 @@ fn awk_pattern_match_program(
         if not(start_hit) {
           (false, false)
         } else {
-          let end_hit = awk_eval_condition(
-            end_expr,
+          let end_hit = awk_eval_condition_ast(
+            end_ast,
             line,
             fields,
             nr,
@@ -352,10 +336,13 @@ fn awk_pattern_match_program(
         }
       }
     }
-    _ => (
-      awk_eval_condition(prog.pattern, line, fields, nr, nf, vars, array_vars),
-      false,
-    )
+    _ => {
+      match prog.pattern_ast {
+        Some(pattern_ast) =>
+          (awk_eval_condition_ast(pattern_ast, line, fields, nr, nf, vars, array_vars), false)
+        None => (true, false)
+      }
+    }
   }
 }
 

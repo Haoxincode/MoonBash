@@ -6,12 +6,12 @@
 
 priv struct AwkProgram {
   begin_actions : Array[String]
-  pattern : String
+  pattern_ast : AwkExprAst?
   action : String
   end_actions : Array[String]
   has_main : Bool
-  range_start : String?
-  range_end : String?
+  range_start_ast : AwkExprAst?
+  range_end_ast : AwkExprAst?
 }
 
 priv struct AwkFunction {
@@ -457,6 +457,20 @@ fn awk_strip_comments(src : String) -> String {
   out.to_string()
 }
 
+fn awk_parse_optional_expr_ast(expr : String?) -> AwkExprAst? {
+  match expr {
+    Some(text) => {
+      let p = aj_trim(text)
+      if p.length() == 0 {
+        None
+      } else {
+        Some(awk_parse_expr_ast(p))
+      }
+    }
+    None => None
+  }
+}
+
 fn awk_parse_program(src : String) -> AwkProgram {
   let src = awk_strip_comments(src)
   let begin_actions : Array[String] = []
@@ -489,12 +503,12 @@ fn awk_parse_program(src : String) -> AwkProgram {
   if rest.length() == 0 {
     return {
       begin_actions,
-      pattern: "",
+      pattern_ast: None,
       action: "",
       end_actions,
       has_main: false,
-      range_start: None,
-      range_end: None,
+      range_start_ast: None,
+      range_end_ast: None,
     }
   }
 
@@ -502,19 +516,33 @@ fn awk_parse_program(src : String) -> AwkProgram {
   if brace_pos < 0 {
     let pattern = aj_trim(rest)
     let (range_start, range_end) = awk_split_range_pattern(pattern)
+    let range_start_ast = awk_parse_optional_expr_ast(range_start)
+    let range_end_ast = awk_parse_optional_expr_ast(range_end)
+    let pattern_ast = if range_start_ast is Some(_) && range_end_ast is Some(_) {
+      None
+    } else {
+      awk_parse_optional_expr_ast(Some(pattern))
+    }
     return {
       begin_actions,
-      pattern,
+      pattern_ast,
       action: "",
       end_actions,
       has_main: true,
-      range_start,
-      range_end,
+      range_start_ast,
+      range_end_ast,
     }
   }
 
   let pattern = aj_trim(aj_substr(rest, 0, brace_pos))
   let (range_start, range_end) = awk_split_range_pattern(pattern)
+  let range_start_ast = awk_parse_optional_expr_ast(range_start)
+  let range_end_ast = awk_parse_optional_expr_ast(range_end)
+  let pattern_ast = if range_start_ast is Some(_) && range_end_ast is Some(_) {
+    None
+  } else {
+    awk_parse_optional_expr_ast(Some(pattern))
+  }
   let mut depth = 1
   let mut quote : Char? = None
   let mut i = brace_pos + 1
@@ -552,11 +580,11 @@ fn awk_parse_program(src : String) -> AwkProgram {
   let action = if i <= rest.length() { aj_substr(rest, brace_pos + 1, i) } else { "" }
   {
     begin_actions,
-    pattern,
+    pattern_ast,
     action,
     end_actions,
     has_main: true,
-    range_start,
-    range_end,
+    range_start_ast,
+    range_end_ast,
   }
 }
