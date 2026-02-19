@@ -163,6 +163,26 @@ fn awk_execute_function_body(
   awk_execute_function_statements(statements, line, fields, nr, vars, array_vars, out)
 }
 
+fn awk_sync_fields_from_record_for_function(
+  record : String,
+  fields : Array[String],
+  vars : Map[String, String]
+) -> Unit {
+  let current_fs = awk_current_fs(vars.get("FS").unwrap_or(" "), vars)
+  let next_fields = awk_split_fields(record, current_fs)
+  while fields.length() > next_fields.length() {
+    let _ = fields.pop()
+  }
+  for i = 0; i < next_fields.length(); i = i + 1 {
+    if i < fields.length() {
+      fields[i] = next_fields[i]
+    } else {
+      fields.push(next_fields[i])
+    }
+  }
+  vars["NF"] = fields.length().to_string()
+}
+
 fn awk_execute_function_statements(
   statements : Array[AwkStmt],
   line : String,
@@ -217,26 +237,22 @@ fn awk_execute_function_statements(
         let line_from_cmd = awk_eval_getline_command_line(command)
         match target {
           Var(name) => vars[name] = line_from_cmd
-          Record => {
-            let current_fs = awk_current_fs(vars.get("FS").unwrap_or(" "), vars)
-            let next_fields = awk_split_fields(line_from_cmd, current_fs)
-            while fields.length() > next_fields.length() {
-              let _ = fields.pop()
-            }
-            for i = 0; i < next_fields.length(); i = i + 1 {
-              if i < fields.length() {
-                fields[i] = next_fields[i]
-              } else {
-                fields.push(next_fields[i])
-              }
-            }
-            vars["NF"] = fields.length().to_string()
-          }
+          Record => awk_sync_fields_from_record_for_function(line_from_cmd, fields, vars)
           _ => ()
         }
       }
-      Getline(_target, _path_ast) => {
-        ()
+      Getline(target, path_ast) => {
+        match path_ast {
+          // No file-system context in function executor; keep path-based getline conservative.
+          Some(_) => ()
+          None => {
+            match target {
+              Var(name) => vars[name] = line
+              Record => awk_sync_fields_from_record_for_function(line, fields, vars)
+              Raw(_) => awk_sync_fields_from_record_for_function(line, fields, vars)
+            }
+          }
+        }
       }
       SystemStmt => {
         vars[awk_ctrl_error_key] = "system() is not supported"
@@ -302,19 +318,7 @@ fn awk_execute_function_statements(
             } else {
               awk_replace_first_literal(line, pattern, replacement)
             }
-            let current_fs = awk_current_fs(vars.get("FS").unwrap_or(" "), vars)
-            let next_fields = awk_split_fields(updated, current_fs)
-            while fields.length() > next_fields.length() {
-              let _ = fields.pop()
-            }
-            for i = 0; i < next_fields.length(); i = i + 1 {
-              if i < fields.length() {
-                fields[i] = next_fields[i]
-              } else {
-                fields.push(next_fields[i])
-              }
-            }
-            vars["NF"] = fields.length().to_string()
+            awk_sync_fields_from_record_for_function(updated, fields, vars)
           }
         }
       }
@@ -372,19 +376,7 @@ fn awk_execute_function_statements(
         let value = awk_eval_expr_ast(rhs_ast, line, fields, nr, fields.length(), vars, array_vars)
         if lhs == "$0" {
           // Function executor has no mutable `line` slot, so only refresh field view.
-          let current_fs = awk_current_fs(vars.get("FS").unwrap_or(" "), vars)
-          let next_fields = awk_split_fields(value, current_fs)
-          while fields.length() > next_fields.length() {
-            let _ = fields.pop()
-          }
-          for i = 0; i < next_fields.length(); i = i + 1 {
-            if i < fields.length() {
-              fields[i] = next_fields[i]
-            } else {
-              fields.push(next_fields[i])
-            }
-          }
-          vars["NF"] = fields.length().to_string()
+          awk_sync_fields_from_record_for_function(value, fields, vars)
         } else {
           let field_idx = aj_parse_int(aj_substr(lhs, 1, lhs.length()))
           if field_idx > 0 {
