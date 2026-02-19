@@ -438,7 +438,7 @@ fn awk_eval_raw_expr_ast(
   }
   match awk_parse_array_ref(t) {
     Some(_) => awk_eval_atom(t, line, fields, nr, nf, vars, array_vars)
-    None => awk_eval_expr_legacy(t, line, fields, nr, nf, vars, array_vars)
+    None => awk_eval_atom(t, line, fields, nr, nf, vars, array_vars)
   }
 }
 
