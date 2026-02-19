@@ -223,6 +223,9 @@ fn awk_execute_function_statements(
       Getline(_tail) => {
         ()
       }
+      ExprStmt(expr_ast) => {
+        ignore(awk_eval_expr_ast(expr_ast, line, fields, nr, fields.length(), vars, array_vars))
+      }
       Delete(_target_expr) => {
         ()
       }

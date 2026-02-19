@@ -13,7 +13,47 @@ priv enum AwkStmt {
   Delete(String)
   PipeGetline(AwkExprAst, String)
   Getline(String)
+  ExprStmt(AwkExprAst)
 } derive(Show)
+
+fn awk_stmt_ast_supports_expr(stmt : String) -> Bool {
+  let t = aj_trim(stmt)
+  if t.length() == 0 {
+    return false
+  }
+
+  if (aj_starts_with(t, "system(") || aj_starts_with(t, "gsub(") ||
+    aj_starts_with(t, "sub(") || aj_starts_with(t, "match(")) &&
+    aj_ends_with(t, ")") {
+    return false
+  }
+
+  if awk_find_top_level_token(t, "+=") > 0 ||
+    awk_find_top_level_token(t, "-=") > 0 ||
+    awk_find_top_level_token(t, "*=") > 0 ||
+    awk_find_top_level_token(t, "/=") > 0 {
+    return false
+  }
+
+  let eq_idx = awk_find_top_level_token(t, "=")
+  if eq_idx > 0 {
+    let prev = t[eq_idx - 1].to_int().unsafe_to_char()
+    let next = if eq_idx + 1 < t.length() {
+      Some(t[eq_idx + 1].to_int().unsafe_to_char())
+    } else {
+      None
+    }
+    if prev != '!' && prev != '<' && prev != '>' && prev != '=' &&
+      next != Some('=') {
+      let lhs = aj_trim(aj_substr(t, 0, eq_idx))
+      if aj_starts_with(lhs, "$") {
+        return false
+      }
+    }
+  }
+
+  true
+}
 
 fn awk_parse_statement_ast(stmt : String) -> AwkStmt {
   let text = aj_trim(stmt)
@@ -102,7 +142,13 @@ fn awk_parse_statement_ast(stmt : String) -> AwkStmt {
         None => If(cond_ast, then_ast, None)
       }
     }
-    None => Simple(text)
+    None => {
+      if awk_stmt_ast_supports_expr(text) {
+        ExprStmt(awk_parse_expr_ast(text))
+      } else {
+        Simple(text)
+      }
+    }
   }
 }
 

@@ -255,6 +255,19 @@ fn awk_execute_action_ast_list(
           }
         }
       }
+      ExprStmt(expr_ast) => {
+        ignore(
+          awk_eval_expr_ast(
+            expr_ast,
+            current_line,
+            current_fields,
+            current_nr,
+            current_fields.length(),
+            vars,
+            array_vars,
+          ),
+        )
+      }
       Delete(target_expr) => {
         match awk_parse_array_ref(target_expr) {
           Some((arr_name, idx_expr)) => {
