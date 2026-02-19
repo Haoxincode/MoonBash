@@ -413,6 +413,26 @@ fn awk_eval_call_expr_ast(
     return "0"
   }
 
+  if call_name == "match" {
+    if args_raw.length() < 2 || args_ast.length() < 2 {
+      vars["RSTART"] = "0"
+      vars["RLENGTH"] = "-1"
+      return "0"
+    }
+    let source = eval_arg(0)
+    let pattern_expr = aj_trim(args_raw[1])
+    let pattern = if aj_starts_with(pattern_expr, "/") &&
+      aj_ends_with(pattern_expr, "/") {
+      pattern_expr
+    } else {
+      eval_arg(1)
+    }
+    let (rstart, rlength) = awk_find_regex_match_range(pattern, source)
+    vars["RSTART"] = rstart.to_string()
+    vars["RLENGTH"] = rlength.to_string()
+    return rstart.to_string()
+  }
+
   match awk_get_function(vars, call_name) {
     Some(_) => {
       let fn_out = StringBuilder::new()

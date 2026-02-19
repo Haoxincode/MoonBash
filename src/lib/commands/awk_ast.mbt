@@ -25,7 +25,7 @@ fn awk_stmt_ast_supports_expr(stmt : String) -> Bool {
   }
 
   if (aj_starts_with(t, "system(") || aj_starts_with(t, "gsub(") ||
-    aj_starts_with(t, "sub(") || aj_starts_with(t, "match(")) &&
+    aj_starts_with(t, "sub(")) &&
     aj_ends_with(t, ")") {
     return false
   }
