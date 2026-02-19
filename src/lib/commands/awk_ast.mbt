@@ -31,7 +31,7 @@ fn awk_parse_getline_target(target : String) -> AwkGetlineTarget {
 
 priv enum AwkStmt {
   If(AwkExprAst, AwkGetlineTarget?, Array[AwkStmt], Array[AwkStmt]?)
-  For(Array[AwkStmt], AwkExprAst?, Array[AwkStmt], Array[AwkStmt])
+  For(Array[AwkStmt], AwkExprAst?, AwkGetlineTarget?, Array[AwkStmt], Array[AwkStmt])
   ForIn(String, String, Array[AwkStmt])
   While(AwkExprAst, AwkGetlineTarget?, Array[AwkStmt])
   Next
@@ -373,9 +373,13 @@ fn awk_parse_statement_ast(stmt : String) -> AwkStmt {
       } else {
         Some(awk_parse_expr_ast(cond_expr))
       }
+      let cond_getline = match cond_ast {
+        Some(cond_expr_ast) => awk_getline_target_from_condition_expr_ast(cond_expr_ast)
+        None => None
+      }
       let update_ast = awk_parse_action_ast(update_stmt)
       let body_ast = awk_parse_action_ast(body_stmt)
-      return For(init_ast, cond_ast, update_ast, body_ast)
+      return For(init_ast, cond_ast, cond_getline, update_ast, body_ast)
     }
     None => ()
   }

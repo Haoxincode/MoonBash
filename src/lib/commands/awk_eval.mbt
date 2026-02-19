@@ -515,7 +515,7 @@ fn awk_execute_function_statements(
           }
         }
       }
-      For(init_stmts, cond_ast, update_stmts, body_stmts) => {
+      For(init_stmts, cond_ast, _cond_getline, update_stmts, body_stmts) => {
         if init_stmts.length() > 0 {
           awk_execute_function_statements(init_stmts, line, fields, nr, vars, array_vars, out)
         }

@@ -670,7 +670,7 @@ fn awk_execute_action_ast_list(
           }
         }
       }
-      For(init_stmts, cond_ast, update_stmts, body_stmts) => {
+      For(init_stmts, cond_ast, cond_getline, update_stmts, body_stmts) => {
         if init_stmts.length() > 0 {
           let (next_line, next_fields, consumed_init, new_nr) = awk_execute_action_ast_list(
             ctx,
@@ -699,23 +699,52 @@ fn awk_execute_action_ast_list(
             vars.contains(awk_ctrl_return_key) {
             break
           }
+          let mut cond_passed = true
           match cond_ast {
             Some(cond_expr_ast) => {
-              if not(
-                awk_eval_condition_ast(
-                  cond_expr_ast,
-                  current_line,
-                  current_fields,
-                  current_nr,
-                  current_fields.length(),
-                  vars,
-                  array_vars,
-                ),
-              ) {
-                break
+              match cond_getline {
+                Some(target) => {
+                  let next_idx = line_idx + consumed + 1
+                  if next_idx >= 0 && next_idx < lines.length() {
+                    let next_line = lines[next_idx]
+                    consumed += 1
+                    current_nr += 1
+                    vars["NR"] = current_nr.to_string()
+                    vars["FNR"] = current_nr.to_string()
+                    let (next_line_value, next_fields_value) = awk_apply_getline_target(
+                      target,
+                      next_line,
+                      fs,
+                      vars,
+                      array_vars,
+                      current_line,
+                      current_fields,
+                      current_nr,
+                    )
+                    current_line = next_line_value
+                    current_fields = next_fields_value
+                    cond_passed = not(vars.contains(awk_ctrl_exit_key))
+                  } else {
+                    cond_passed = false
+                  }
+                }
+                None => {
+                  cond_passed = awk_eval_condition_ast(
+                    cond_expr_ast,
+                    current_line,
+                    current_fields,
+                    current_nr,
+                    current_fields.length(),
+                    vars,
+                    array_vars,
+                  )
+                }
               }
             }
             None => ()
+          }
+          if not(cond_passed) {
+            break
           }
 
           if body_stmts.length() > 0 {
