@@ -13,6 +13,7 @@ priv enum AwkStmt {
   Delete(String)
   PipeGetline(AwkExprAst, String)
   Getline(String)
+  FieldAssignStmt(String, AwkExprAst)
   AssignStmt(String, AwkExprAst)
   CompoundAssignStmt(String, String, AwkExprAst)
   ExprStmt(AwkExprAst)
@@ -133,6 +134,28 @@ fn awk_parse_assign_stmt(text : String) -> (String, AwkExprAst)? {
   Some((lhs, awk_parse_expr_ast(rhs)))
 }
 
+fn awk_parse_field_assign_stmt(text : String) -> (String, AwkExprAst)? {
+  let eq_idx = awk_find_top_level_token(text, "=")
+  if eq_idx <= 0 {
+    return None
+  }
+  let prev = text[eq_idx - 1].to_int().unsafe_to_char()
+  let next = if eq_idx + 1 < text.length() {
+    Some(text[eq_idx + 1].to_int().unsafe_to_char())
+  } else {
+    None
+  }
+  if prev == '!' || prev == '<' || prev == '>' || prev == '=' || next == Some('=') {
+    return None
+  }
+  let lhs = aj_trim(aj_substr(text, 0, eq_idx))
+  if not(aj_starts_with(lhs, "$")) {
+    return None
+  }
+  let rhs = aj_trim(aj_substr(text, eq_idx + 1, text.length()))
+  Some((lhs, awk_parse_expr_ast(rhs)))
+}
+
 fn awk_parse_statement_ast(stmt : String) -> AwkStmt {
   let text = aj_trim(stmt)
   if text.length() == 0 {
@@ -189,6 +212,11 @@ fn awk_parse_statement_ast(stmt : String) -> AwkStmt {
 
   match awk_parse_compound_assign_stmt(text) {
     Some((lhs, op, rhs_ast)) => return CompoundAssignStmt(lhs, op, rhs_ast)
+    None => ()
+  }
+
+  match awk_parse_field_assign_stmt(text) {
+    Some((lhs, rhs_ast)) => return FieldAssignStmt(lhs, rhs_ast)
     None => ()
   }
 

@@ -347,6 +347,39 @@ fn awk_execute_action_ast_list(
           }
         }
       }
+      FieldAssignStmt(lhs, rhs_ast) => {
+        let value = awk_eval_expr_ast(
+          rhs_ast,
+          current_line,
+          current_fields,
+          current_nr,
+          current_fields.length(),
+          vars,
+          array_vars,
+        )
+        if lhs == "$0" {
+          current_line = value
+          let current_fs = awk_current_fs(fs, vars)
+          current_fields = awk_split_fields(current_line, current_fs)
+          vars["NF"] = current_fields.length().to_string()
+        } else {
+          let field_idx = aj_parse_int(aj_substr(lhs, 1, lhs.length()))
+          if field_idx == 0 {
+            current_line = value
+            let current_fs = awk_current_fs(fs, vars)
+            current_fields = awk_split_fields(current_line, current_fs)
+            vars["NF"] = current_fields.length().to_string()
+          } else if field_idx > 0 {
+            while current_fields.length() < field_idx {
+              current_fields.push("")
+            }
+            current_fields[field_idx - 1] = value
+            let ofs = vars.get("OFS").unwrap_or(" ")
+            current_line = awk_join_fields(current_fields, ofs)
+            vars["NF"] = current_fields.length().to_string()
+          }
+        }
+      }
       Delete(target_expr) => {
         match awk_parse_array_ref(target_expr) {
           Some((arr_name, idx_expr)) => {
@@ -919,61 +952,6 @@ fn awk_execute_action_simple(
       continue
     }
 
-    let eq_idx = awk_find_top_level_token(stmt, "=")
-    if eq_idx > 0 {
-      let name = aj_trim(aj_substr(stmt, 0, eq_idx))
-      let rhs = aj_trim(aj_substr(stmt, eq_idx + 1, stmt.length()))
-      let value = awk_eval_expr(
-        rhs,
-        current_line,
-        current_fields,
-        current_nr,
-        current_fields.length(),
-        vars,
-        array_vars,
-      )
-      if awk_is_identifier(name) {
-        vars[name] = value
-      } else if name == "$0" {
-        current_line = value
-        let current_fs = awk_current_fs(fs, vars)
-        current_fields = awk_split_fields(current_line, current_fs)
-        vars["NF"] = current_fields.length().to_string()
-      } else if aj_starts_with(name, "$") {
-        let field_idx = aj_parse_int(aj_substr(name, 1, name.length()))
-        if field_idx == 0 {
-          current_line = value
-          let current_fs = awk_current_fs(fs, vars)
-          current_fields = awk_split_fields(current_line, current_fs)
-          vars["NF"] = current_fields.length().to_string()
-        } else if field_idx > 0 {
-          while current_fields.length() < field_idx {
-            current_fields.push("")
-          }
-          current_fields[field_idx - 1] = value
-          let ofs = vars.get("OFS").unwrap_or(" ")
-          current_line = awk_join_fields(current_fields, ofs)
-          vars["NF"] = current_fields.length().to_string()
-        }
-      } else {
-        match awk_parse_array_ref(name) {
-          Some((arr_name, idx_expr)) => {
-            let idx = awk_eval_expr(
-              idx_expr,
-              current_line,
-              current_fields,
-              current_nr,
-              current_fields.length(),
-              vars,
-              array_vars,
-            )
-            array_vars[awk_array_key(arr_name, idx)] = value
-          }
-          None => ()
-        }
-      }
-      continue
-    }
   }
 
   (current_line, current_fields, consumed, current_nr)

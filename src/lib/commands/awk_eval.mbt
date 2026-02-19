@@ -260,6 +260,9 @@ fn awk_execute_function_statements(
           }
         }
       }
+      FieldAssignStmt(_lhs, _rhs_ast) => {
+        ()
+      }
       Delete(_target_expr) => {
         ()
       }
@@ -407,42 +410,6 @@ fn awk_execute_function_body_simple(
           array_vars,
         ),
       )
-      continue
-    }
-
-    let eq_idx = awk_find_top_level_token(stmt, "=")
-    if eq_idx > 0 {
-      let prev = stmt[eq_idx - 1].to_int().unsafe_to_char()
-      let next = if eq_idx + 1 < stmt.length() {
-        Some(stmt[eq_idx + 1].to_int().unsafe_to_char())
-      } else {
-        None
-      }
-      if prev != '!' && prev != '<' && prev != '>' && prev != '=' &&
-        next != Some('=') {
-        let lhs = aj_trim(aj_substr(stmt, 0, eq_idx))
-        let rhs = aj_trim(aj_substr(stmt, eq_idx + 1, stmt.length()))
-        let value = awk_eval_expr(rhs, line, fields, nr, fields.length(), vars, array_vars)
-        if awk_is_identifier(lhs) {
-          vars[lhs] = value
-        } else {
-          match awk_parse_array_ref(lhs) {
-            Some((arr_name, idx_expr)) => {
-              let idx = awk_eval_expr(
-                idx_expr,
-                line,
-                fields,
-                nr,
-                fields.length(),
-                vars,
-                array_vars,
-              )
-              array_vars[awk_array_key(arr_name, idx)] = value
-            }
-            None => ()
-          }
-        }
-      }
       continue
     }
 
