@@ -9,6 +9,19 @@ fn awk_eval_expr(
   vars : Map[String, String],
   array_vars : Map[String, String]
 ) -> String {
+  let ast = awk_parse_expr_ast(expr)
+  awk_eval_expr_ast(ast, line, fields, nr, nf, vars, array_vars)
+}
+
+fn awk_eval_expr_legacy(
+  expr : String,
+  line : String,
+  fields : Array[String],
+  nr : Int,
+  nf : Int,
+  vars : Map[String, String],
+  array_vars : Map[String, String]
+) -> String {
   let t = awk_strip_outer_parens(aj_trim(expr))
   let tokens = awk_tokenize_expr(t)
   if tokens.length() == 0 {
@@ -59,7 +72,7 @@ fn awk_eval_expr(
         if args.length() < 2 {
           return "0"
         }
-        let haystack = awk_eval_expr(
+        let haystack = awk_eval_expr_legacy(
           args[0],
           line,
           fields,
@@ -68,7 +81,7 @@ fn awk_eval_expr(
           vars,
           array_vars,
         )
-        let needle = awk_eval_expr(
+        let needle = awk_eval_expr_legacy(
           args[1],
           line,
           fields,
@@ -88,7 +101,7 @@ fn awk_eval_expr(
         if args.length() < 2 {
           return ""
         }
-        let text = awk_eval_expr(
+        let text = awk_eval_expr_legacy(
           args[0],
           line,
           fields,
@@ -133,7 +146,7 @@ fn awk_eval_expr(
         if args.length() == 0 {
           return ""
         }
-        let value = awk_eval_expr(
+        let value = awk_eval_expr_legacy(
           args[0],
           line,
           fields,
@@ -149,7 +162,7 @@ fn awk_eval_expr(
         if args.length() == 0 {
           return ""
         }
-        let value = awk_eval_expr(
+        let value = awk_eval_expr_legacy(
           args[0],
           line,
           fields,
@@ -261,7 +274,7 @@ fn awk_eval_expr(
     if args.length() == 0 {
       return ""
     }
-    let format = awk_eval_expr(
+    let format = awk_eval_expr_legacy(
       args[0],
       line,
       fields,
@@ -273,7 +286,7 @@ fn awk_eval_expr(
     let format_args : Array[String] = []
     for i = 1; i < args.length(); i = i + 1 {
       format_args.push(
-        awk_eval_expr(
+        awk_eval_expr_legacy(
           args[i],
           line,
           fields,
@@ -291,7 +304,7 @@ fn awk_eval_expr(
     let inner = aj_substr(t, 6, t.length() - 1)
     let args = awk_split_csv_args(inner)
     if args.length() >= 2 {
-      let source = awk_eval_expr(
+      let source = awk_eval_expr_legacy(
         args[0],
         line,
         fields,
@@ -336,7 +349,7 @@ fn awk_eval_expr(
       next != Some('=') {
       let lhs = aj_trim(aj_substr(t, 0, eq_idx))
       let rhs = aj_trim(aj_substr(t, eq_idx + 1, t.length()))
-      let value = awk_eval_expr(rhs, line, fields, nr, nf, vars, array_vars)
+      let value = awk_eval_expr_legacy(rhs, line, fields, nr, nf, vars, array_vars)
       if awk_assign_reference(lhs, value, line, fields, nr, nf, vars, array_vars) {
         return value
       }
@@ -348,7 +361,7 @@ fn awk_eval_expr(
     let left_expr = aj_substr(t, 0, in_idx)
     let right_expr = aj_trim(aj_substr(t, in_idx + 4, t.length()))
     if awk_is_identifier(right_expr) {
-      let idx_value = awk_eval_expr(
+      let idx_value = awk_eval_expr_legacy(
         left_expr,
         line,
         fields,
@@ -363,7 +376,7 @@ fn awk_eval_expr(
 
   let comma_idx = awk_find_top_level_token(t, ",")
   if comma_idx > 0 {
-    let left = awk_eval_expr(
+    let left = awk_eval_expr_legacy(
       aj_substr(t, 0, comma_idx),
       line,
       fields,
@@ -372,7 +385,7 @@ fn awk_eval_expr(
       vars,
       array_vars,
     )
-    let right = awk_eval_expr(
+    let right = awk_eval_expr_legacy(
       aj_substr(t, comma_idx + 1, t.length()),
       line,
       fields,
@@ -393,16 +406,16 @@ fn awk_eval_expr(
       let true_expr = aj_substr(t, question_idx + 1, colon_idx)
       let false_expr = aj_substr(t, colon_idx + 1, t.length())
       if awk_eval_condition(cond_expr, line, fields, nr, nf, vars, array_vars) {
-        return awk_eval_expr(true_expr, line, fields, nr, nf, vars, array_vars)
+        return awk_eval_expr_legacy(true_expr, line, fields, nr, nf, vars, array_vars)
       } else {
-        return awk_eval_expr(false_expr, line, fields, nr, nf, vars, array_vars)
+        return awk_eval_expr_legacy(false_expr, line, fields, nr, nf, vars, array_vars)
       }
     }
   }
 
   let or_idx = awk_find_top_level_token(t, "||")
   if or_idx > 0 {
-    let left_value = awk_eval_expr(
+    let left_value = awk_eval_expr_legacy(
       aj_substr(t, 0, or_idx),
       line,
       fields,
@@ -414,7 +427,7 @@ fn awk_eval_expr(
     if awk_value_truthy(left_value) {
       return "1"
     }
-    let right_value = awk_eval_expr(
+    let right_value = awk_eval_expr_legacy(
       aj_substr(t, or_idx + 2, t.length()),
       line,
       fields,
@@ -428,7 +441,7 @@ fn awk_eval_expr(
 
   let and_idx = awk_find_top_level_token(t, "&&")
   if and_idx > 0 {
-    let left_value = awk_eval_expr(
+    let left_value = awk_eval_expr_legacy(
       aj_substr(t, 0, and_idx),
       line,
       fields,
@@ -440,7 +453,7 @@ fn awk_eval_expr(
     if not(awk_value_truthy(left_value)) {
       return "0"
     }
-    let right_value = awk_eval_expr(
+    let right_value = awk_eval_expr_legacy(
       aj_substr(t, and_idx + 2, t.length()),
       line,
       fields,
@@ -454,7 +467,7 @@ fn awk_eval_expr(
 
   let not_match_idx = awk_find_top_level_token(t, "!~")
   if not_match_idx > 0 {
-    let left = awk_eval_expr(
+    let left = awk_eval_expr_legacy(
       aj_substr(t, 0, not_match_idx),
       line,
       fields,
@@ -467,7 +480,7 @@ fn awk_eval_expr(
     let right = if aj_starts_with(right_expr, "/") && aj_ends_with(right_expr, "/") {
       right_expr
     } else {
-      "/" + awk_eval_expr(right_expr, line, fields, nr, nf, vars, array_vars) + "/"
+      "/" + awk_eval_expr_legacy(right_expr, line, fields, nr, nf, vars, array_vars) + "/"
     }
     let (rstart, _rlength) = awk_find_regex_match_range(right, left)
     return awk_bool_to_string(rstart <= 0)
@@ -475,7 +488,7 @@ fn awk_eval_expr(
 
   let match_idx = awk_find_top_level_token(t, "~")
   if match_idx > 0 {
-    let left = awk_eval_expr(
+    let left = awk_eval_expr_legacy(
       aj_substr(t, 0, match_idx),
       line,
       fields,
@@ -488,7 +501,7 @@ fn awk_eval_expr(
     let right = if aj_starts_with(right_expr, "/") && aj_ends_with(right_expr, "/") {
       right_expr
     } else {
-      "/" + awk_eval_expr(right_expr, line, fields, nr, nf, vars, array_vars) + "/"
+      "/" + awk_eval_expr_legacy(right_expr, line, fields, nr, nf, vars, array_vars) + "/"
     }
     let (rstart, _rlength) = awk_find_regex_match_range(right, left)
     return awk_bool_to_string(rstart > 0)
@@ -496,7 +509,7 @@ fn awk_eval_expr(
 
   let mut cmp_idx = awk_find_top_level_token(t, "==")
   if cmp_idx > 0 {
-    let left = awk_eval_expr(
+    let left = awk_eval_expr_legacy(
       aj_substr(t, 0, cmp_idx),
       line,
       fields,
@@ -505,7 +518,7 @@ fn awk_eval_expr(
       vars,
       array_vars,
     )
-    let right = awk_eval_expr(
+    let right = awk_eval_expr_legacy(
       aj_substr(t, cmp_idx + 2, t.length()),
       line,
       fields,
@@ -519,7 +532,7 @@ fn awk_eval_expr(
 
   cmp_idx = awk_find_top_level_token(t, "!=")
   if cmp_idx > 0 {
-    let left = awk_eval_expr(
+    let left = awk_eval_expr_legacy(
       aj_substr(t, 0, cmp_idx),
       line,
       fields,
@@ -528,7 +541,7 @@ fn awk_eval_expr(
       vars,
       array_vars,
     )
-    let right = awk_eval_expr(
+    let right = awk_eval_expr_legacy(
       aj_substr(t, cmp_idx + 2, t.length()),
       line,
       fields,
@@ -542,7 +555,7 @@ fn awk_eval_expr(
 
   cmp_idx = awk_find_top_level_token(t, ">=")
   if cmp_idx > 0 {
-    let left = awk_eval_expr(
+    let left = awk_eval_expr_legacy(
       aj_substr(t, 0, cmp_idx),
       line,
       fields,
@@ -551,7 +564,7 @@ fn awk_eval_expr(
       vars,
       array_vars,
     )
-    let right = awk_eval_expr(
+    let right = awk_eval_expr_legacy(
       aj_substr(t, cmp_idx + 2, t.length()),
       line,
       fields,
@@ -565,7 +578,7 @@ fn awk_eval_expr(
 
   cmp_idx = awk_find_top_level_token(t, "<=")
   if cmp_idx > 0 {
-    let left = awk_eval_expr(
+    let left = awk_eval_expr_legacy(
       aj_substr(t, 0, cmp_idx),
       line,
       fields,
@@ -574,7 +587,7 @@ fn awk_eval_expr(
       vars,
       array_vars,
     )
-    let right = awk_eval_expr(
+    let right = awk_eval_expr_legacy(
       aj_substr(t, cmp_idx + 2, t.length()),
       line,
       fields,
@@ -588,7 +601,7 @@ fn awk_eval_expr(
 
   cmp_idx = awk_find_top_level_token(t, ">")
   if cmp_idx > 0 {
-    let left = awk_eval_expr(
+    let left = awk_eval_expr_legacy(
       aj_substr(t, 0, cmp_idx),
       line,
       fields,
@@ -597,7 +610,7 @@ fn awk_eval_expr(
       vars,
       array_vars,
     )
-    let right = awk_eval_expr(
+    let right = awk_eval_expr_legacy(
       aj_substr(t, cmp_idx + 1, t.length()),
       line,
       fields,
@@ -611,7 +624,7 @@ fn awk_eval_expr(
 
   cmp_idx = awk_find_top_level_token(t, "<")
   if cmp_idx > 0 {
-    let left = awk_eval_expr(
+    let left = awk_eval_expr_legacy(
       aj_substr(t, 0, cmp_idx),
       line,
       fields,
@@ -620,7 +633,7 @@ fn awk_eval_expr(
       vars,
       array_vars,
     )
-    let right = awk_eval_expr(
+    let right = awk_eval_expr_legacy(
       aj_substr(t, cmp_idx + 1, t.length()),
       line,
       fields,
@@ -724,11 +737,10 @@ fn awk_eval_expr(
   if tokens.length() > 1 {
     let out = StringBuilder::new()
     for tok in tokens {
-      out.write_string(awk_eval_expr(tok, line, fields, nr, nf, vars, array_vars))
+      out.write_string(awk_eval_expr_legacy(tok, line, fields, nr, nf, vars, array_vars))
     }
     return out.to_string()
   }
 
   awk_eval_atom(t, line, fields, nr, nf, vars, array_vars)
 }
-
