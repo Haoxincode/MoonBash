@@ -291,105 +291,13 @@ fn awk_execute_function_body_legacy(
       continue
     }
 
-    match awk_parse_for_in_statement(stmt) {
-      Some((loop_var, arr_name, body_stmt)) => {
-        let key_prefix = arr_name + "#"
-        let indices : Array[String] = []
-        for key, _value in array_vars {
-          if aj_starts_with(key, key_prefix) {
-            indices.push(aj_substr(key, key_prefix.length(), key.length()))
-          }
-        }
-        for idx_value in indices {
-          if vars.contains(awk_ctrl_exit_key) || vars.contains(awk_ctrl_return_key) {
-            break
-          }
-          vars[loop_var] = idx_value
-          if body_stmt.length() > 0 {
-            awk_execute_function_body_legacy(body_stmt, line, fields, nr, vars, array_vars, out)
-          }
-        }
+    let parsed_stmt = awk_parse_statement_ast(stmt)
+    match parsed_stmt {
+      Simple(_) => ()
+      _ => {
+        awk_execute_function_statements([parsed_stmt], line, fields, nr, vars, array_vars, out)
         continue
       }
-      None => ()
-    }
-
-    match awk_parse_for_statement(stmt) {
-      Some((init_stmt, cond_expr, update_stmt, body_stmt)) => {
-        if init_stmt.length() > 0 {
-          ignore(awk_eval_expr(init_stmt, line, fields, nr, fields.length(), vars, array_vars))
-        }
-        let mut loop_count = 0
-        while true {
-          if vars.contains(awk_ctrl_exit_key) || vars.contains(awk_ctrl_return_key) {
-            break
-          }
-          if cond_expr.length() > 0 &&
-            not(
-              awk_eval_condition(
-                cond_expr,
-                line,
-                fields,
-                nr,
-                fields.length(),
-                vars,
-                array_vars,
-              ),
-            ) {
-            break
-          }
-          if body_stmt.length() > 0 {
-            awk_execute_function_body_legacy(body_stmt, line, fields, nr, vars, array_vars, out)
-          }
-          if vars.contains(awk_ctrl_exit_key) || vars.contains(awk_ctrl_return_key) {
-            break
-          }
-          if update_stmt.length() > 0 {
-            ignore(
-              awk_eval_expr(
-                update_stmt,
-                line,
-                fields,
-                nr,
-                fields.length(),
-                vars,
-                array_vars,
-              ),
-            )
-          }
-          loop_count += 1
-          if loop_count > awk_loop_guard_limit {
-            break
-          }
-        }
-        continue
-      }
-      None => ()
-    }
-
-    match awk_parse_if_statement(stmt) {
-      Some((cond_expr, body_stmt)) => {
-        let (then_body, else_body) = awk_split_if_else_body(body_stmt)
-        if awk_eval_condition(
-          cond_expr,
-          line,
-          fields,
-          nr,
-          fields.length(),
-          vars,
-          array_vars,
-        ) {
-          awk_execute_function_body_legacy(then_body, line, fields, nr, vars, array_vars, out)
-        } else {
-          match else_body {
-            Some(else_stmt) =>
-              awk_execute_function_body_legacy(else_stmt, line, fields, nr, vars, array_vars, out)
-            None => ()
-          }
-        }
-        continue
-      }
-      None => ()
     }
 
     if stmt == "return" || aj_starts_with(stmt, "return ") || aj_starts_with(stmt, "return(") {
