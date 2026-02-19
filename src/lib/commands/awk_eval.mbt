@@ -266,13 +266,13 @@ fn awk_execute_function_statements(
         }
       }
       Simple(raw_stmt) => {
-        awk_execute_function_body_legacy(raw_stmt, line, fields, nr, vars, array_vars, out)
+        awk_execute_function_body_simple(raw_stmt, line, fields, nr, vars, array_vars, out)
       }
     }
   }
 }
 
-fn awk_execute_function_body_legacy(
+fn awk_execute_function_body_simple(
   body : String,
   line : String,
   fields : Array[String],

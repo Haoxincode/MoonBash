@@ -250,7 +250,7 @@ fn awk_execute_action_ast_list(
         if cond_passed {
           let (next_line, next_fields, consumed_if, new_nr) = if then_stmts.length() == 0 {
             // Keep historical behavior for empty if-body branches.
-            awk_execute_action_legacy(
+            awk_execute_action_simple(
               ctx,
               "",
               lines,
@@ -290,7 +290,7 @@ fn awk_execute_action_ast_list(
             Some(else_branch) => {
               let (next_line, next_fields, consumed_if, new_nr) = if else_branch.length() == 0 {
                 // Keep historical behavior for explicit else {}.
-                awk_execute_action_legacy(
+                awk_execute_action_simple(
                   ctx,
                   "",
                   lines,
@@ -331,7 +331,7 @@ fn awk_execute_action_ast_list(
         }
       }
       Simple(raw_stmt) => {
-        let (next_line, next_fields, consumed_stmt, new_nr) = awk_execute_action_legacy(
+        let (next_line, next_fields, consumed_stmt, new_nr) = awk_execute_action_simple(
           ctx,
           raw_stmt,
           lines,
@@ -357,7 +357,7 @@ fn awk_execute_action_ast_list(
   (current_line, current_fields, consumed, current_nr)
 }
 
-fn awk_execute_action_legacy(
+fn awk_execute_action_simple(
   ctx : CommandContext,
   action : String,
   lines : Array[String],
