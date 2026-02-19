@@ -271,10 +271,10 @@ fn awk_execute_action_ast_list(
         vars[awk_ctrl_exit_key] = "1"
         break
       }
-      SubstituteStmt(is_gsub, args) => {
-        if args.length() >= 2 {
-          let pattern = awk_eval_sub_pattern(
-            args[0],
+      SubstituteStmt(is_gsub, args_ast) => {
+        if args_ast.length() >= 2 {
+          let pattern = awk_eval_sub_pattern_ast(
+            args_ast[0],
             current_line,
             current_fields,
             current_nr,
@@ -282,8 +282,8 @@ fn awk_execute_action_ast_list(
             vars,
             array_vars,
           )
-          let replacement = awk_eval_expr(
-            args[1],
+          let replacement = awk_eval_expr_ast(
+            args_ast[1],
             current_line,
             current_fields,
             current_nr,
@@ -291,13 +291,13 @@ fn awk_execute_action_ast_list(
             vars,
             array_vars,
           )
-          let mut target_expr : String? = None
-          if args.length() >= 3 {
-            target_expr = Some(aj_trim(args[2]))
+          let mut target_ast : AwkExprAst? = None
+          if args_ast.length() >= 3 {
+            target_ast = Some(args_ast[2])
           }
-          let source = match target_expr {
-            Some(expr) => awk_eval_expr(
-              expr,
+          let source = match target_ast {
+            Some(ast) => awk_eval_expr_ast(
+              ast,
               current_line,
               current_fields,
               current_nr,
@@ -312,26 +312,25 @@ fn awk_execute_action_ast_list(
           } else {
             awk_replace_first_literal(source, pattern, replacement)
           }
-          match target_expr {
-            Some(expr) => {
-              if awk_is_identifier(expr) {
-                vars[expr] = updated
-              } else {
-                match awk_parse_array_ref(expr) {
-                  Some((arr_name, idx_expr)) => {
-                    let idx = awk_eval_expr(
-                      idx_expr,
+          match target_ast {
+            Some(ast) => {
+              match ast {
+                Raw(raw_target) => {
+                  let target = aj_trim(raw_target)
+                  ignore(
+                    awk_assign_reference(
+                      target,
+                      updated,
                       current_line,
                       current_fields,
                       current_nr,
                       current_fields.length(),
                       vars,
                       array_vars,
-                    )
-                    array_vars[awk_array_key(arr_name, idx)] = updated
-                  }
-                  None => ()
+                    ),
+                  )
                 }
+                _ => ()
               }
             }
             None => {
@@ -485,14 +484,9 @@ fn awk_execute_action_ast_list(
           None => ()
         }
       }
-      Printf(rest) => {
-        let (printf_expr, target_expr, append) = match awk_parse_print_redirection(rest) {
-          Some(parsed) => parsed
-          None => (rest, "", false)
-        }
-        let (fmt_expr, arg_exprs) = awk_parse_printf("printf " + printf_expr)
-        let fmt_value = awk_eval_expr(
-          fmt_expr,
+      Printf(fmt_ast, arg_asts, target_ast, append) => {
+        let fmt_value = awk_eval_expr_ast(
+          fmt_ast,
           current_line,
           current_fields,
           current_nr,
@@ -501,10 +495,10 @@ fn awk_execute_action_ast_list(
           array_vars,
         )
         let fmt_args : Array[String] = []
-        for expr in arg_exprs {
+        for arg_ast in arg_asts {
           fmt_args.push(
-            awk_eval_expr(
-              expr,
+            awk_eval_expr_ast(
+              arg_ast,
               current_line,
               current_fields,
               current_nr,
@@ -515,65 +509,10 @@ fn awk_execute_action_ast_list(
           )
         }
         let payload = awk_format_printf(fmt_value, fmt_args)
-        if target_expr.length() == 0 {
-          out.write_string(payload)
-        } else {
-          let target = awk_eval_expr(
-            target_expr,
-            current_line,
-            current_fields,
-            current_nr,
-            current_fields.length(),
-            vars,
-            array_vars,
-          )
-          let resolved = try {
-            @fs.resolve_path(ctx.cwd, target)
-          } catch {
-            @fs.FsError(msg) => {
-              vars[awk_ctrl_error_key] = msg
-              vars[awk_ctrl_exit_key] = "1"
-              break
-            }
-          }
-          let existing = if append {
-            try {
-              ctx.fs.read_file(resolved)
-            } catch {
-              @fs.FsError(_) => ""
-            }
-          } else {
-            ""
-          }
-          try {
-            ctx.fs.write_file(resolved, existing + payload)
-          } catch {
-            @fs.FsError(msg) => {
-              vars[awk_ctrl_error_key] = msg
-              vars[awk_ctrl_exit_key] = "1"
-              break
-            }
-          }
-        }
-      }
-      Print(rest) => {
-        if awk_find_top_level_token(rest, "|") >= 0 {
-          vars[awk_ctrl_error_key] = "piping to external commands is not supported"
-          vars[awk_ctrl_exit_key] = "1"
-          break
-        }
-        match awk_parse_print_redirection(rest) {
-          Some((value_expr, target_expr, append)) => {
-            let payload = awk_render_print_output(
-              value_expr,
-              current_line,
-              current_fields,
-              current_nr,
-              vars,
-              array_vars,
-            )
-            let target = awk_eval_expr(
-              target_expr,
+        match target_ast {
+          Some(target_expr_ast) => {
+            let target = awk_eval_expr_ast(
+              target_expr_ast,
               current_line,
               current_fields,
               current_nr,
@@ -609,18 +548,63 @@ fn awk_execute_action_ast_list(
               }
             }
           }
-          None => {
-            out.write_string(
-              awk_render_print_output(
-                rest,
-                current_line,
-                current_fields,
-                current_nr,
-                vars,
-                array_vars,
-              ),
+          None => out.write_string(payload)
+        }
+      }
+      Print(value_asts, target_ast, append, has_pipe) => {
+        if has_pipe {
+          vars[awk_ctrl_error_key] = "piping to external commands is not supported"
+          vars[awk_ctrl_exit_key] = "1"
+          break
+        }
+        let payload = awk_render_print_output_ast(
+          value_asts,
+          current_line,
+          current_fields,
+          current_nr,
+          vars,
+          array_vars,
+        )
+        match target_ast {
+          Some(target_expr_ast) => {
+            let target = awk_eval_expr_ast(
+              target_expr_ast,
+              current_line,
+              current_fields,
+              current_nr,
+              current_fields.length(),
+              vars,
+              array_vars,
             )
+            let resolved = try {
+              @fs.resolve_path(ctx.cwd, target)
+            } catch {
+              @fs.FsError(msg) => {
+                vars[awk_ctrl_error_key] = msg
+                vars[awk_ctrl_exit_key] = "1"
+                break
+              }
+            }
+            let existing = if append {
+              try {
+                ctx.fs.read_file(resolved)
+              } catch {
+                @fs.FsError(_) => ""
+              }
+            } else {
+              ""
+            }
+            try {
+              ctx.fs.write_file(resolved, existing + payload)
+            } catch {
+              @fs.FsError(msg) => {
+                vars[awk_ctrl_error_key] = msg
+                vars[awk_ctrl_exit_key] = "1"
+                break
+              }
+            }
           }
+          None => out.write_string(payload)
         }
       }
       ForIn(loop_var, arr_name, body_stmts) => {

@@ -36,6 +36,10 @@
 - 新增 `awk_parse_while_statement`
 - 在语句合并阶段补齐 bare `while (...)` header 识别，保证与 `if/for` 一致的拼接行为
 - 在 action/function 两条执行链新增 `While` 执行分支
+- 将 `SubstituteStmt` 参数从字符串列表迁移为 `Array[AwkExprAst]`
+- 将 `Print` / `Printf` 载荷迁移为 AST：格式串、参数、重定向目标均在解析期结构化
+- 新增 `awk_render_print_output_ast` / `awk_eval_sub_pattern_ast`
+- 删除对应字符串版本遗留辅助函数（`awk_render_print_output` / `awk_eval_sub_pattern`）
 
 ## 验证方式
 
@@ -45,6 +49,6 @@
 
 ## 仍待收口（下一阶段）
 
-1. 继续减少语句节点里的原始字符串负担（例如 `Print/Printf/SubstituteStmt` 的参数结构化）。
+1. 继续减少语句节点里的原始字符串负担（例如 `Delete/Getline` 等语句目标参数结构化）。
 2. 评估并补齐函数体里当前保守 no-op 语句分支（按兼容性逐项推进）。
-3. 迁移完成后清理可删除的中间兼容辅助函数与重复逻辑。
+3. 迁移完成后清理剩余中间兼容辅助函数与重复逻辑。

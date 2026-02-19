@@ -213,7 +213,7 @@ fn awk_execute_function_statements(
       SystemStmt => {
         ()
       }
-      SubstituteStmt(_is_gsub, _args) => {
+      SubstituteStmt(_is_gsub, _args_ast) => {
         ()
       }
       ExprStmt(expr_ast) => {
@@ -272,19 +272,36 @@ fn awk_execute_function_statements(
       Delete(_target_expr) => {
         ()
       }
-      Printf(rest) => {
-        let (fmt_expr, arg_exprs) = awk_parse_printf("printf " + rest)
-        let fmt_value = awk_eval_expr(fmt_expr, line, fields, nr, fields.length(), vars, array_vars)
+      Printf(fmt_ast, arg_asts, _target_ast, _append) => {
+        let fmt_value = awk_eval_expr_ast(
+          fmt_ast,
+          line,
+          fields,
+          nr,
+          fields.length(),
+          vars,
+          array_vars,
+        )
         let fmt_args : Array[String] = []
-        for expr in arg_exprs {
-          fmt_args.push(awk_eval_expr(expr, line, fields, nr, fields.length(), vars, array_vars))
+        for arg_ast in arg_asts {
+          fmt_args.push(
+            awk_eval_expr_ast(
+              arg_ast,
+              line,
+              fields,
+              nr,
+              fields.length(),
+              vars,
+              array_vars,
+            ),
+          )
         }
         out.write_string(awk_format_printf(fmt_value, fmt_args))
       }
-      Print(rest) => {
+      Print(value_asts, _target_ast, _append, _has_pipe) => {
         out.write_string(
-          awk_render_print_output(
-            rest,
+          awk_render_print_output_ast(
+            value_asts,
             line,
             fields,
             nr,

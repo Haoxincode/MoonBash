@@ -203,56 +203,54 @@ fn awk_parse_print_redirection(expr : String) -> (String, String, Bool)? {
   None
 }
 
-fn awk_apply_ofmt_if_needed(expr : String, value : String, vars : Map[String, String]) -> String {
+fn awk_expr_ast_is_string_literal(expr_ast : AwkExprAst) -> Bool {
+  match expr_ast {
+    Raw(text) => {
+      let t = aj_trim(text)
+      (aj_starts_with(t, "\"") && aj_ends_with(t, "\"")) ||
+      (aj_starts_with(t, "'") && aj_ends_with(t, "'"))
+    }
+    _ => false
+  }
+}
+
+fn awk_apply_ofmt_if_needed_ast(
+  expr_ast : AwkExprAst,
+  value : String,
+  vars : Map[String, String]
+) -> String {
   if not(vars.contains("OFMT")) {
     return value
   }
   if not(awk_is_numeric_string(value)) {
     return value
   }
-  let t = aj_trim(expr)
-  if (aj_starts_with(t, "\"") && aj_ends_with(t, "\"")) ||
-    (aj_starts_with(t, "'") && aj_ends_with(t, "'")) {
+  if awk_expr_ast_is_string_literal(expr_ast) {
     return value
   }
   let fmt = vars.get("OFMT").unwrap_or("%.6g")
   awk_format_printf(fmt, [value])
 }
 
-fn awk_render_print_output(
-  expr : String,
+fn awk_render_print_output_ast(
+  expr_asts : Array[AwkExprAst],
   line : String,
   fields : Array[String],
   nr : Int,
   vars : Map[String, String],
   array_vars : Map[String, String]
 ) -> String {
-  let rest = aj_trim(expr)
-  if rest.length() == 0 {
+  if expr_asts.length() == 0 {
     return line + "\n"
   }
 
-  let parts = awk_split_csv_args(rest)
   let out = StringBuilder::new()
-  if parts.length() > 1 {
-    for i = 0; i < parts.length(); i = i + 1 {
-      if i > 0 {
-        out.write_char(' ')
-      }
-      let value = awk_eval_expr(
-        parts[i],
-        line,
-        fields,
-        nr,
-        fields.length(),
-        vars,
-        array_vars,
-      )
-      out.write_string(awk_apply_ofmt_if_needed(parts[i], value, vars))
+  for i = 0; i < expr_asts.length(); i = i + 1 {
+    if i > 0 {
+      out.write_char(' ')
     }
-  } else {
-    let value = awk_eval_expr(
-      rest,
+    let value = awk_eval_expr_ast(
+      expr_asts[i],
       line,
       fields,
       nr,
@@ -260,7 +258,7 @@ fn awk_render_print_output(
       vars,
       array_vars,
     )
-    out.write_string(awk_apply_ofmt_if_needed(rest, value, vars))
+    out.write_string(awk_apply_ofmt_if_needed_ast(expr_asts[i], value, vars))
   }
   out.write_char('\n')
   out.to_string()

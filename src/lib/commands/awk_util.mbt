@@ -344,8 +344,8 @@ fn awk_eval_split_delim(
   awk_eval_expr(text, line, fields, nr, nf, vars, array_vars)
 }
 
-fn awk_eval_sub_pattern(
-  expr : String,
+fn awk_eval_sub_pattern_ast(
+  expr_ast : AwkExprAst,
   line : String,
   fields : Array[String],
   nr : Int,
@@ -353,11 +353,16 @@ fn awk_eval_sub_pattern(
   vars : Map[String, String],
   array_vars : Map[String, String]
 ) -> String {
-  let text = aj_trim(expr)
-  if aj_starts_with(text, "/") && aj_ends_with(text, "/") && text.length() >= 2 {
-    return aj_substr(text, 1, text.length() - 1)
+  match expr_ast {
+    Raw(text) => {
+      let raw = aj_trim(text)
+      if aj_starts_with(raw, "/") && aj_ends_with(raw, "/") && raw.length() >= 2 {
+        return aj_substr(raw, 1, raw.length() - 1)
+      }
+      awk_eval_expr_ast(expr_ast, line, fields, nr, nf, vars, array_vars)
+    }
+    _ => awk_eval_expr_ast(expr_ast, line, fields, nr, nf, vars, array_vars)
   }
-  awk_eval_expr(text, line, fields, nr, nf, vars, array_vars)
 }
 
 fn awk_is_wrapped_in_parens(expr : String) -> Bool {
@@ -636,4 +641,3 @@ fn awk_find_top_level_operator(expr : String, ops : String) -> Int {
   }
   idx
 }
-

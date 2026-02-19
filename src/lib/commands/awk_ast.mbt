@@ -8,13 +8,13 @@ priv enum AwkStmt {
   Next
   Exit(AwkExprAst?)
   Return(AwkExprAst?)
-  Printf(String)
-  Print(String)
+  Printf(AwkExprAst, Array[AwkExprAst], AwkExprAst?, Bool)
+  Print(Array[AwkExprAst], AwkExprAst?, Bool, Bool)
   Delete(String)
   PipeGetline(AwkExprAst, String)
   Getline(String)
   SystemStmt
-  SubstituteStmt(Bool, Array[String])
+  SubstituteStmt(Bool, Array[AwkExprAst])
   FieldAssignStmt(String, AwkExprAst)
   AssignStmt(String, AwkExprAst)
   CompoundAssignStmt(String, String, AwkExprAst)
@@ -170,7 +170,11 @@ fn awk_parse_statement_ast(stmt : String) -> AwkStmt {
   if is_gsub || is_sub {
     let offset = if is_gsub { 5 } else { 4 }
     let inner = aj_substr(text, offset, text.length() - 1)
-    return SubstituteStmt(is_gsub, awk_split_csv_args(inner))
+    let args_ast : Array[AwkExprAst] = []
+    for arg in awk_split_csv_args(inner) {
+      args_ast.push(awk_parse_expr_ast(arg))
+    }
+    return SubstituteStmt(is_gsub, args_ast)
   }
 
   if aj_starts_with(text, "delete ") {
@@ -178,11 +182,44 @@ fn awk_parse_statement_ast(stmt : String) -> AwkStmt {
   }
 
   if aj_starts_with(text, "printf") {
-    return Printf(aj_trim(aj_substr(text, 6, text.length())))
+    let rest = aj_trim(aj_substr(text, 6, text.length()))
+    let (printf_expr, target_expr, append) = match awk_parse_print_redirection(rest) {
+      Some(parsed) => parsed
+      None => (rest, "", false)
+    }
+    let (fmt_expr, arg_exprs) = awk_parse_printf("printf " + printf_expr)
+    let fmt_ast = awk_parse_expr_ast(fmt_expr)
+    let args_ast : Array[AwkExprAst] = []
+    for expr in arg_exprs {
+      args_ast.push(awk_parse_expr_ast(expr))
+    }
+    let target_ast = if target_expr.length() > 0 {
+      Some(awk_parse_expr_ast(target_expr))
+    } else {
+      None
+    }
+    return Printf(fmt_ast, args_ast, target_ast, append)
   }
 
   if aj_starts_with(text, "print") && not(aj_starts_with(text, "printf")) {
-    return Print(aj_trim(aj_substr(text, 5, text.length())))
+    let rest = aj_trim(aj_substr(text, 5, text.length()))
+    let has_pipe = awk_find_top_level_token(rest, "|") >= 0
+    let (value_expr, target_expr, append) = match awk_parse_print_redirection(rest) {
+      Some(parsed) => parsed
+      None => (rest, "", false)
+    }
+    let value_asts : Array[AwkExprAst] = []
+    if value_expr.length() > 0 {
+      for expr in awk_split_csv_args(value_expr) {
+        value_asts.push(awk_parse_expr_ast(expr))
+      }
+    }
+    let target_ast = if target_expr.length() > 0 {
+      Some(awk_parse_expr_ast(target_expr))
+    } else {
+      None
+    }
+    return Print(value_asts, target_ast, append, has_pipe)
   }
 
   match awk_parse_compound_assign_stmt(text) {
