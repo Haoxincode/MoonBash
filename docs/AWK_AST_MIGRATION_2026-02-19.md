@@ -40,6 +40,8 @@
 - 将 `Print` / `Printf` 载荷迁移为 AST：格式串、参数、重定向目标均在解析期结构化
 - 新增 `awk_render_print_output_ast` / `awk_eval_sub_pattern_ast`
 - 删除对应字符串版本遗留辅助函数（`awk_render_print_output` / `awk_eval_sub_pattern`）
+- 将 `Delete` 语句的数组下标表达式迁移为 AST（`Delete(arr_name, idx_ast?)`）
+- 将 `Getline` 的 `< file` 路径表达式迁移为 AST（`Getline(target_raw, path_ast?)`）
 
 ## 验证方式
 
@@ -49,6 +51,6 @@
 
 ## 仍待收口（下一阶段）
 
-1. 继续减少语句节点里的原始字符串负担（例如 `Delete/Getline` 等语句目标参数结构化）。
+1. 继续减少语句节点里的原始字符串负担（例如 `Getline` 目标参数与 `PipeGetline` 目标参数结构化）。
 2. 评估并补齐函数体里当前保守 no-op 语句分支（按兼容性逐项推进）。
 3. 迁移完成后清理剩余中间兼容辅助函数与重复逻辑。

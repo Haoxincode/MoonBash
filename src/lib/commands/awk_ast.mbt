@@ -10,9 +10,9 @@ priv enum AwkStmt {
   Return(AwkExprAst?)
   Printf(AwkExprAst, Array[AwkExprAst], AwkExprAst?, Bool)
   Print(Array[AwkExprAst], AwkExprAst?, Bool, Bool)
-  Delete(String)
+  Delete(String, AwkExprAst?)
   PipeGetline(AwkExprAst, String)
-  Getline(String)
+  Getline(String, AwkExprAst?)
   SystemStmt
   SubstituteStmt(Bool, Array[AwkExprAst])
   FieldAssignStmt(String, AwkExprAst)
@@ -158,7 +158,13 @@ fn awk_parse_statement_ast(stmt : String) -> AwkStmt {
 
   if text == "getline" || aj_starts_with(text, "getline ") {
     let tail = if text.length() > 7 { aj_trim(aj_substr(text, 7, text.length())) } else { "" }
-    return Getline(tail)
+    let read_from_file_idx = awk_find_top_level_token(tail, "<")
+    if read_from_file_idx > 0 {
+      let target = aj_trim(aj_substr(tail, 0, read_from_file_idx))
+      let path_expr = aj_trim(aj_substr(tail, read_from_file_idx + 1, tail.length()))
+      return Getline(target, Some(awk_parse_expr_ast(path_expr)))
+    }
+    return Getline(tail, None)
   }
 
   if aj_starts_with(text, "system(") && aj_ends_with(text, ")") {
@@ -178,7 +184,11 @@ fn awk_parse_statement_ast(stmt : String) -> AwkStmt {
   }
 
   if aj_starts_with(text, "delete ") {
-    return Delete(aj_trim(aj_substr(text, 6, text.length())))
+    let target_expr = aj_trim(aj_substr(text, 6, text.length()))
+    return match awk_parse_array_ref(target_expr) {
+      Some((arr_name, idx_expr)) => Delete(arr_name, Some(awk_parse_expr_ast(idx_expr)))
+      None => Delete(target_expr, None)
+    }
   }
 
   if aj_starts_with(text, "printf") {

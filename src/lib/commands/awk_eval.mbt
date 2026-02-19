@@ -207,7 +207,7 @@ fn awk_execute_function_statements(
       PipeGetline(_cmd_ast, _target) => {
         ()
       }
-      Getline(_tail) => {
+      Getline(_target, _path_ast) => {
         ()
       }
       SystemStmt => {
@@ -269,7 +269,7 @@ fn awk_execute_function_statements(
       FieldAssignStmt(_lhs, _rhs_ast) => {
         ()
       }
-      Delete(_target_expr) => {
+      Delete(_arr_name, _idx_ast) => {
         ()
       }
       Printf(fmt_ast, arg_asts, _target_ast, _append) => {

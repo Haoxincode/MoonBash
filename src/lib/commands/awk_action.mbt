@@ -199,47 +199,47 @@ fn awk_execute_action_ast_list(
           vars[target] = line_from_cmd
         }
       }
-      Getline(tail) => {
-        let read_from_file_idx = awk_find_top_level_token(tail, "<")
-        if read_from_file_idx > 0 {
-          let target = aj_trim(aj_substr(tail, 0, read_from_file_idx))
-          let path_expr = aj_trim(aj_substr(tail, read_from_file_idx + 1, tail.length()))
-          let path = awk_eval_expr(
-            path_expr,
-            current_line,
-            current_fields,
-            current_nr,
-            current_fields.length(),
-            vars,
-            array_vars,
-          )
-          let resolved = try {
-            @fs.resolve_path(ctx.cwd, path)
-          } catch {
-            @fs.FsError(_) => ""
-          }
-          if resolved.length() > 0 {
-            let content = try {
-              ctx.fs.read_file(resolved)
+      Getline(target, path_ast) => {
+        match path_ast {
+          Some(path_expr_ast) => {
+            let path = awk_eval_expr_ast(
+              path_expr_ast,
+              current_line,
+              current_fields,
+              current_nr,
+              current_fields.length(),
+              vars,
+              array_vars,
+            )
+            let resolved = try {
+              @fs.resolve_path(ctx.cwd, path)
             } catch {
               @fs.FsError(_) => ""
             }
-            let first_line = aj_first_line(content)
-            if target.length() == 0 {
-              current_line = first_line
-              let current_fs = awk_current_fs(fs, vars)
-              current_fields = awk_split_fields(current_line, current_fs)
-              vars["NF"] = current_fields.length().to_string()
-            } else if awk_is_identifier(target) {
-              vars[target] = first_line
+            if resolved.length() > 0 {
+              let content = try {
+                ctx.fs.read_file(resolved)
+              } catch {
+                @fs.FsError(_) => ""
+              }
+              let first_line = aj_first_line(content)
+              if target.length() == 0 {
+                current_line = first_line
+                let current_fs = awk_current_fs(fs, vars)
+                current_fields = awk_split_fields(current_line, current_fs)
+                vars["NF"] = current_fields.length().to_string()
+              } else if awk_is_identifier(target) {
+                vars[target] = first_line
+              }
             }
+            continue
           }
-          continue
+          None => ()
         }
 
         // Keep parity with current awk-spec skip assumptions:
         // bare getline from BEGIN block stdin is still treated as unsupported.
-        if line_idx < 0 && tail.length() == 0 {
+        if line_idx < 0 && target.length() == 0 {
           continue
         }
 
@@ -251,13 +251,13 @@ fn awk_execute_action_ast_list(
           vars["NR"] = current_nr.to_string()
           vars["FNR"] = current_nr.to_string()
           vars["FILENAME"] = filename
-          if tail.length() == 0 {
+          if target.length() == 0 {
             current_line = next_line
             let current_fs = awk_current_fs(fs, vars)
             current_fields = awk_split_fields(current_line, current_fs)
             vars["NF"] = current_fields.length().to_string()
-          } else if awk_is_identifier(tail) {
-            vars[tail] = next_line
+          } else if awk_is_identifier(target) {
+            vars[target] = next_line
           } else {
             current_line = next_line
             let current_fs = awk_current_fs(fs, vars)
@@ -467,11 +467,11 @@ fn awk_execute_action_ast_list(
           }
         }
       }
-      Delete(target_expr) => {
-        match awk_parse_array_ref(target_expr) {
-          Some((arr_name, idx_expr)) => {
-            let idx = awk_eval_expr(
-              idx_expr,
+      Delete(arr_name, idx_ast) => {
+        match idx_ast {
+          Some(expr_ast) => {
+            let idx = awk_eval_expr_ast(
+              expr_ast,
               current_line,
               current_fields,
               current_nr,
