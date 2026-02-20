@@ -56,7 +56,7 @@ This keeps parser/interpreter code small and auditable while preserving performa
 │  └──────────┘  └──────────┘  └────────────────────┘        │
 │                                                             │
 │  Purpose: Parsing, evaluation, commands, algorithms, VFS    │
-│  Compiled: <200 KB single JS file, zero npm dependencies   │
+│  Compiled: ~245 KB gzip (997 KB min), zero npm dependencies │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -619,3 +619,38 @@ tsup / esbuild bundling
        ▼
 npm publish moon-bash
 ```
+
+### 6.1 Build Size Analysis (2026-02-19 Measured)
+
+MoonBit compiles to a single JS file with fully qualified names (e.g. `$moonbitlang$core$array$Array$push`) to avoid scope collisions. This inflates raw text size but compresses extremely well through standard JS tooling.
+
+**Full pipeline measurements** (87 commands including awk/sed/jq/tar/diff/gzip interpreters):
+
+| Stage | Size | vs Raw | Notes |
+|-------|------|--------|-------|
+| debug (`moon build --target js`) | 4,796,827 bytes (4.6 MB) | 100% | Includes `.js.map` source map (3.5 MB separate) |
+| release (`moon build --target js --release`) | 4,342,023 bytes (4.2 MB) | 90.5% | DCE + inlining; no source map |
+| release + minify (`esbuild --minify`) | 1,021,156 bytes (997 KB) | 21.3% | Name mangling crushes FQNs to single letters |
+| release + minify + gzip | 251,147 bytes (245 KB) | 5.2% | Realistic network transfer size |
+
+**Why `--release` only saves ~9.5%:**
+Unlike C/Rust where debug builds embed DWARF symbols and panic stacks directly in the binary, MoonBit's debug mode is already lean — debug info lives in a separate `.js.map` file. The `--release` flag triggers additional DCE and inlining but the core computation code is already tightly generated.
+
+**Why minify is so effective (4.2 MB → 997 KB, -76%):**
+The raw JS output is dominated by repeated fully qualified identifiers like `$Haoxincode$MoonBash$awk_execute_action$current_fields`. These 30-40 character names appear tens of thousands of times across the codebase. `esbuild --minify` crushes them all to single-letter variables and strips whitespace.
+
+**Why gzip compresses further (997 KB → 245 KB, -75%):**
+Minified JS has high pattern repetition (single-letter variables, repeated structural patterns), making it extremely compressible. This is a fundamental advantage over Wasm — `.wasm` binaries are dense machine code with high information entropy, so they barely compress (typically only 20-30% reduction via gzip).
+
+**Deployment target compatibility:**
+
+| Platform | Limit | Fits? |
+|----------|-------|-------|
+| Vercel Serverless Functions | 50 MB uncompressed | Yes |
+| Vercel Edge Functions | 1-4 MB (plan-dependent) | Yes (997 KB minified) |
+| Cloudflare Workers (free) | 1 MB compressed | Yes (245 KB gzip) |
+| Cloudflare Workers (paid) | 10 MB compressed | Yes |
+| Browser `<script>` | N/A (network cost) | 245 KB transfer |
+
+**JS vs Wasm tradeoff for this use case:**
+An equivalent Rust→Wasm build would produce ~600-800 KB after `wasm-opt -Oz`, but Wasm cannot be minified (no variable renaming) and compresses poorly (~300 KB+ gzip). Additionally, Wasm incurs FFI overhead for every string crossing the JS↔Wasm boundary (deep copy required), while MoonBit's JS output operates on native V8 strings with zero copy cost. Wasm also requires async `WebAssembly.instantiate()`, preventing synchronous cold start.
