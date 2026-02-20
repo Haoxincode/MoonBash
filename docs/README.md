@@ -11,10 +11,25 @@ MoonBash is a complete rewrite of [vercel-labs/just-bash](https://github.com/ver
 | Language | TypeScript | MoonBit -> Pure JS |
 | Type Safety | Structural (TS) | Algebraic Data Types + Pattern Matching |
 | ReDoS Protection | JS RegExp (vulnerable) | VM-based regex engine (immune) |
-| Bundle Size | ~200KB+ | Target: <100KB |
-| Cold Start | Fast | Faster (aggressive DCE) |
+| Commands | ~30 | 87 (incl. awk, sed, jq, tar, diff, gzip) |
+| Bundle Size | ~200KB+ | **245 KB** gzip / 997 KB minified |
+| Cold Start | Fast | Faster (sync init, no WASM instantiate) |
 | WASM Required | No | No |
 | API Compatible | N/A | 100% drop-in replacement |
+
+## Build Size
+
+A complete POSIX shell with awk, sed, jq, tar, diff, gzip and 87 commands, delivered as a single zero-dependency JS file:
+
+| Stage | Size | Reduction |
+|-------|------|-----------|
+| MoonBit compile (release) | 4.2 MB | raw output |
+| + esbuild minify | 997 KB | -76% (FQN mangling) |
+| + gzip | **245 KB** | **-94% total** |
+
+Why so small? MoonBit emits verbose fully-qualified names (`$moonbitlang$core$array$Array$push`) that compress extremely well. Minification crushes them to single letters; gzip exploits the remaining pattern repetition. Wasm binaries are dense machine code that cannot be minified and barely compress (~20-30% via gzip).
+
+Fits comfortably within Cloudflare Workers free tier (1 MB), Vercel Edge Functions, and any CDN.
 
 ## Core Value Propositions
 
@@ -58,7 +73,7 @@ console.log(result.exitCode); // 0
 │  │(lexmatch)│  │(ADT+PM)  │  │(pattern matching) │ │
 │  └──────────┘  └──────────┘  └───────────────────┘ │
 │  ┌──────────────────┐  ┌──────────────────────────┐ │
-│  │  80+ Built-in    │  │   Virtual Filesystem     │ │
+│  │  87 Built-in     │  │   Virtual Filesystem     │ │
 │  │   Commands       │  │   (InMemoryFs/Overlay)   │ │
 │  └──────────────────┘  └──────────────────────────┘ │
 ├─────────────────────────────────────────────────────┤
@@ -73,7 +88,7 @@ console.log(result.exitCode); // 0
 |---|---|
 | [Architecture](./ARCHITECTURE.md) | System architecture and module design |
 | [API Specification](./API.md) | Public API surface and type definitions |
-| [Commands](./COMMANDS.md) | All 80+ built-in command specifications |
+| [Commands](./COMMANDS.md) | All 87 built-in command specifications |
 | [Ecosystem Mapping](./ECOSYSTEM_COMMAND_MAPPING.md) | Command-to-library implementation strategy and FFI boundary |
 | [Filesystem](./FILESYSTEM.md) | Virtual filesystem design and implementation |
 | [Security](./SECURITY.md) | Sandbox security model and threat mitigation |
