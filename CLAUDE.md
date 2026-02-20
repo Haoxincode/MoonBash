@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 MoonBash is a zero-dependency, pure-memory POSIX Shell sandbox written in MoonBit, compiled to pure JavaScript (no WASM). It is a complete rewrite of vercel-labs/just-bash with 100% API compatibility, targeting AI agents, serverless edge, and browser environments.
 
-**Current status:** Phase 1–3 complete, Phase 4 in progress. Core engine fully implemented (lexer, parser, interpreter, VFS, 87 commands). All 87 target commands implemented. Comparison test pass rate: 523/523 (100%). Security test suite: 27 files. Community packages: 12 (moonjq, piediff, gzip, tar, etc.).
+**Current status:** Phase 1–3 complete, Phase 4 in progress. Core engine fully implemented (lexer, parser, interpreter, VFS, 87 commands). All 87 target commands implemented. Comparison test pass rate: 522/523 (1 awk regression). Security test suite: 27 files, all passing. Community packages: 12 (moonjq, piediff, gzip, etc.). gzip/gunzip/zcat uses real DEFLATE compression via `gmlewis/gzip`.
 
 ## Build Commands
 
@@ -77,7 +77,7 @@ All in `docs/`:
 | `grep`, `sed` 的正则匹配 | `@moonbitlang/core/regexp` |
 | `jq` | `bobzhang/moonjq`（完整 jq 解释器，MoonBit 创始人亲写）+ `@moonbitlang/core/json` |
 | `sort` | `@moonbitlang/core/array` 的 `sort_by` |
-| `tar` | `bobzhang/tar`（MoonBit 创始人亲写，纯内存字节流） |
+| `tar` | 自有 MBTAR1 格式（`bobzhang/tar` 仅为内存数据结构，无二进制序列化，不适用） |
 | `diff` | `moonbit-community/piediff`（Myers + Patience 算法） |
 | `gzip`/`gunzip`/`zcat` | `gmlewis/gzip` + `gmlewis/flate`（纯 DEFLATE） |
 | `base64` | `gmlewis/base64` |

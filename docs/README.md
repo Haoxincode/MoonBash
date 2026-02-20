@@ -17,7 +17,7 @@ MoonBash is a complete rewrite of [vercel-labs/just-bash](https://github.com/ver
 | WASM Required | No | No |
 | API Surface Compatible | N/A | 100% drop-in replacement |
 
-Status note (as of 2026-02-19): command coverage is complete (`87/87`) and comparison tests are green (`523/523`), while spec/security compatibility hardening remains in progress. See `docs/ROADMAP.md` and `docs/TEST_STATUS_2026-02-19.md`.
+Status note (as of 2026-02-20): command coverage is complete (`87/87`) and comparison tests are at `522/523` (1 awk regression from `b38190a`). Security test suite fully passing (`188/188` attacks, all sandbox/limits/prototype-pollution suites). gzip/gunzip/zcat now use real DEFLATE compression via `gmlewis/gzip`. Spec compatibility hardening remains in progress. See `docs/ROADMAP.md`.
 
 ## Build Size
 

@@ -32,14 +32,15 @@ Phase 4: Production Hardening                🔧 IN PROGRESS
 
 Phase 5: Multi-Platform Expansion            🔧 PARTIALLY COMPLETE
   → Data processors: yq, xan, csvlook (done)
-  → Compression: gzip, gunzip, zcat, tar (done)
+  → Compression: gzip/gunzip/zcat real DEFLATE via gmlewis/gzip (done)
+  → tar: MBTAR1 self-contained format (bobzhang/tar unsuitable)
   → VM bridges: python3, sqlite3 (done)
   → Remaining: WASM target, browser bundle, REPL
 ```
 
-**Current comparison test pass rate: 523/523 (100%)**
+**Current comparison test pass rate: 522/523 (1 awk regression from `b38190a`)**
 **Command coverage: 87/87 (100%)**
-**Spec/security hardening snapshot (2026-02-19): grep `54` failed, jq `170` failed, bash spec chunked run `683+` failed confirmed; security attacks `1` failed; fuzzing `2` suites failed.**
+**Spec/security hardening snapshot (2026-02-20): grep `54` failed, jq `170` failed, bash spec chunked run `683+` failed confirmed; security attacks `0` failed ✅ (fixed `6cbd88f`); awk spec `6` regression (`b38190a`); prototype-pollution `6` awk regression; gzip now uses real DEFLATE (`1d0b311`).**
 
 ### Status Convention
 

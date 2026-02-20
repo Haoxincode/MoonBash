@@ -8,7 +8,7 @@
 4. **API Compatibility** - The TypeScript wrapper must expose an identical API to `just-bash`.
 5. **Incremental Migration** - Architecture must support incremental command implementation with fallback mechanisms.
 
-Status note (as of 2026-02-19): core architecture and command coverage are complete; compatibility hardening is still in progress. For latest pass/fail truth, use `docs/TEST_STATUS_2026-02-19.md` and `docs/ROADMAP.md`.
+Status note (as of 2026-02-20): core architecture and command coverage are complete; compatibility hardening is still in progress. gzip/gunzip/zcat now use real DEFLATE compression via `gmlewis/gzip` (commit `1d0b311`). tar uses self-contained MBTAR1 format (`bobzhang/tar` is only an in-memory data structure library without binary serialization). For latest pass/fail truth, use `docs/OFFICIAL_TEST_CASE_ISSUES_2026-02-19.md` and `docs/ROADMAP.md`.
 
 ## 1.1 Ecosystem-First Implementation Strategy
 

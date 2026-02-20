@@ -17,8 +17,8 @@ just-bash (87 commands) -> MoonBash (pure MoonBit) 的完整实现分层。
 
 | `just-bash` 命令 | 纯 MoonBit 社区库 | 降维打击点 |
 |---|---|---|
-| **`tar`** | `bobzhang/tar` | MoonBit 创始人亲写。支持流式解包，无外部依赖，完美衔接 VFS 内存流 |
-| **`gzip`**, **`gunzip`**, **`zcat`** | `gmlewis/gzip` + `gmlewis/flate` | 彻底剥离 Node.js 的 `zlib`。纯内存字节级 DEFLATE 压缩与解压引擎 |
+| **`tar`** | 自有 MBTAR1 格式 | `bobzhang/tar` 仅为内存数据结构（无标准 tar 二进制序列化），不适用。MoonBash 使用自定义 MBTAR1 文本格式（`D\t`/`F\tpath\tsize\n`），在 VFS 纯内存环境下足够且高效 |
+| **`gzip`**, **`gunzip`**, **`zcat`** | `gmlewis/gzip` + `gmlewis/flate` | ✅ **已集成真实 DEFLATE**（commit `1d0b311`）。彻底剥离 Node.js 的 `zlib`。纯内存字节级 DEFLATE 压缩与解压引擎。VFS 使用 Latin-1 编码存储二进制数据 |
 | **`diff`**, **`cmp`** | `moonbit-community/piediff` | Git 底层同款 Myers Diff + Patience 算法纯 MoonBit 实现，文本对比性能起飞 |
 | **`yq`** (YAML) | `moonbit-community/yaml` | 完美移植自 Rust 工业级 `yaml-rust2` 解析器，彻底取代 npm 上的 `js-yaml` |
 | **`xan`**, **`csvlook`** (CSV) | `xunyoyo/NyaCSV` | 纯内存高性能 CSV 强类型解析器，自动处理带引号的复杂字段分隔 |
@@ -95,9 +95,9 @@ Unix 文本处理的灵魂。过去用 JS/TS 写极其容易引发 ReDoS（正�
 
 | 包名 | 用途 | 替代的 NPM 依赖 |
 |---|---|---|
-| `bobzhang/tar` | tar 归档解包（MoonBit 创始人亲写） | `tar-stream` |
+| ~~`bobzhang/tar`~~ | ⚠️ 仅内存数据结构，无二进制序列化。MoonBash 使用自有 MBTAR1 格式 | `tar-stream` |
 | `moonbit-community/piediff` | Myers + Patience diff 算法 | `diff` |
-| `gmlewis/gzip` + `gmlewis/flate` | DEFLATE 压缩解压 | `zlib` |
+| `gmlewis/gzip` + `gmlewis/flate` | ✅ DEFLATE 压缩解压（已集成真实 DEFLATE） | `zlib` |
 | `gmlewis/base64` | Base64 编解码 | `Buffer.from` / `atob` |
 | `gmlewis/md5` | MD5 哈希 | `crypto.createHash('md5')` |
 | `shu-kitamura/sha256` 或 `gmlewis/sha256` | SHA-256 哈希 | `crypto.createHash('sha256')` |

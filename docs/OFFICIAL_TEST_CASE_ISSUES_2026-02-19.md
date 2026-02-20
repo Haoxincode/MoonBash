@@ -80,7 +80,7 @@ echo “<div>text</div>” | grep '<\([a-z]*\)>.*</\1>'
 | 仓库 | Issue | 内容 | 涉及失败数 |
 |---|---|---|---|
 | [Haoxincode/MoonBash#4](https://github.com/Haoxincode/MoonBash/issues/4) | tests: fix false failures and stale skips in official imported suites | 测试基础设施修复（parse-errors 退出码 + grep/jq 过期 skip） | ~29 |
-| [Haoxincode/MoonBash#5](https://github.com/Haoxincode/MoonBash/issues/5) | chore: integrate real gzip and tar to replace sandbox-only stubs | 集成 `gmlewis/gzip` 和 `bobzhang/tar` 替换 VFS 假实现 | 功能缺口 |
+| [Haoxincode/MoonBash#5](https://github.com/Haoxincode/MoonBash/issues/5) | chore: integrate real gzip and tar to replace sandbox-only stubs | ✅ gzip 已集成真实 DEFLATE（commit `1d0b311`）；tar: `bobzhang/tar` 仅为内存数据结构（无二进制序列化），保留 MBTAR1 自有格式 | 部分完成 |
 | [Haoxincode/MoonBash#6](https://github.com/Haoxincode/MoonBash/issues/6) | tests: clean up 29 stale skips inherited from just-bash | 移除 grep 17 + jq 12 个过期 skip（MoonBash regexp 已支持 backreference） | 29 |
 | [moonbit-community/moonbit-jq#5](https://github.com/moonbit-community/moonbit-jq/issues/5) | Feature gaps & semantic issues found via jq official test suite | moonjq 解析器/缺失函数/语义 bug | ~155 |
 | [moonbitlang/regexp.mbt#16](https://github.com/moonbitlang/regexp.mbt/issues/16) | Missing POSIX character classes, word boundaries, and lenient brace handling | regexp 库缺失 POSIX 字符类/词边界/花括号容错 | 27 |
@@ -96,12 +96,11 @@ pnpm exec vitest run --no-cache --pool=forks --maxWorkers=1 --fileParallelism=fa
 ### 通过套件
 
 - `tests/unit`：`168 passed`
-- `tests/comparison`：`523 passed`
+- `tests/comparison`：`522 passed`（1 awk 回归自 `b38190a`，见下方）
 - `tests/spec/sed`：`237 passed`
-- `tests/spec/awk`：`152 passed | 1 skipped`
 - `tests/security/sandbox`：`178 passed`
 - `tests/security/limits`：`86 passed | 1 skipped`
-- `tests/security/prototype-pollution`：`420 passed`
+- `tests/security/attacks`：`188 passed` ✅（原 1 failed，已修复 `6cbd88f`）
 - `tests/agent-examples/*`：本轮抽检全部通过
 
 ### 未通过套件（需要继续修）
@@ -114,13 +113,21 @@ pnpm exec vitest run --no-cache --pool=forks --maxWorkers=1 --fileParallelism=fa
    - `170 failed | 598 passed`
    - 失败构成：实现缺口（jq 语义/内建函数）+ 过期 skip（`UNEXPECTED PASS`）
 
-3. `tests/security/attacks`
-   - `1 failed | 187 passed`
-   - 失败点：`tests/security/attacks/filename-attacks.test.ts:288`
-   - 用例名：`should handle broken symlinks gracefully`
-   - 现象：`expect(result.stderr).toBeTruthy()` 断言失败（`stderr` 为空）
+3. ~~`tests/security/attacks`~~ ✅ **已修复** (commit `6cbd88f`)
 
-4. `tests/spec/bash/spec.test.ts`（按 `test-safe` 分片）
+4. `tests/spec/awk/awk-spec.test.ts`（回归自 `b38190a`）
+   - `6 failed | 146 passed | 1 skipped`
+   - 失败构成：getline condition caching 引入的回归
+
+5. `tests/comparison`（回归自 `b38190a`）
+   - `1 failed | 522 passed`
+   - 失败点：awk 相关 comparison fixture
+
+6. `tests/security/prototype-pollution`（回归自 `b38190a`）
+   - `6 failed | 414 passed`
+   - 失败构成：awk sub/gsub 相关回归
+
+7. `tests/spec/bash/spec.test.ts`（按 `test-safe` 分片）
    - `[1/10]` `205 failed | 179 passed | 1952 skipped`
    - `[2/10]` `142 failed | 135 passed | 2059 skipped`
    - `[3/10]` `146 failed | 194 passed | 1996 skipped`
@@ -135,6 +142,7 @@ pnpm exec vitest run --no-cache --pool=forks --maxWorkers=1 --fileParallelism=fa
 ### 追踪建议（优先级）
 
 1. 先清理 `grep/jq` 过期 skip（低风险、高收益，能快速去掉 `UNEXPECTED PASS` 噪音）
-2. 单独修复 `security/attacks` 那个 broken symlink 断言（范围小，易收敛）
-3. 再处理 `grep` regex 兼容缺口
-4. 最后集中攻 `bash spec`（量级最大，且存在超时分片）
+2. ~~单独修复 `security/attacks` 那个 broken symlink 断言~~ ✅ 已修复（commit `6cbd88f`）
+3. 调查并修复 awk 回归（commit `b38190a` getline condition caching 引入的 6+6+1=13 个失败）
+4. 再处理 `grep` regex 兼容缺口
+5. 最后集中攻 `bash spec`（量级最大，且存在超时分片）
