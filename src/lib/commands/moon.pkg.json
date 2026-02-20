@@ -14,6 +14,8 @@
     "moonbitlang/core/math",
     "gmlewis/base64",
     "moonbit-community/piediff/line_diff",
-    "moonbit-community/piediff/edit"
+    "moonbit-community/piediff/edit",
+    "gmlewis/gzip",
+    "gmlewis/flate"
   ]
 }

@@ -1,12 +1,11 @@
 // moon_bash Commands - Compression
 // gzip, gunzip, zcat
 //
-// Simplified sandbox implementation: "compressed" content is the original
-// content prefixed with a 2-byte magic header (\x1F\x8B). This lets
-// gzip/gunzip/zcat round-trip correctly inside the VFS without requiring
-// a real DEFLATE library.
+// Uses gmlewis/gzip for real DEFLATE compression/decompression.
+// Compressed data is stored in the VFS as Latin-1 encoded Strings
+// (each byte 0x00-0xFF maps to one Unicode char).
 
-/// The two-char magic header that marks our sandbox gzip format.
+/// The two-byte magic header that marks gzip format.
 let gzip_magic_0 : Int = 0x1F
 
 let gzip_magic_1 : Int = 0x8B
@@ -18,21 +17,40 @@ fn is_gzip_content(content : String) -> Bool {
     content[1].to_int() == gzip_magic_1
 }
 
-/// "Compress": prepend magic header to content.
-fn gzip_encode(content : String) -> String {
-  let buf = StringBuilder::new()
-  buf.write_char(gzip_magic_0.unsafe_to_char())
-  buf.write_char(gzip_magic_1.unsafe_to_char())
-  buf.write_string(content)
-  buf.to_string()
+/// Convert a MoonBit String to raw bytes (Latin-1: each char → low byte).
+fn string_to_raw_bytes(s : String) -> Array[Byte] {
+  Array::makei(s.length(), fn(i) { (s[i].to_int() & 0xFF).to_byte() })
 }
 
-/// "Decompress": strip the 2-byte magic header.
+/// Convert raw bytes to a MoonBit String (Latin-1: each byte → one char).
+fn raw_bytes_to_string(b : @io.Slice[Byte]) -> String {
+  String::from_array(
+    Array::makei(b.length(), fn(i) { b[i].to_int().unsafe_to_char() }),
+  )
+}
+
+/// Compress content using real gzip/DEFLATE.
+fn gzip_encode(content : String) -> String {
+  let input_bytes = string_to_raw_bytes(content)
+  let out_buf = @io.Buffer::new()
+  let w = @gzip.Writer::new(out_buf)
+  let _ = w.write(@io.Slice::new(input_bytes))
+  let _ = w.close()
+  raw_bytes_to_string(out_buf.to_slice())
+}
+
+/// Decompress gzip content.
 fn gzip_decode(content : String) -> String {
-  if content.length() <= 2 {
-    return ""
+  let input_bytes = string_to_raw_bytes(content)
+  let in_buf = @io.Buffer::new()
+  let _ = in_buf.write_bytes(Bytes::from_array(input_bytes))
+  let (reader, err) = @gzip.Reader::new(in_buf)
+  match err {
+    Some(_) => return ""
+    None => ()
   }
-  content.view(start_offset=2).to_string()
+  let (data, _) = @io.read_all(reader)
+  raw_bytes_to_string(data)
 }
 
 /// Check whether a filename ends with a given suffix.
