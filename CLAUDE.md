@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 MoonBash is a zero-dependency, pure-memory POSIX Shell sandbox written in MoonBit, compiled to pure JavaScript (no WASM). It is a complete rewrite of vercel-labs/just-bash with 100% API compatibility, targeting AI agents, serverless edge, and browser environments.
 
-**Current status:** Phase 2 complete, Phase 3 mostly complete. Core engine implemented (lexer, parser, interpreter, VFS, 50+ commands). Comparison test pass rate: 523/523 (100%).
+**Current status:** Phase 1–3 complete, Phase 4 in progress. Core engine fully implemented (lexer, parser, interpreter, VFS, 87 commands). All 87 target commands implemented. Comparison test pass rate: 523/523 (100%). Security test suite: 27 files. Community packages: 12 (moonjq, piediff, gzip, tar, etc.).
 
 ## Build Commands
 
@@ -46,7 +46,7 @@ All TypeScript tests use Vitest and the `Bash` class.
 ### Test Execution Policy (OOM Avoidance)
 
 - Default to `pnpm test:safe` for routine validation; it splits suites into isolated batches and disables Vitest cache.
-- `test:safe` runs with single-worker fork mode and bounded heap (`MOONBASH_TEST_HEAP_MB`, default `2048`).
+- `test:safe` runs with single-worker fork mode and bounded heap (`MOONBASH_TEST_HEAP_MB`, default `4096`).
 - Set `MOONBASH_TEST_SKIP_FUZZ=1` when iterating locally to skip the heaviest fuzzing suites.
 - Use plain `pnpm test` only on high-memory environments when you explicitly want one-shot full execution.
 
