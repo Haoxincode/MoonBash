@@ -15,7 +15,9 @@ MoonBash is a complete rewrite of [vercel-labs/just-bash](https://github.com/ver
 | Bundle Size | ~200KB+ | **245 KB** gzip / 997 KB minified |
 | Cold Start | Fast | Faster (sync init, no WASM instantiate) |
 | WASM Required | No | No |
-| API Compatible | N/A | 100% drop-in replacement |
+| API Surface Compatible | N/A | 100% drop-in replacement |
+
+Status note (as of 2026-02-19): command coverage is complete (`87/87`) and comparison tests are green (`523/523`), while spec/security compatibility hardening remains in progress. See `docs/ROADMAP.md` and `docs/TEST_STATUS_2026-02-19.md`.
 
 ## Build Size
 
@@ -74,7 +76,7 @@ console.log(result.exitCode); // 0
 │  └──────────┘  └──────────┘  └───────────────────┘ │
 │  ┌──────────────────┐  ┌──────────────────────────┐ │
 │  │  87 Built-in     │  │   Virtual Filesystem     │ │
-│  │   Commands       │  │   (InMemoryFs/Overlay)   │ │
+│  │   Commands       │  │ (InMemoryFs + AgentFS)   │ │
 │  └──────────────────┘  └──────────────────────────┘ │
 ├─────────────────────────────────────────────────────┤
 │              moon build --target js                  │

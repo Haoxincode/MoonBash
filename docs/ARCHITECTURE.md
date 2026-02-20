@@ -8,6 +8,8 @@
 4. **API Compatibility** - The TypeScript wrapper must expose an identical API to `just-bash`.
 5. **Incremental Migration** - Architecture must support incremental command implementation with fallback mechanisms.
 
+Status note (as of 2026-02-19): core architecture and command coverage are complete; compatibility hardening is still in progress. For latest pass/fail truth, use `docs/TEST_STATUS_2026-02-19.md` and `docs/ROADMAP.md`.
+
 ## 1.1 Ecosystem-First Implementation Strategy
 
 MoonBash follows an ecosystem-first implementation policy: reuse official MoonBit and vetted community packages before introducing custom algorithms. The command plan is split into four lanes:
@@ -30,14 +32,14 @@ This keeps parser/interpreter code small and auditable while preserving performa
 │  class Bash { exec(), getFs(), ... }                        │
 │  class Sandbox { ... }                                      │
 │                                                             │
-│  Purpose: 100% API compatibility with just-bash             │
+│  Purpose: API-surface compatibility with just-bash          │
 ├─────────────────────────────────────────────────────────────┤
 │ Layer 2: FFI Thin Shell  (4 system primitives only)         │
 │                                                             │
 │  Network:     globalThis.fetch       (curl)                 │
 │  Timers:      setTimeout/Date.now()  (sleep/timeout)        │
 │  Heavy VMs:   Pyodide/sql.js         (python3/sqlite3)      │
-│  Disk I/O:    node:fs                (OverlayFs)            │
+│  Disk I/O:    AgentFS adapter        (wrapper sync path)    │
 │                                                             │
 │  Purpose: Minimal side-effect bridge, zero business logic   │
 ├─────────────────────────────────────────────────────────────┤

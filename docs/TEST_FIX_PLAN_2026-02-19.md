@@ -3,6 +3,10 @@
 ## Objective
 Prioritize remaining failures after unit/comparison stabilization.
 
+## Status Convention Alignment
+- This plan is aligned to the failure snapshots in `docs/TEST_STATUS_2026-02-19.md` and `docs/TEST_FAILURE_MATRIX_2026-02-19.md`.
+- `docs/ROADMAP.md` phase checkboxes indicate implementation/roadmap progress; this plan tracks compatibility/test hardening work needed to reach full-green parity.
+
 ## Completed This Round
 - Fixed command dispatch regression caused by default `/bin/*` stubs executing as empty scripts.
 - Restored green status for:

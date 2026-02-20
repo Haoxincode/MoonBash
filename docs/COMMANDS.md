@@ -1,6 +1,8 @@
 # MoonBash Built-in Commands
 
-MoonBash targets 87 Unix commands (matching vercel-labs/just-bash 100% API compatibility). Most commands run as pure in-memory MoonBit logic; commands that require host capabilities (network, timers, optional external runtimes) cross an explicit FFI boundary.
+MoonBash targets 87 Unix commands (matching vercel-labs/just-bash API surface). Most commands run as pure in-memory MoonBit logic; commands that require host capabilities (network, timers, optional external runtimes) cross an explicit FFI boundary.
+
+Status note (as of 2026-02-19): command coverage is complete (`87/87`), while spec/security compatibility hardening is still in progress. See `docs/ROADMAP.md` and `docs/TEST_STATUS_2026-02-19.md`.
 
 ## Command Categories
 

@@ -8,17 +8,19 @@ Phase 1: Foundation & MVP                    ✅ COMPLETE
   → 15 core commands
   → Build pipeline (MoonBit → JS → npm)
 
-Phase 2: Shell Feature Completeness          ✅ COMPLETE
+Phase 2: Shell Feature Completeness          🔧 CORE COMPLETE
   → Full variable expansion, arrays, functions
   → Control flow (if/for/while/case)
   → Redirections and pipes
-  → 20 additional commands
+  → 20 additional commands implemented
+  → Compatibility backlog still open (see test snapshot)
 
-Phase 3: Text Processing Powerhouse          ✅ COMPLETE
+Phase 3: Text Processing Powerhouse          🔧 CORE COMPLETE
   → grep, sed, awk (full implementations)
   → jq (via bobzhang/moonjq community package)
   → diff, comm, base64, md5sum, sha256sum, gzip, tar
   → All 87 target commands implemented
+  → Spec compatibility hardening still in progress
 
 Phase 4: Production Hardening                🔧 IN PROGRESS
   → Comparison test suite: 523/523 (100%)
@@ -37,6 +39,14 @@ Phase 5: Multi-Platform Expansion            🔧 PARTIALLY COMPLETE
 
 **Current comparison test pass rate: 523/523 (100%)**
 **Command coverage: 87/87 (100%)**
+**Spec/security hardening snapshot (2026-02-19): grep `54` failed, jq `170` failed, bash spec chunked run `683+` failed confirmed; security attacks `1` failed; fuzzing `2` suites failed.**
+
+### Status Convention
+
+- `✅ COMPLETE`: core milestone is delivered and production-usable; minor or non-blocking backlog may still be listed as unchecked items.
+- `🔧 CORE COMPLETE`: core implementation is landed, but compatibility hardening/backlog remains.
+- `⏸️ REPLACED`: original task is superseded by an approved architecture decision.
+- Pass/fail truth source: `docs/TEST_STATUS_2026-02-19.md`, `docs/TEST_FAILURE_MATRIX_2026-02-19.md`, `docs/TEST_FIX_PLAN_2026-02-19.md`.
 
 ---
 
@@ -159,7 +169,7 @@ Phase 5: Multi-Platform Expansion            🔧 PARTIALLY COMPLETE
 
 ---
 
-## Phase 2: Shell Feature Completeness ✅
+## Phase 2: Shell Feature Completeness 🔧 (Core Complete, Compatibility Backlog Open)
 
 **Goal:** Support the full range of Bash control flow, expansions, and shell builtins.
 
@@ -302,11 +312,11 @@ Phase 5: Multi-Platform Expansion            🔧 PARTIALLY COMPLETE
 
 ---
 
-## Phase 3: Text Processing Powerhouse ✅
+## Phase 3: Text Processing Powerhouse 🔧 (Core Complete, Compatibility Backlog Open)
 
 **Goal:** Implement the complex text processing commands that make the sandbox useful for real data pipeline work.
 
-### 3.1 grep (Full) ✅
+### 3.1 grep (Core Features Landed) 🔧
 
 - [x] BRE (Basic Regular Expressions)
 - [x] ERE (Extended Regular Expressions) - `-E`
@@ -319,7 +329,7 @@ Phase 5: Multi-Platform Expansion            🔧 PARTIALLY COMPLETE
 - [x] Integration with `@regexp` library
 - [x] `egrep`, `fgrep`, `rg` aliases
 
-### 3.2 sed (Full) ✅
+### 3.2 sed (Core Features Landed) 🔧
 
 - [x] Address types (line number, `$`, `/regex/`, range, step, negation `!`)
 - [x] Substitute command (`s/pattern/replacement/flags`) with `g`, `p`, `i`, occurrence count
@@ -356,7 +366,7 @@ Phase 5: Multi-Platform Expansion            🔧 PARTIALLY COMPLETE
 - [x] Iteration limit enforcement
 - [x] Prototype-pollution hardening (for-in, function params, getline vars)
 
-### 3.4 jq ✅ (Community Package: `bobzhang/moonjq`)
+### 3.4 jq 🔧 (Community Package: `bobzhang/moonjq`)
 
 Migrated from handwritten evaluator to `bobzhang/moonjq` (MoonBit creator's package, commit `dbc5247`). Full jq language support provided by the community package, including:
 
@@ -450,7 +460,7 @@ Migrated from handwritten evaluator to `bobzhang/moonjq` (MoonBit creator's pack
 - [ ] ~~Mount/unmount API~~ → 不再需要
 - [ ] ~~Path normalization across mounts~~ → 不再需要
 
-### 4.3 Network ✅
+### 4.3 Network 🔧 (Core Complete, Hardening Pending)
 
 - [x] `curl` command implementation (via `globalThis.fetch` FFI)
 - [x] `html-to-markdown` command
@@ -475,24 +485,26 @@ Migrated from handwritten evaluator to `bobzhang/moonjq` (MoonBit creator's pack
 - [ ] AST visitor infrastructure
 - [ ] Built-in plugins (CommandCollector, Tee)
 
-### 4.6 Custom Commands ✅
+### 4.6 Custom Commands 🔧 (Core Complete, Optimization Pending)
 
 - [x] Custom command bridge (`__moon_bash_custom__` via FFI)
 - [x] User-provided command handlers (async, via TS wrapper)
 - [ ] Lazy command loading
 - [ ] Command filtering (`commands` option)
 
-### 4.7 Testing ✅
+### 4.7 Testing 🔧 (Infrastructure Complete, Compatibility Hardening Ongoing)
 
 - [x] Comparison test framework (record + replay, 26 fixture files)
 - [x] Test fixtures against real bash output: **523/523 (100%)**
-- [x] Bash spec tests: 136 cases (from Oils project)
-- [x] AWK spec tests: 317 cases
-- [x] grep/sed/jq spec tests
+- [x] Spec suites integrated: bash / awk / sed / grep / jq
+- [x] Bash spec corpus imported and runnable (from Oils project)
+- [x] AWK spec corpus imported and runnable
+- [ ] Spec compatibility fully green (as of 2026-02-19: grep `54` failed, jq `170` failed, bash spec chunked run `683+` failed confirmed)
 - [x] Security fuzz testing (grammar-based, flag-driven, malformed, coverage-boost generators)
 - [x] Prototype-pollution test suite (6 files, comprehensive coverage)
 - [x] Sandbox escape tests (command security, injection, dynamic execution, information disclosure)
 - [x] Resource limit tests (DoS, memory, output size, pipeline limits)
+- [ ] Security suites fully green (as of 2026-02-19: `tests/security/attacks` has `1` failing case; fuzzing has `2` failing suites)
 - [x] Agent workflow tests: 13 real-world scenarios
 - [x] OOM-safe batched test execution (`pnpm test:safe`)
 - [ ] Edge case coverage (Unicode, binary, huge files)
@@ -593,13 +605,15 @@ All binary/codec work is pure MoonBit (zero JS runtime dependencies). Community 
 
 | Metric | Target | Current |
 |---|---|---|
-| API compatibility | 100% drop-in for just-bash | ✅ 100% |
+| API surface compatibility | 100% drop-in for just-bash | ✅ 100% (interface/entry points) |
 | Bundle size (gzip) | <100 KB | TBD |
 | Cold start time | <5 ms | TBD |
 | Command coverage | 87 commands (matching just-bash) | ✅ 87 (100%) |
 | Bash behavior accuracy | >95% (comparison tests) | ✅ 100% (523/523) |
-| Spec test coverage | Oils bash + awk + sed + grep + jq | ✅ 473+ cases |
-| Security test files | Comprehensive | ✅ 27 files |
+| Spec suite integration | Oils bash + awk + sed + grep + jq | ✅ integrated |
+| Spec compatibility pass status (2026-02-19) | Full green | 🔧 grep `54` failed, jq `170` failed, bash chunked run `683+` failed confirmed |
+| Security test files | Comprehensive | ✅ 27 files integrated |
+| Security pass status (2026-02-19) | Full green | 🔧 `1` failing attack case + `2` failing fuzz suites |
 | Agent workflow tests | Real-world scenarios | ✅ 13 scenarios |
 | ReDoS vulnerability | 0 (VM-based regex) | ✅ 0 |
 | Zero-day filesystem escapes | 0 (architectural guarantee) | ✅ 0 |

@@ -1,5 +1,8 @@
 # Test Failure Matrix (2026-02-19, Post-Fix)
 
+> This matrix is the canonical failure inventory for compatibility hardening at the `2026-02-19` snapshot.
+> If roadmap completion markers differ, use this file (and `docs/TEST_STATUS_2026-02-19.md`) for test-health truth.
+
 ## 1) Spec/Grep (`tests/spec/grep/grep-spec.test.ts`)
 - Current: `54` failed, `227` passed, `51` skipped.
 

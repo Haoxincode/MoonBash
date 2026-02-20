@@ -11,6 +11,8 @@ MoonBash's core engine is written in MoonBit and compiled to pure JavaScript via
 3. **Async-First** - All I/O operations are async (Promise-based)
 4. **Type-Safe Bridge** - Both sides have strong typing (MoonBit + TypeScript)
 
+Status note (as of 2026-02-19): the active filesystem integration direction is the TypeScript-layer AgentFS adapter (`docs/AGENTFS_ANALYSIS.md`), while OverlayFs/ReadWriteFs content in this document is retained as legacy reference.
+
 ## 2. FFI Architecture
 
 ```
@@ -35,9 +37,9 @@ MoonBash's core engine is written in MoonBit and compiled to pure JavaScript via
 └────────────────────────────────┘
 ```
 
-## 3. Filesystem FFI
+## 3. Filesystem FFI (Legacy OverlayFs Reference)
 
-The filesystem is the most critical FFI boundary. InMemoryFs runs entirely in MoonBit, but OverlayFs and ReadWriteFs need host filesystem access.
+The filesystem is the most critical FFI boundary. InMemoryFs runs entirely in MoonBit. The current roadmap path uses an AgentFS adapter in the TypeScript wrapper; the callback model below documents the legacy OverlayFs/ReadWriteFs approach.
 
 ### MoonBit Side (Callback Registration)
 
@@ -55,7 +57,7 @@ struct FsCallbacks {
 
 /// Register filesystem callbacks from host
 pub fn set_fs_callbacks(callbacks : FsCallbacks) -> Unit {
-  // Store callbacks for use by OverlayFs
+  // Store callbacks for legacy OverlayFs path
 }
 ```
 

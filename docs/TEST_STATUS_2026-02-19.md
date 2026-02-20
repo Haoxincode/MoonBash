@@ -3,6 +3,11 @@
 ## Scope
 This snapshot reflects the current status after the latest command-dispatch and redirection fixes.
 
+## Status Convention Alignment
+- This file is the pass/fail source of truth for test health as of `2026-02-19`.
+- In `docs/ROADMAP.md`, `✅`/`🔧` checkboxes primarily track implementation coverage and roadmap closure state, not automatic full-green test parity.
+- When `ROADMAP` and older summaries conflict, use this snapshot + `docs/TEST_FAILURE_MATRIX_2026-02-19.md` as canonical for current failures.
+
 ## Commands Run
 - `cd src && moon build --target js`
 - `npx vitest run tests/unit/`

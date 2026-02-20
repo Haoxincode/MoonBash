@@ -4,6 +4,8 @@
 
 MoonBash provides a complete virtual filesystem (VFS) abstraction that enables sandboxed file operations with no access to the host system. All filesystem implementations conform to a unified `IFileSystem` trait/interface.
 
+Status note (as of 2026-02-19): the active Phase 4 filesystem direction is the TypeScript-layer AgentFS adapter (`docs/AGENTFS_ANALYSIS.md`). OverlayFs/MountableFs sections below are retained as legacy reference designs.
+
 ## 2. Filesystem Trait (MoonBit)
 
 ```moonbit
@@ -157,7 +159,9 @@ When a new `InMemoryFs` is created, it contains:
 - Entire filesystem fits in JS heap
 - GC handles cleanup when `InMemoryFs` is dropped
 
-## 5. OverlayFs Implementation
+## 5. OverlayFs Implementation (Legacy Reference)
+
+This section documents the original plan prior to the AgentFS architecture decision.
 
 Copy-on-write filesystem that reads from a real directory but writes only to memory.
 
@@ -241,7 +245,9 @@ extern "js" fn host_stat(path : String) -> String  // JSON-encoded FsStat
 extern "js" fn host_readdir(path : String) -> String  // JSON-encoded entries
 ```
 
-## 6. MountableFs Implementation
+## 6. MountableFs Implementation (Legacy Reference)
+
+This section documents the original multi-mount routing plan prior to AgentFS.
 
 Virtual filesystem namespace that routes paths to different filesystem backends.
 
@@ -350,14 +356,14 @@ fn expand_glob(
 - **Recursive operations:** O(k) where k = number of entries in subtree
 - **Memory:** Proportional to total file content size
 
-### OverlayFs
+### OverlayFs (Legacy)
 
 - **Read (memory hit):** Same as InMemoryFs
 - **Read (disk miss):** Depends on host I/O (async FFI call)
 - **Write:** Same as InMemoryFs (memory only)
 - **Deleted check:** O(1) HashSet lookup
 
-### MountableFs
+### MountableFs (Legacy)
 
 - **Mount resolution:** O(m) where m = number of mount points
 - **After resolution:** Delegates to underlying filesystem

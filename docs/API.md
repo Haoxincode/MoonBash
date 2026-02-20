@@ -2,6 +2,8 @@
 
 This document defines the public API surface of MoonBash, designed to be 100% compatible with `just-bash`.
 
+Status note (as of 2026-02-19): API surface compatibility is complete, while spec/security compatibility hardening is still in progress. For current pass/fail truth, see `docs/TEST_STATUS_2026-02-19.md` and `docs/ROADMAP.md`.
+
 ## 1. Core Classes
 
 ### 1.1 `Bash`
