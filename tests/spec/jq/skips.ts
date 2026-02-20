@@ -23,22 +23,6 @@ const SKIP_FILES: Set<string> = new Set<string>([
  */
 const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   // ============================================================
-  // Destructuring edge cases
-  // ============================================================
-  [
-    "jq.test:. as [] | null",
-    "Empty array pattern should error on non-empty input",
-  ],
-  [
-    "jq.test:. as {} | null",
-    "Empty object pattern should error on non-object input",
-  ],
-  [
-    "jq.test:. as {(true):$foo} | $foo",
-    "Computed key with non-string expression should error",
-  ],
-
-  // ============================================================
   // ltrimstr/rtrimstr type checking
   // ============================================================
   [
@@ -75,19 +59,6 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   ],
 
   // ============================================================
-  // Invalid escape sequences
-  // ============================================================
-  ['jq.test:"u\\vw"', "Invalid \\v escape sequence test"],
-
-  // ============================================================
-  // Undefined variable behavior
-  // ============================================================
-  [
-    "jq.test:. as $foo | [$foo, $bar]",
-    "Undefined variable $bar behavior differs",
-  ],
-
-  // ============================================================
   // NUL character handling
   // ============================================================
   ['jq.test:"\\u0000\\u0020\\u0000" + .', "NUL character handling differs"],
@@ -120,8 +91,6 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
     'jq.test:["foo",1] as $p | getpath($p), setpath($p; 20), delpaths([[$p]])',
     "getpath with string/number path",
   ],
-  ["jq.test:delpaths([[-200]])", "delpaths with large negative index"],
-
   // ============================================================
   // label with keyword variable names
   // ============================================================
@@ -153,10 +122,6 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   // ============================================================
   // String interpolation edge cases
   // ============================================================
-  [
-    'jq.test:"inter\\("pol" + "ation")"',
-    "String interpolation with complex expression",
-  ],
   ['jq.test:@html "<b>\\(.)</b>"', "String interpolation in @html"],
   ['jq.test:{"a",b,"a$\\(1+1)"}', "String interpolation in object key"],
 
@@ -262,11 +227,6 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
     "jq.test:[range(-52;52;1)] as $powers | [$powers[]|pow(2;.)] | [.[52], .[51], .[0], .[-1], .[-2]] as $s | [$s[], $s[0]/$s[1], $s[3]/$s[4]]",
     "pow with fractional exponent precision",
   ],
-  [
-    "jq.test:trim, ltrim, rtrim",
-    "trim doesn't handle all Unicode whitespace characters",
-  ],
-
   // ============================================================
   // man.test specific skips
   // ============================================================
@@ -347,7 +307,6 @@ const SKIP_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   // ERROR MESSAGE DIFFERENCES (acceptable)
   // ============================================================
 
-  { pattern: /try join\(","\) catch \./, reason: "join error message" },
   {
     pattern: /try \(\. \* 1000000000\) catch \./,
     reason: "String multiply overflow",
@@ -430,10 +389,6 @@ const SKIP_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /del\(empty\)/, reason: "del(empty) expression" },
   { pattern: /del\(\(\.[^)]+,\.[^)]+\)/, reason: "del with comma expressions" },
   { pattern: /del\(\.\[.*,.*\]\)/, reason: "del with multiple indices" },
-  {
-    pattern: /delpaths\(\[\[-\d+\]\]\)/,
-    reason: "delpaths with large negative",
-  },
 
   // setpath edge cases
   { pattern: /setpath\(\[-\d+\]/, reason: "setpath with negative index" },
@@ -462,19 +417,16 @@ const SKIP_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   // ============================================================
 
   // String escape sequences
-  { pattern: /\\v/, reason: "Parser: \\v escape not supported" },
   { pattern: /\\t/, reason: "Parser: tab escape in test input" },
   { pattern: /\\b/, reason: "Parser: backspace escape in test input" },
   { pattern: /\\f/, reason: "Parser: formfeed escape in test input" },
   { pattern: /"[^"]*\t[^"]*"/, reason: "Literal tab in test input" },
-  { pattern: /"u\\vw"/, reason: "\\v escape sequence test" },
 
   // NUL character handling
   { pattern: /"\\u0000.*" \+ \./, reason: "NUL character string concat" },
   { pattern: /contains\("b\\u0000/, reason: "contains with NUL char" },
 
   // String interpolation edge cases
-  { pattern: /inter\\\(/, reason: "String interpolation with backslash" },
   {
     pattern: /\{"[^"]*",\w+,"[^"]*\$\\/,
     reason: "Object shorthand with interpolation",
@@ -548,8 +500,6 @@ const SKIP_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   // NaN multiplication
   { pattern: /\. \* \(nan,-nan\)/, reason: "NaN multiply" },
 
-  // Undefined variable
-  { pattern: /\[\$foo, \$bar\]/, reason: "undefined variable" },
 
   // walk with generator
   { pattern: /walk\(\.,\d+\)/, reason: "walk with generator argument" },
@@ -563,8 +513,6 @@ const SKIP_INPUT_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /\t/, reason: "Literal tab in input" },
   // Emoji flag characters (multi-codepoint indexing issues)
   { pattern: /🇬🇧/, reason: "Emoji flag codepoint indexing differs" },
-  // unique sort order bug
-  { pattern: /^\[1,2,5,3,5,3,1,3\]$/, reason: "unique sort order differs" },
   // nan/NaN/Infinity literals in JSON input (not valid standard JSON)
   {
     pattern: /[:[,]nan[\],}]/,

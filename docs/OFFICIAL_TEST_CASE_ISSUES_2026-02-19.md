@@ -29,37 +29,42 @@ pnpm exec vitest run --no-cache --pool=forks --maxWorkers=1 --fileParallelism=fa
   - 修复后 `tests/comparison/parse-errors.comparison.test.ts` 24/24 通过。
   - 整体 `tests/comparison` 在 safe 参数下恢复为 523/523 通过。
 
-### 2) grep spec 的 skip 列表存在“过期 skip”（UNEXPECTED PASS）
+### 2) grep spec 的 skip 列表存在”过期 skip”（UNEXPECTED PASS）
 
-- 文件：`tests/spec/grep/skips.ts:1`
-- 现象：
-  - 多个被 skip 的 case 实际已经通过，runner 以 `UNEXPECTED PASS` 形式报错。
-  - 典型类别：
-    - “RE2 doesn't support backreferences” 相关条目（多条）
-    - “RE2 treats grouped *** differently ...”
-    - “BRE literal \\{,2\\} / \\{,\\} ... not implemented”
-- 建议：
-  - 清理已不再需要的 skip 条目。
-  - 将“确属实现缺口”和“历史兼容策略差异”分组，避免 skip 污染回归结果。
+- 文件：`tests/spec/grep/cases/gnu-bre.tests` 中的 `# SKIP:` 行
+- 来源：这些 `# SKIP:` 注释从 `vercel-labs/just-bash` 原样导入（commit `aaa5af1`），经比对 just-bash 原版完全一致。当时 just-bash 使用 RE2 引擎不支持 backreference，但 MoonBash 的 `@moonbitlang/core/regexp` 已支持。
+- 现象：17 个 UNEXPECTED PASS
+  - “RE2 doesn't support backreferences”（13 条，行 22–44, 82）
+  - “RE2 treats grouped/start *** differently”（2 条，行 49, 54）
+  - “BRE literal \\{,2\\} / \\{,\\} not implemented”（2 条，行 63, 65）
+- 修复：删除 `gnu-bre.tests` 中对应的 17 行 `# SKIP:` 注释
 
-### 3) jq spec 的 skip 列表也存在“过期 skip”（UNEXPECTED PASS）
+### 3) jq spec 的 skip 列表也存在”过期 skip”（UNEXPECTED PASS）
 
-- 文件：`tests/spec/jq/skips.ts:1`
-- 现象：
-  - 多个 skip 条目已变成实际通过，导致 `UNEXPECTED PASS`。
-  - 典型条目：
-    - `Invalid \\v escape sequence test`
-    - `String interpolation with complex expression`
-    - `Empty array/object pattern ...`
-    - `Undefined variable $bar behavior differs`
-    - `delpaths with large negative index`
-    - `join error message`
-    - `unique sort order differs`
-- 建议：
-  - 逐项复核并移除过期 skip。
-  - 在 skip 文案中标注“预期移除条件”，便于后续自动清理。
+- 文件：`tests/spec/jq/skips.ts`（同样从 just-bash 导入）
+- 现象：12 个 UNEXPECTED PASS
+  - SKIP_TESTS（8 条）：`”u\\vw”`、`”inter\\(...)”`、`. as [] | null`、`. as {} | null`、`$bar` 未定义变量、`{(true):$foo}`、`delpaths([[-200]])`、`trim/ltrim/rtrim`
+  - SKIP_PATTERNS（5 条）：`join error message`、`delpaths negative`、`”u\\vw”`、`inter\\(`、`[$foo, $bar]`
+  - SKIP_INPUT_PATTERNS（1 条）：`unique sort order`
+- 修复：从 `skips.ts` 移除上述 14 个条目
 
-## 需要区分：并非“测试错误”的失败
+## MoonBash 相对于 just-bash 的兼容性优势
+
+上述 grep 过期 skip 揭示了一个重要差异：just-bash 使用 RE2 引擎（不支持 backreference），而 MoonBash 的 `@moonbitlang/core/regexp` **已支持 backreference**（`\1`、`\2` 等反向引用）。
+
+Backreference 在 grep/sed 中用于匹配前面括号捕获的内容，是 POSIX BRE 标准的一部分：
+
+```bash
+# 匹配连续重复字符（aa, bb, cc ...）
+echo “aabcd” | grep '\(.\)\1'
+
+# 匹配 HTML 标签配对
+echo “<div>text</div>” | grep '<\([a-z]*\)>.*</\1>'
+```
+
+这意味着 MoonBash 的 grep 在正则兼容性上优于 just-bash，AI agent 使用时不会遇到 backreference 不支持的意外。
+
+## 需要区分：并非”测试错误”的失败
 
 - 当前 grep/jq 仍有大量失败属于实现差异/功能缺口（例如正则能力、jq 内建函数与语义覆盖），这些不应归类为“官方测试错误”。
 - 建议在 issue 中将以下两类拆开跟踪：
@@ -69,6 +74,16 @@ pnpm exec vitest run --no-cache --pool=forks --maxWorkers=1 --fileParallelism=fa
 ## 建议 issue 标题
 
 - `tests: fix false failures and stale skips in official imported suites (parse-errors/grep/jq)`
+
+## 已提交的 Issue 跟踪
+
+| 仓库 | Issue | 内容 | 涉及失败数 |
+|---|---|---|---|
+| [Haoxincode/MoonBash#4](https://github.com/Haoxincode/MoonBash/issues/4) | tests: fix false failures and stale skips in official imported suites | 测试基础设施修复（parse-errors 退出码 + grep/jq 过期 skip） | ~29 |
+| [Haoxincode/MoonBash#5](https://github.com/Haoxincode/MoonBash/issues/5) | chore: integrate real gzip and tar to replace sandbox-only stubs | 集成 `gmlewis/gzip` 和 `bobzhang/tar` 替换 VFS 假实现 | 功能缺口 |
+| [Haoxincode/MoonBash#6](https://github.com/Haoxincode/MoonBash/issues/6) | tests: clean up 29 stale skips inherited from just-bash | 移除 grep 17 + jq 12 个过期 skip（MoonBash regexp 已支持 backreference） | 29 |
+| [moonbit-community/moonbit-jq#5](https://github.com/moonbit-community/moonbit-jq/issues/5) | Feature gaps & semantic issues found via jq official test suite | moonjq 解析器/缺失函数/语义 bug | ~155 |
+| [moonbitlang/regexp.mbt#16](https://github.com/moonbitlang/regexp.mbt/issues/16) | Missing POSIX character classes, word boundaries, and lenient brace handling | regexp 库缺失 POSIX 字符类/词边界/花括号容错 | 27 |
 
 ## 当前失败快照（2026-02-19，已复核）
 
