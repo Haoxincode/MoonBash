@@ -281,7 +281,7 @@ describe("Filename Attack Prevention", () => {
     it("should handle broken symlinks gracefully", async () => {
       const result = await bash.exec(`
         ln -s /tmp/nonexistent /tmp/broken_link
-        cat /tmp/broken_link 2>&1
+        cat /tmp/broken_link
         rm /tmp/broken_link
       `);
       // Should fail to read but not crash
