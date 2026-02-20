@@ -104,6 +104,7 @@ fn cmd_awk(ctx : CommandContext) -> @ast.ExecResult {
   for pair in initial_vars {
     vars[pair.0] = pair.1
   }
+  awk_set_active_expr_output(Some(out))
 
   for action in prog.begin_actions {
     if vars.contains(awk_ctrl_exit_key) {
@@ -225,5 +226,6 @@ fn cmd_awk(ctx : CommandContext) -> @ast.ExecResult {
     Some(msg) => "awk: \{msg}\n"
     None => ""
   }
+  awk_set_active_expr_output(None)
   @ast.ExecResult::new(stdout=out.to_string(), stderr=stderr, exit_code=exit_code)
 }

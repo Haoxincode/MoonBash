@@ -12,6 +12,21 @@ priv enum AwkExprAst {
   Binary(String, AwkExprAst, AwkExprAst)
 } derive(Show)
 
+priv struct AwkExprEvalState {
+  mut out : StringBuilder?
+}
+
+let awk_expr_eval_state : AwkExprEvalState = { out: None }
+
+fn awk_set_active_expr_output(out : StringBuilder?) -> Unit {
+  awk_expr_eval_state.out = out
+}
+
+fn awk_is_regex_literal_expr(text : String) -> Bool {
+  let t = aj_trim(text)
+  t.length() >= 2 && aj_starts_with(t, "/") && aj_ends_with(t, "/")
+}
+
 fn awk_expr_assignment_target_valid(lhs : String) -> Bool {
   let t = aj_trim(lhs)
   if awk_is_identifier(t) {
@@ -27,6 +42,10 @@ fn awk_parse_expr_ast(expr : String) -> AwkExprAst {
   let t = awk_strip_outer_parens(aj_trim(expr))
   if t.length() == 0 {
     return Raw("")
+  }
+
+  if awk_is_regex_literal_expr(t) {
+    return Raw(t)
   }
 
   if aj_ends_with(t, "++") || aj_ends_with(t, "--") {
@@ -435,18 +454,35 @@ fn awk_eval_call_expr_ast(
 
   match awk_get_function(vars, call_name) {
     Some(_) => {
-      let fn_out = StringBuilder::new()
-      awk_eval_user_function(
-        call_name,
-        args_raw,
-        line,
-        fields,
-        nr,
-        nf,
-        vars,
-        array_vars,
-        fn_out,
-      )
+      match awk_expr_eval_state.out {
+        Some(active_out) => {
+          awk_eval_user_function(
+            call_name,
+            args_raw,
+            line,
+            fields,
+            nr,
+            nf,
+            vars,
+            array_vars,
+            active_out,
+          )
+        }
+        None => {
+          let fn_out = StringBuilder::new()
+          awk_eval_user_function(
+            call_name,
+            args_raw,
+            line,
+            fields,
+            nr,
+            nf,
+            vars,
+            array_vars,
+            fn_out,
+          )
+        }
+      }
     }
     None => ""
   }
