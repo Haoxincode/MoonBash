@@ -16,10 +16,17 @@ pub fn compile_grep_matcher(
     return Fixed(fixed_pattern, ignore_case)
   }
 
+  let decoded_pattern = decode_regex_escapes(
+    if extended { pattern } else { normalize_basic_regex(pattern) },
+  )
+  if has_invalid_posix_char_class_syntax(decoded_pattern) {
+    raise_invalid_regex()
+  }
   let normalized = normalize_regex_compat(
     normalize_posix_char_classes(
-      decode_regex_escapes(if extended { pattern } else { normalize_basic_regex(pattern) }),
+      decoded_pattern,
     ),
+    extended~,
   )
   let has_bol_anchor = regex_has_bol_anchor(normalized)
   let flags = if ignore_case { "i" } else { "" }
@@ -246,25 +253,414 @@ pub fn normalize_basic_regex(pattern : String) -> String {
 }
 
 fn normalize_posix_char_classes(pattern : String) -> String {
+  let mut out = pattern
+  // GNU word-boundary bracket classes used by grep tests.
+  out = replace_all_literal(out, "[[:<:]]", "\\b")
+  out = replace_all_literal(out, "[[:>:]]", "\\b")
+
+  // POSIX character classes commonly used in grep specs.
+  out = replace_all_literal(out, "[[:alnum:]]", "[A-Za-z0-9]")
+  out = replace_all_literal(out, "[[:alpha:]]", "[A-Za-z]")
+  out = replace_all_literal(out, "[[:ascii:]]", "[\\x00-\\x7F]")
+  out = replace_all_literal(out, "[[:blank:]]", "[ \\t]")
+  out = replace_all_literal(out, "[[:cntrl:]]", "[\\x00-\\x1F\\x7F]")
+  out = replace_all_literal(out, "[[:digit:]]", "[0-9]")
+  out = replace_all_literal(out, "[[:graph:]]", "[!-~]")
+  out = replace_all_literal(out, "[[:lower:]]", "[a-z]")
+  out = replace_all_literal(out, "[[:print:]]", "[ -~]")
+  out = replace_all_literal(out, "[[:punct:]]", "[!-/:-@\\[-`{-~]")
+  out = replace_all_literal(out, "[[:space:]]", "[ \\t\\n\\r]")
+  out = replace_all_literal(out, "[[:upper:]]", "[A-Z]")
+  out = replace_all_literal(out, "[[:word:]]", "[A-Za-z0-9_]")
+  out = replace_all_literal(out, "[[:xdigit:]]", "[0-9A-Fa-f]")
+  out
+}
+
+fn normalize_regex_compat(pattern : String, extended~ : Bool = false) -> String {
+  // Map GNU-style {,n} quantifier to engines that require {0,n}.
+  let with_lower_bound = replace_all_literal(pattern, "{,", "{0,")
+  // Help JS-like engines parse classes where ] is the first class member.
+  let with_normalized_classes = normalize_char_class_initial_close(with_lower_bound)
+  if extended {
+    // In ERE, malformed interval forms like "{abc" are literals, but true intervals
+    // (including BADRPT cases like "{1}" with no target) must stay intact.
+    normalize_ere_malformed_intervals(with_normalized_classes)
+  } else {
+    // BRE keeps compatibility for leading '*' forms, but bad \{...\} should stay errors.
+    normalize_invalid_quantifiers(with_normalized_classes, literalize_interval_errors=false)
+  }
+}
+
+fn normalize_invalid_quantifiers(
+  pattern : String,
+  literalize_interval_errors~ : Bool = true
+) -> String {
   let out = StringBuilder::new()
   let mut i = 0
+  let mut in_char_class = false
+  let mut last_repeatable = false
+
   while i < pattern.length() {
-    if starts_with_at(pattern, "[[:space:]]", i) {
-      out.write_string("[ \\t\\n\\r]")
-      i += 11
+    let ch = pattern[i].to_int().unsafe_to_char()
+
+    if ch == '\\' {
+      if i + 1 < pattern.length() {
+        let next = pattern[i + 1].to_int().unsafe_to_char()
+        out.write_char('\\')
+        out.write_char(next)
+        if in_char_class {
+          last_repeatable = true
+        } else if next == 'b' || next == 'B' || next == 'A' || next == 'Z' || next == 'z' {
+          // Zero-width assertions should not become quantifier targets.
+          last_repeatable = false
+        } else {
+          last_repeatable = true
+        }
+        i += 2
+      } else {
+        out.write_char('\\')
+        i += 1
+      }
       continue
     }
-    out.write_char(pattern[i].to_int().unsafe_to_char())
+
+    if in_char_class {
+      out.write_char(ch)
+      if ch == ']' {
+        in_char_class = false
+        last_repeatable = true
+      }
+      i += 1
+      continue
+    }
+
+    if ch == '[' {
+      out.write_char('[')
+      in_char_class = true
+      last_repeatable = false
+      i += 1
+      continue
+    }
+
+    if ch == '(' {
+      out.write_char('(')
+      last_repeatable = false
+      i += 1
+      continue
+    }
+
+    if ch == '|' {
+      out.write_char('|')
+      last_repeatable = false
+      i += 1
+      continue
+    }
+
+    if ch == '^' || ch == '$' {
+      out.write_char(ch)
+      last_repeatable = false
+      i += 1
+      continue
+    }
+
+    if ch == '*' || ch == '+' || ch == '?' {
+      if last_repeatable {
+        out.write_char(ch)
+      } else {
+        out.write_char('\\')
+        out.write_char(ch)
+      }
+      last_repeatable = true
+      i += 1
+      continue
+    }
+
+    if ch == '{' {
+      match parse_interval_quantifier(pattern, i, last_repeatable) {
+        Some(length) => {
+          for j = i; j < i + length; j = j + 1 {
+            out.write_char(pattern[j].to_int().unsafe_to_char())
+          }
+          last_repeatable = true
+          i += length
+        }
+        None => {
+          if literalize_interval_errors {
+            out.write_char('\\')
+          }
+          out.write_char('{')
+          last_repeatable = literalize_interval_errors
+          i += 1
+        }
+      }
+      continue
+    }
+
+    if ch == '}' {
+      if literalize_interval_errors {
+        out.write_char('\\')
+      }
+      out.write_char('}')
+      last_repeatable = literalize_interval_errors
+      i += 1
+      continue
+    }
+
+    out.write_char(ch)
+    last_repeatable = true
+    i += 1
+  }
+
+  out.to_string()
+}
+
+fn parse_interval_quantifier(
+  pattern : String,
+  start : Int,
+  has_target : Bool
+) -> Int? {
+  if not(has_target) {
+    return None
+  }
+  if start < 0 || start >= pattern.length() || pattern[start].to_int().unsafe_to_char() != '{' {
+    return None
+  }
+
+  let mut i = start + 1
+  let mut lower_digits = 0
+  while i < pattern.length() && is_digit_char(pattern[i].to_int().unsafe_to_char()) {
+    lower_digits += 1
+    i += 1
+  }
+  if lower_digits == 0 {
+    return None
+  }
+
+  if i < pattern.length() && pattern[i].to_int().unsafe_to_char() == '}' {
+    return Some(i - start + 1)
+  }
+
+  if i >= pattern.length() || pattern[i].to_int().unsafe_to_char() != ',' {
+    return None
+  }
+  i += 1
+
+  while i < pattern.length() && is_digit_char(pattern[i].to_int().unsafe_to_char()) {
+    i += 1
+  }
+
+  if i < pattern.length() && pattern[i].to_int().unsafe_to_char() == '}' {
+    return Some(i - start + 1)
+  }
+  None
+}
+
+fn is_digit_char(ch : Char) -> Bool {
+  ch >= '0' && ch <= '9'
+}
+
+fn normalize_ere_malformed_intervals(pattern : String) -> String {
+  let out = StringBuilder::new()
+  let mut i = 0
+  let mut in_char_class = false
+  while i < pattern.length() {
+    let ch = pattern[i].to_int().unsafe_to_char()
+    if ch == '\\' {
+      if i + 1 < pattern.length() {
+        out.write_char('\\')
+        out.write_char(pattern[i + 1].to_int().unsafe_to_char())
+        i += 2
+      } else {
+        out.write_char('\\')
+        i += 1
+      }
+      continue
+    }
+    if in_char_class {
+      out.write_char(ch)
+      if ch == ']' {
+        in_char_class = false
+      }
+      i += 1
+      continue
+    }
+    if ch == '[' {
+      out.write_char('[')
+      in_char_class = true
+      i += 1
+      continue
+    }
+    if ch == '{' {
+      match parse_interval_syntax(pattern, i) {
+        Some(length) => {
+          for j = i; j < i + length; j = j + 1 {
+            out.write_char(pattern[j].to_int().unsafe_to_char())
+          }
+          i += length
+        }
+        None => {
+          out.write_char('\\')
+          out.write_char('{')
+          i += 1
+        }
+      }
+      continue
+    }
+    if ch == '}' {
+      out.write_char('\\')
+      out.write_char('}')
+      i += 1
+      continue
+    }
+    out.write_char(ch)
     i += 1
   }
   out.to_string()
 }
 
-fn normalize_regex_compat(pattern : String) -> String {
-  // Map GNU-style {,n} quantifier to engines that require {0,n}.
-  let with_lower_bound = replace_all_literal(pattern, "{,", "{0,")
-  // Help JS-like engines parse classes where ] is the first class member.
-  normalize_char_class_initial_close(with_lower_bound)
+fn raise_invalid_regex() -> Unit raise @regexp.RegexpError {
+  // Force the regexp backend to emit a standard compile error.
+  let _ = @regexp.compile("["[:])
+  ()
+}
+
+fn has_invalid_posix_char_class_syntax(pattern : String) -> Bool {
+  let mut i = 0
+  let mut in_char_class = false
+  let mut class_has_member = false
+  let mut class_allow_negation = false
+  while i < pattern.length() {
+    let ch = pattern[i].to_int().unsafe_to_char()
+    if ch == '\\' {
+      if i + 1 < pattern.length() {
+        if in_char_class {
+          class_has_member = true
+          class_allow_negation = false
+        }
+        i += 2
+      } else {
+        i += 1
+      }
+      continue
+    }
+
+    if in_char_class {
+      if class_allow_negation && ch == '^' {
+        class_allow_negation = false
+        i += 1
+        continue
+      }
+
+      if ch == '[' &&
+        i + 1 < pattern.length() &&
+        pattern[i + 1].to_int().unsafe_to_char() == ':' {
+          let mut j = i + 2
+          let mut found_close = false
+          while j + 1 < pattern.length() {
+            if pattern[j].to_int().unsafe_to_char() == ':' &&
+              pattern[j + 1].to_int().unsafe_to_char() == ']' {
+                found_close = true
+                let name = pattern.view(start_offset=i + 2, end_offset=j).to_string()
+                if not(is_valid_posix_char_class_name(name)) {
+                  return true
+                }
+                class_has_member = true
+                class_allow_negation = false
+                i = j + 2
+                break
+              }
+            j += 1
+          }
+          if not(found_close) {
+            return true
+          }
+          continue
+        }
+
+      if ch == ']' {
+        if class_has_member {
+          in_char_class = false
+          class_has_member = false
+          class_allow_negation = false
+        } else {
+          class_has_member = true
+          class_allow_negation = false
+        }
+        i += 1
+        continue
+      }
+
+      class_has_member = true
+      class_allow_negation = false
+      i += 1
+      continue
+    }
+
+    if ch == '[' {
+      in_char_class = true
+      class_has_member = false
+      class_allow_negation = true
+      i += 1
+      continue
+    }
+
+    i += 1
+  }
+
+  in_char_class
+}
+
+fn is_valid_posix_char_class_name(name : String) -> Bool {
+  name == "alnum" ||
+  name == "alpha" ||
+  name == "ascii" ||
+  name == "blank" ||
+  name == "cntrl" ||
+  name == "digit" ||
+  name == "graph" ||
+  name == "lower" ||
+  name == "print" ||
+  name == "punct" ||
+  name == "space" ||
+  name == "upper" ||
+  name == "word" ||
+  name == "xdigit" ||
+  name == "<" ||
+  name == ">" 
+}
+
+fn parse_interval_syntax(pattern : String, start : Int) -> Int? {
+  if start < 0 || start >= pattern.length() || pattern[start].to_int().unsafe_to_char() != '{' {
+    return None
+  }
+
+  let mut i = start + 1
+  let mut lower_digits = 0
+  while i < pattern.length() && is_digit_char(pattern[i].to_int().unsafe_to_char()) {
+    lower_digits += 1
+    i += 1
+  }
+  if lower_digits == 0 {
+    return None
+  }
+
+  if i < pattern.length() && pattern[i].to_int().unsafe_to_char() == '}' {
+    return Some(i - start + 1)
+  }
+
+  if i >= pattern.length() || pattern[i].to_int().unsafe_to_char() != ',' {
+    return None
+  }
+  i += 1
+
+  while i < pattern.length() && is_digit_char(pattern[i].to_int().unsafe_to_char()) {
+    i += 1
+  }
+
+  if i < pattern.length() && pattern[i].to_int().unsafe_to_char() == '}' {
+    return Some(i - start + 1)
+  }
+  None
 }
 
 fn accept_shifted_bol_start(re : @regexp.Regexp, segment : String) -> Bool {

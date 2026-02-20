@@ -377,7 +377,8 @@ fn ExecContext::builtin_grep(
   let mut listed_file_count = 0
 
   for target in targets {
-    let lines = split_lines_no_trailing(target.content)
+    // Keep empty-line records (e.g. stdin="\n") for POSIX/GNU grep parity.
+    let lines = split_lines(target.content)
     let line_matches : Array[Array[(Int, Int)]] = []
     let selected_lines : Array[Bool] = []
     let mut selected_count = 0

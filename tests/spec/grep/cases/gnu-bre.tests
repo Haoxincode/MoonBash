@@ -32,11 +32,9 @@
 0@\(a\)\1bc*[ce]d@aabcccd@TO CORRECT
 0@^\(a\)\1b\(c\)*cd$@aabcccd
 0@a\(*\)b@a*b
-# SKIP: BRE \(**\) grouped literal ** not supported
 0@a\(**\)b@ab
 2@a\(***\)b@BADRPT@TO CORRECT
 0@*a@*a
-# SKIP: BRE **a literal ** at start not supported
 0@**a@a
 2@***a@BADRPT@TO CORRECT
 0@a\{1\}b@ab
