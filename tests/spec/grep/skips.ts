@@ -39,6 +39,16 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
     'gnu-bre.tests:BRE: /a\\{1a\\}/ vs "BADBR"',
     "RE2 treats malformed BRE brace as literal",
   ],
+  // BRE: a\{32768\} - large repeat causes OOM (issue #2)
+  [
+    'gnu-bre.tests:BRE: /a\\{32768\\}/ vs "BADBR"',
+    "OOM: regexp engine has no upper bound on repeat count (issue #2)",
+  ],
+  // BRE: b\{1000000000\} - billion-repeat regex causes OOM (issue #2)
+  [
+    'gnu-bre.tests:BRE: /b\\{1000000000\\}/ vs "ESIZE"',
+    "OOM: regexp engine has no upper bound on repeat count (issue #2)",
+  ],
 
   // ============================================================
   // GNU ERE tests - RE2 differences
@@ -90,6 +100,11 @@ const SKIP_TESTS: Map<string, string> = new Map<string, string>([
   [
     'gnu-ere.tests:ERE: /a[[.notdef.]]b/ vs "ECOLLATE" (TO CORRECT)',
     "POSIX collating elements not supported",
+  ],
+  // ERE: b{1000000000} - billion-repeat regex causes OOM (issue #2)
+  [
+    'gnu-ere.tests:ERE: /b{1000000000}/ vs "ESIZE"',
+    "OOM: regexp engine has no upper bound on repeat count (issue #2)",
   ],
   // POSIX equivalence classes
   [

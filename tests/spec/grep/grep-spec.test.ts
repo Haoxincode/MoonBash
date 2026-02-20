@@ -70,7 +70,8 @@ describe("Grep Spec Tests", () => {
         const commandPreview = truncateCommand(testCase.command);
         const testName = `[L${testCase.lineNumber}] ${testCase.name}: ${commandPreview}`;
 
-        it(testName, async () => {
+        const testFn = skipReason ? it.skip : it;
+        testFn(testName, async () => {
           const result = await runGrepTestCase(testCase);
 
           if (result.skipped) {
