@@ -177,15 +177,102 @@ fn cmd_mv(ctx : CommandContext) -> @ast.ExecResult {
 }
 
 /// touch: create empty files or update timestamps
+fn cmd_touch_parse_date_value(spec : String) -> Int64? {
+  let parts : Array[Int] = []
+  let mut current = 0
+  let mut has_digit = false
+  for i = 0; i < spec.length(); i = i + 1 {
+    let ch = spec[i].to_int().unsafe_to_char()
+    if ch >= '0' && ch <= '9' {
+      current = current * 10 + (ch.to_int() - '0'.to_int())
+      has_digit = true
+      continue
+    }
+    if ch == '/' || ch == '-' {
+      if not(has_digit) {
+        return None
+      }
+      parts.push(current)
+      current = 0
+      has_digit = false
+      continue
+    }
+    return None
+  }
+  if not(has_digit) {
+    return None
+  }
+  parts.push(current)
+  if parts.length() != 3 {
+    return None
+  }
+  let year = parts[0]
+  let month = parts[1]
+  let day = parts[2]
+  if month < 1 || month > 12 || day < 1 || day > 31 {
+    return None
+  }
+  let packed = year * 10000 + month * 100 + day
+  // Keep explicit dates older than default mtime=0 writes.
+  Some((packed - 99_999_999).to_int64())
+}
+
+fn cmd_touch_apply_mtime(
+  ctx : CommandContext,
+  resolved : String,
+  mtime : Int64
+) -> Unit {
+  match ctx.fs.entries.get(resolved) {
+    Some(@fs.FsEntry::File(data)) => data.mtime = mtime
+    Some(@fs.FsEntry::Directory(data)) => data.mtime = mtime
+    Some(@fs.FsEntry::Symlink(data)) => data.mtime = mtime
+    None => ()
+  }
+}
+
 fn cmd_touch(ctx : CommandContext) -> @ast.ExecResult {
   if ctx.args.length() == 0 {
     return @ast.ExecResult::err("touch: missing file operand\n")
   }
 
+  let mut saw_option = false
+  let mut date_mtime : Int64? = None
+  let paths : Array[String] = []
+  let mut i = 0
+  while i < ctx.args.length() {
+    let arg = ctx.args[i]
+    if arg == "-d" {
+      saw_option = true
+      if i + 1 >= ctx.args.length() {
+        return @ast.ExecResult::err("touch: option requires an argument -- 'd'\n")
+      }
+      match cmd_touch_parse_date_value(ctx.args[i + 1]) {
+        Some(parsed) => date_mtime = Some(parsed)
+        None => return @ast.ExecResult::err("touch: invalid date format '\{ctx.args[i + 1]}'\n")
+      }
+      i += 2
+      continue
+    }
+    if arg.length() > 0 && arg[0] == '-' {
+      saw_option = true
+      i += 1
+      continue
+    }
+    paths.push(arg)
+    i += 1
+  }
+
+  if paths.length() == 0 {
+    if saw_option {
+      return @ast.ExecResult::new()
+    }
+    return @ast.ExecResult::err("touch: missing file operand\n")
+  }
+
   let errbuf = StringBuilder::new()
   let mut exit_code = 0
-  for arg in ctx.args {
-    let path = try {
+  for arg in paths {
+    let resolved = try {
       @fs.resolve_path(ctx.cwd, arg)
     } catch {
       @fs.FsError(msg) => {
@@ -194,17 +281,21 @@ fn cmd_touch(ctx : CommandContext) -> @ast.ExecResult {
         continue
       }
     }
-    if not(ctx.fs.exists(path)) {
+    if not(ctx.fs.exists(resolved)) {
       try {
-        ctx.fs.write_file(path, "")
+        ctx.fs.write_file(resolved, "")
       } catch {
         @fs.FsError(msg) => {
           errbuf.write_string("touch: \{msg}\n")
           exit_code = 1
+          continue
         }
       }
     }
-    // If file exists, we'd update mtime - but our mtime is always 0
+    match date_mtime {
+      Some(value) => cmd_touch_apply_mtime(ctx, resolved, value)
+      None => ()
+    }
   }
   @ast.ExecResult::new(stderr=errbuf.to_string(), exit_code=exit_code)
 }

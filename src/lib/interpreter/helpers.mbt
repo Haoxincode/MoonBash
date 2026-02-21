@@ -394,6 +394,533 @@ fn evaluate_test(args : Array[String], ctx : ExecContext) -> Bool {
   false
 }
 
+priv enum TestEvalMode {
+  TestBuiltin
+  BracketBuiltin
+}
+
+priv struct TestEvalResult {
+  value : Bool
+  status : Int
+}
+
+priv struct TestExprParser {
+  tokens : Array[String]
+  mut pos : Int
+}
+
+fn test_eval_ok(value : Bool) -> TestEvalResult {
+  { value, status: 0 }
+}
+
+fn test_eval_syntax_error() -> TestEvalResult {
+  { value: false, status: 2 }
+}
+
+fn TestExprParser::peek(self : TestExprParser) -> String? {
+  if self.pos < self.tokens.length() {
+    Some(self.tokens[self.pos])
+  } else {
+    None
+  }
+}
+
+fn test_slice_args(args : Array[String], start : Int, end_ : Int) -> Array[String] {
+  let out : Array[String] = []
+  for i = start; i < end_; i = i + 1 {
+    out.push(args[i])
+  }
+  out
+}
+
+fn test_is_logical_or_op(op : String) -> Bool {
+  op == "-o" || op == "||"
+}
+
+fn test_is_logical_and_op(op : String) -> Bool {
+  op == "-a" || op == "&&"
+}
+
+fn test_is_unary_op(op : String) -> Bool {
+  match op {
+    "-a" | "-e" | "-f" | "-d" | "-s" | "-r" | "-w" | "-x" | "-L" | "-h"
+    | "-k" | "-O" | "-G" | "-u" | "-g" | "-b" | "-c" | "-S" | "-p"
+    | "-t" | "-v" | "-o" | "-z" | "-n" => true
+    _ => false
+  }
+}
+
+fn test_is_binary_op(op : String) -> Bool {
+  match op {
+    "=" | "==" | "!=" | "<" | ">" | "=~" | "-eq" | "-ne" | "-lt" | "-le"
+    | "-gt" | "-ge" | "-nt" | "-ot" | "-ef" => true
+    _ => false
+  }
+}
+
+fn test_parse_decimal_operand(text : String) -> Int64? {
+  let trimmed = arith_trim(text)
+  if trimmed.length() == 0 {
+    return None
+  }
+  let mut start = 0
+  let mut sign = 1L
+  if trimmed[0] == '+' {
+    start = 1
+  } else if trimmed[0] == '-' {
+    start = 1
+    sign = -1L
+  }
+  if start >= trimmed.length() {
+    return None
+  }
+  let mut value = 0L
+  for i = start; i < trimmed.length(); i = i + 1 {
+    let ch = trimmed[i].to_int().unsafe_to_char()
+    if ch < '0' || ch > '9' {
+      return None
+    }
+    value = value * 10L + (ch.to_int() - '0'.to_int()).to_int64()
+  }
+  Some(value * sign)
+}
+
+fn test_parse_fd_operand(text : String) -> Int64? {
+  if text.length() == 0 {
+    return None
+  }
+  let mut value = 0L
+  for i = 0; i < text.length(); i = i + 1 {
+    let ch = text[i].to_int().unsafe_to_char()
+    if ch < '0' || ch > '9' {
+      return None
+    }
+    value = value * 10L + (ch.to_int() - '0'.to_int()).to_int64()
+    if value > 2_147_483_647L {
+      return None
+    }
+  }
+  Some(value)
+}
+
+fn test_entry_mode(entry : @fs.FsEntry) -> Int {
+  match entry {
+    @fs.FsEntry::File(data) => data.mode
+    @fs.FsEntry::Directory(data) => data.mode
+    @fs.FsEntry::Symlink(data) => data.mode
+  }
+}
+
+fn test_entry_mtime(entry : @fs.FsEntry) -> Int64 {
+  match entry {
+    @fs.FsEntry::File(data) => data.mtime
+    @fs.FsEntry::Directory(data) => data.mtime
+    @fs.FsEntry::Symlink(data) => data.mtime
+  }
+}
+
+fn ExecContext::test_lookup_entry(
+  self : ExecContext,
+  arg : String,
+  follow_symlink : Bool
+) -> @fs.FsEntry? {
+  let resolved = try {
+    @fs.resolve_path(self.cwd, arg)
+  } catch {
+    _ => return None
+  }
+  if not(follow_symlink) {
+    return self.fs.entries.get(resolved)
+  }
+  let mut current = resolved
+  for i = 0; i < 40; i = i + 1 {
+    match self.fs.entries.get(current) {
+      Some(@fs.FsEntry::Symlink(data)) => {
+        current = try {
+          if data.target.length() > 0 && data.target[0] == '/' {
+            @fs.resolve_path("/", data.target)
+          } else {
+            @fs.resolve_path(@fs.parent_path(current), data.target)
+          }
+        } catch {
+          _ => return None
+        }
+      }
+      Some(entry) => return Some(entry)
+      None => return None
+    }
+  }
+  None
+}
+
+fn test_shell_option_enabled(ctx : ExecContext, name : String) -> Bool? {
+  match name {
+    "pipefail" => Some(ctx.options.pipefail)
+    "errexit" => Some(ctx.options.errexit)
+    "nounset" => Some(ctx.options.nounset)
+    "noglob" => Some(ctx.options.noglob)
+    "xtrace" => Some(ctx.options.xtrace)
+    "noclobber" => Some(ctx.options.noclobber)
+    "allexport" => Some(ctx.options.allexport)
+    _ => None
+  }
+}
+
+fn ExecContext::test_eval_unary_with_status(
+  self : ExecContext,
+  op : String,
+  arg : String
+) -> TestEvalResult {
+  match op {
+    "-z" => test_eval_ok(arg.length() == 0)
+    "-n" => test_eval_ok(arg.length() > 0)
+    "-a" | "-e" => test_eval_ok(self.test_lookup_entry(arg, true) is Some(_))
+    "-f" =>
+      test_eval_ok(
+        match self.test_lookup_entry(arg, true) {
+          Some(@fs.FsEntry::File(_)) => true
+          _ => false
+        },
+      )
+    "-d" =>
+      test_eval_ok(
+        match self.test_lookup_entry(arg, true) {
+          Some(@fs.FsEntry::Directory(_)) => true
+          _ => false
+        },
+      )
+    "-s" =>
+      test_eval_ok(
+        match self.test_lookup_entry(arg, true) {
+          Some(@fs.FsEntry::File(data)) => data.content.length() > 0
+          _ => false
+        },
+      )
+    "-r" =>
+      test_eval_ok(
+        match self.test_lookup_entry(arg, true) {
+          Some(entry) => test_entry_mode(entry).land(0o444) != 0
+          None => false
+        },
+      )
+    "-w" =>
+      test_eval_ok(
+        match self.test_lookup_entry(arg, true) {
+          Some(entry) => test_entry_mode(entry).land(0o222) != 0
+          None => false
+        },
+      )
+    "-x" =>
+      test_eval_ok(
+        match self.test_lookup_entry(arg, true) {
+          Some(entry) => test_entry_mode(entry).land(0o111) != 0
+          None => false
+        },
+      )
+    "-L" | "-h" =>
+      test_eval_ok(
+        match self.test_lookup_entry(arg, false) {
+          Some(@fs.FsEntry::Symlink(_)) => true
+          _ => false
+        },
+      )
+    "-k" =>
+      test_eval_ok(
+        match self.test_lookup_entry(arg, true) {
+          Some(entry) => test_entry_mode(entry).land(0o1000) != 0
+          None => false
+        },
+      )
+    "-O" | "-G" => test_eval_ok(self.test_lookup_entry(arg, true) is Some(_))
+    "-u" =>
+      test_eval_ok(
+        match self.test_lookup_entry(arg, true) {
+          Some(entry) => test_entry_mode(entry).land(0o4000) != 0
+          None => false
+        },
+      )
+    "-g" =>
+      test_eval_ok(
+        match self.test_lookup_entry(arg, true) {
+          Some(entry) => test_entry_mode(entry).land(0o2000) != 0
+          None => false
+        },
+      )
+    "-b" | "-S" | "-p" => test_eval_ok(false)
+    "-c" => test_eval_ok(arg == "/dev/zero")
+    "-t" =>
+      match test_parse_fd_operand(arg) {
+        Some(_fd) => test_eval_ok(false)
+        None => test_eval_syntax_error()
+      }
+    "-v" => test_eval_ok(test_var_is_set(arg, self))
+    "-o" =>
+      match test_shell_option_enabled(self, arg) {
+        Some(enabled) => test_eval_ok(enabled)
+        None => test_eval_ok(false)
+      }
+    _ => test_eval_syntax_error()
+  }
+}
+
+fn ExecContext::test_eval_binary_with_status(
+  self : ExecContext,
+  left : String,
+  op : String,
+  right : String,
+  mode : TestEvalMode
+) -> TestEvalResult {
+  let literal_compare = match mode {
+    TestEvalMode::TestBuiltin => true
+    TestEvalMode::BracketBuiltin => true
+  }
+  match op {
+    "=" | "==" =>
+      test_eval_ok(
+        if literal_compare {
+          left == right
+        } else {
+          test_string_compare(left, right)
+        },
+      )
+    "!=" => test_eval_ok(left != right)
+    "<" => test_eval_ok(left < right)
+    ">" => test_eval_ok(left > right)
+    "=~" => test_eval_ok(self.regex_cond_match(left, right))
+    "-eq" | "-ne" | "-lt" | "-le" | "-gt" | "-ge" =>
+      match test_parse_decimal_operand(left) {
+        Some(l) =>
+          match test_parse_decimal_operand(right) {
+            Some(r) =>
+              test_eval_ok(
+                match op {
+                  "-eq" => l == r
+                  "-ne" => l != r
+                  "-lt" => l < r
+                  "-le" => l <= r
+                  "-gt" => l > r
+                  "-ge" => l >= r
+                  _ => false
+                },
+              )
+            None => test_eval_syntax_error()
+          }
+        None => test_eval_syntax_error()
+      }
+    "-nt" =>
+      match self.test_lookup_entry(left, true) {
+        Some(left_entry) =>
+          match self.test_lookup_entry(right, true) {
+            Some(right_entry) => test_eval_ok(test_entry_mtime(left_entry) > test_entry_mtime(right_entry))
+            None => test_eval_ok(false)
+          }
+        None => test_eval_ok(false)
+      }
+    "-ot" =>
+      match self.test_lookup_entry(left, true) {
+        Some(left_entry) =>
+          match self.test_lookup_entry(right, true) {
+            Some(right_entry) => test_eval_ok(test_entry_mtime(left_entry) < test_entry_mtime(right_entry))
+            None => test_eval_ok(false)
+          }
+        None => test_eval_ok(false)
+      }
+    "-ef" => test_eval_ok(false)
+    _ => test_eval_syntax_error()
+  }
+}
+
+fn test_eval_string_operand(arg : String) -> Bool {
+  arg.length() > 0
+}
+
+fn test_eval_negated(result : TestEvalResult) -> TestEvalResult {
+  if result.status != 0 {
+    result
+  } else {
+    test_eval_ok(not(result.value))
+  }
+}
+
+fn ExecContext::test_eval_small_arity(
+  self : ExecContext,
+  args : Array[String],
+  mode : TestEvalMode
+) -> TestEvalResult {
+  match args.length() {
+    0 => test_eval_ok(false)
+    1 => test_eval_ok(test_eval_string_operand(args[0]))
+    2 => {
+      if args[0] == "!" {
+        test_eval_ok(not(test_eval_string_operand(args[1])))
+      } else if test_is_unary_op(args[0]) {
+        self.test_eval_unary_with_status(args[0], args[1])
+      } else {
+        test_eval_syntax_error()
+      }
+    }
+    3 => {
+      let left = args[0]
+      let op = args[1]
+      let right = args[2]
+      if test_is_binary_op(op) {
+        self.test_eval_binary_with_status(left, op, right, mode)
+      } else if left == "!" {
+        test_eval_negated(self.test_eval_small_arity(test_slice_args(args, 1, 3), mode))
+      } else if left == "(" && right == ")" {
+        test_eval_ok(test_eval_string_operand(op))
+      } else if test_is_logical_and_op(op) {
+        test_eval_ok(test_eval_string_operand(left) && test_eval_string_operand(right))
+      } else if test_is_logical_or_op(op) {
+        test_eval_ok(test_eval_string_operand(left) || test_eval_string_operand(right))
+      } else {
+        test_eval_syntax_error()
+      }
+    }
+    4 => {
+      if args[0] == "!" {
+        test_eval_negated(self.test_eval_small_arity(test_slice_args(args, 1, 4), mode))
+      } else if args[0] == "(" && args[3] == ")" {
+        self.test_eval_small_arity(test_slice_args(args, 1, 3), mode)
+      } else {
+        test_eval_syntax_error()
+      }
+    }
+    _ => test_eval_syntax_error()
+  }
+}
+
+fn ExecContext::test_parse_or_expr(
+  self : ExecContext,
+  parser : TestExprParser,
+  mode : TestEvalMode
+) -> TestEvalResult {
+  let mut left = self.test_parse_and_expr(parser, mode)
+  if left.status != 0 {
+    return left
+  }
+  while parser.pos < parser.tokens.length() &&
+    test_is_logical_or_op(parser.tokens[parser.pos]) {
+    parser.pos += 1
+    let right = self.test_parse_and_expr(parser, mode)
+    if right.status != 0 {
+      return right
+    }
+    left = test_eval_ok(left.value || right.value)
+  }
+  left
+}
+
+fn ExecContext::test_parse_and_expr(
+  self : ExecContext,
+  parser : TestExprParser,
+  mode : TestEvalMode
+) -> TestEvalResult {
+  let mut left = self.test_parse_not_expr(parser, mode)
+  if left.status != 0 {
+    return left
+  }
+  while parser.pos < parser.tokens.length() &&
+    test_is_logical_and_op(parser.tokens[parser.pos]) {
+    parser.pos += 1
+    let right = self.test_parse_not_expr(parser, mode)
+    if right.status != 0 {
+      return right
+    }
+    left = test_eval_ok(left.value && right.value)
+  }
+  left
+}
+
+fn ExecContext::test_parse_not_expr(
+  self : ExecContext,
+  parser : TestExprParser,
+  mode : TestEvalMode
+) -> TestEvalResult {
+  match parser.peek() {
+    Some(tok) => {
+      if tok == "!" {
+        parser.pos += 1
+        let inner = self.test_parse_not_expr(parser, mode)
+        if inner.status != 0 {
+          return inner
+        }
+        return test_eval_ok(not(inner.value))
+      }
+    }
+    None => return test_eval_syntax_error()
+  }
+  self.test_parse_primary_expr(parser, mode)
+}
+
+fn ExecContext::test_parse_primary_expr(
+  self : ExecContext,
+  parser : TestExprParser,
+  mode : TestEvalMode
+) -> TestEvalResult {
+  match parser.peek() {
+    None => test_eval_syntax_error()
+    Some(tok) => {
+      if tok == "(" {
+        parser.pos += 1
+        let inner = self.test_parse_or_expr(parser, mode)
+        if inner.status != 0 {
+          return inner
+        }
+        if parser.pos >= parser.tokens.length() || parser.tokens[parser.pos] != ")" {
+          return test_eval_syntax_error()
+        }
+        parser.pos += 1
+        return inner
+      }
+      if tok == ")" ||
+        test_is_logical_and_op(tok) ||
+        test_is_logical_or_op(tok) ||
+        test_is_binary_op(tok) {
+        return test_eval_syntax_error()
+      }
+      if test_is_unary_op(tok) {
+        if parser.pos + 1 >= parser.tokens.length() {
+          return test_eval_syntax_error()
+        }
+        let arg = parser.tokens[parser.pos + 1]
+        parser.pos += 2
+        return self.test_eval_unary_with_status(tok, arg)
+      }
+      if parser.pos + 2 < parser.tokens.length() {
+        let op = parser.tokens[parser.pos + 1]
+        if test_is_binary_op(op) {
+          let left = parser.tokens[parser.pos]
+          let right = parser.tokens[parser.pos + 2]
+          parser.pos += 3
+          return self.test_eval_binary_with_status(left, op, right, mode)
+        }
+      }
+      parser.pos += 1
+      test_eval_ok(test_eval_string_operand(tok))
+    }
+  }
+}
+
+fn ExecContext::evaluate_test_with_status(
+  self : ExecContext,
+  args : Array[String],
+  mode : TestEvalMode
+) -> TestEvalResult {
+  if args.length() <= 4 {
+    return self.test_eval_small_arity(args, mode)
+  }
+  let parser : TestExprParser = { tokens: args, pos: 0 }
+  let result = self.test_parse_or_expr(parser, mode)
+  if result.status != 0 {
+    return result
+  }
+  if parser.pos != parser.tokens.length() {
+    return test_eval_syntax_error()
+  }
+  result
+}
+
 fn join_test_tokens(args : Array[String], start : Int) -> String {
   let out = StringBuilder::new()
   for i = start; i < args.length(); i = i + 1 {

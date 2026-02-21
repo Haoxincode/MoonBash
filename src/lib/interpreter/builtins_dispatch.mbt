@@ -51,8 +51,12 @@ fn ExecContext::run_builtin(
       self.builtin_mapfile(args)
       true
     }
-    "test" | "[" => {
+    "test" => {
       self.builtin_test(args)
+      true
+    }
+    "[" => {
+      self.builtin_bracket(args)
       true
     }
     "[[" => {

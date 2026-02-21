@@ -188,32 +188,32 @@ fn ExecContext::builtin_test(
   self : ExecContext,
   args : Array[String]
 ) -> Unit {
-  // Remove trailing ] if command was [
-  let test_args = if args.length() > 0 && args[args.length() - 1] == "]" {
-    let a : Array[String] = []
-    for i = 0; i < args.length() - 1; i = i + 1 {
-      a.push(args[i])
-    }
-    a
+  let result = self.evaluate_test_with_status(args, TestEvalMode::TestBuiltin)
+  if result.status == 0 {
+    self.exit_code = if result.value { 0 } else { 1 }
   } else {
-    args
+    self.exit_code = result.status
   }
+}
 
-  if test_args.length() == 3 && test_is_numeric_compare_op(test_args[1]) {
-    match self.test_parse_numeric_operand(test_args[0], false) {
-      Some(left) => {
-        match self.test_parse_numeric_operand(test_args[2], false) {
-          Some(right) =>
-            self.exit_code = if test_eval_numeric_compare(test_args[1], left, right) { 0 } else { 1 }
-          None => self.exit_code = 2
-        }
-      }
-      None => self.exit_code = 2
-    }
+fn ExecContext::builtin_bracket(
+  self : ExecContext,
+  args : Array[String]
+) -> Unit {
+  if args.length() == 0 || args[args.length() - 1] != "]" {
+    self.exit_code = 2
     return
   }
-
-  self.exit_code = if evaluate_test(test_args, self) { 0 } else { 1 }
+  let test_args : Array[String] = []
+  for i = 0; i < args.length() - 1; i = i + 1 {
+    test_args.push(args[i])
+  }
+  let result = self.evaluate_test_with_status(test_args, TestEvalMode::BracketBuiltin)
+  if result.status == 0 {
+    self.exit_code = if result.value { 0 } else { 1 }
+  } else {
+    self.exit_code = result.status
+  }
 }
 
 fn ExecContext::builtin_double_bracket(

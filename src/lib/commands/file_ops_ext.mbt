@@ -432,37 +432,39 @@ fn cmd_du_relative_depth(rel : String) -> Int {
   depth
 }
 
-/// Parse an octal string to integer
-fn parse_octal(s : String) -> Int {
+/// Parse an octal string to integer.
+fn parse_octal_strict(s : String) -> Int? {
+  if s.length() == 0 {
+    return None
+  }
   let mut result = 0
   for i = 0; i < s.length(); i = i + 1 {
     let ch = s[i].to_int().unsafe_to_char()
-    if ch >= '0' && ch <= '7' {
-      result = result * 8 + (ch.to_int() - '0'.to_int())
-    } else {
-      break
+    if ch < '0' || ch > '7' {
+      return None
     }
+    result = result * 8 + (ch.to_int() - '0'.to_int())
   }
-  result
+  Some(result)
 }
 
-fn chmod_apply_mode(
-  entry : @fs.FsEntry,
-  absolute_mode : Int,
-  add_exec : Bool,
-  remove_exec : Bool
-) -> Int {
-  let current = match entry {
+fn chmod_entry_mode(entry : @fs.FsEntry) -> Int {
+  match entry {
     @fs.FsEntry::File(data) => data.mode
     @fs.FsEntry::Directory(data) => data.mode
     @fs.FsEntry::Symlink(data) => data.mode
   }
-  if add_exec {
-    current | 0o111
-  } else if remove_exec {
-    current & 0o666
-  } else {
-    absolute_mode
+}
+
+fn chmod_apply_mode_string(current : Int, mode_str : String) -> Int? {
+  match mode_str {
+    "+x" | "a+x" | "u+x" | "go+x" | "ug+x" | "ugo+x" => Some(current | 0o111)
+    "-x" | "a-x" | "u-x" | "go-x" | "ug-x" | "ugo-x" => Some(current & 0o666)
+    "-r" | "a-r" => Some(current & 0o333)
+    "-w" | "a-w" => Some(current & 0o555)
+    "u+s" => Some(current | 0o4000)
+    "g+s" => Some(current | 0o2000)
+    _ => parse_octal_strict(mode_str)
   }
 }
 
@@ -470,10 +472,12 @@ fn chmod_apply_mode(
 fn cmd_chmod(ctx : CommandContext) -> @ast.ExecResult {
   let mut recursive = false
   let args : Array[String] = []
+  let mut parsing_options = true
   for arg in ctx.args {
-    if arg == "-R" || arg == "-r" {
+    if parsing_options && arg == "-R" {
       recursive = true
     } else {
+      parsing_options = false
       args.push(arg)
     }
   }
@@ -481,24 +485,9 @@ fn cmd_chmod(ctx : CommandContext) -> @ast.ExecResult {
     return @ast.ExecResult::err("chmod: missing operand\n")
   }
   let mode_str = args[0]
-  let mut add_exec = false
-  let mut remove_exec = false
-  if mode_str == "+x" ||
-    mode_str == "a+x" ||
-    mode_str == "u+x" ||
-    mode_str == "go+x" ||
-    mode_str == "ug+x" ||
-    mode_str == "ugo+x" {
-    add_exec = true
-  } else if mode_str == "-x" ||
-    mode_str == "a-x" ||
-    mode_str == "u-x" ||
-    mode_str == "go-x" ||
-    mode_str == "ug-x" ||
-    mode_str == "ugo-x" {
-    remove_exec = true
+  if chmod_apply_mode_string(0, mode_str) is None {
+    return @ast.ExecResult::err("chmod: invalid mode: '\{mode_str}'\n")
   }
-  let mode = parse_octal(mode_str)
   let errbuf = StringBuilder::new()
   let mut exit_code = 0
   for i = 1; i < args.length(); i = i + 1 {
@@ -518,8 +507,12 @@ fn cmd_chmod(ctx : CommandContext) -> @ast.ExecResult {
       continue
     }
     let target_mode = match ctx.fs.entries.get(resolved) {
-      Some(entry) => chmod_apply_mode(entry, mode, add_exec, remove_exec)
-      None => mode
+      Some(entry) =>
+        match chmod_apply_mode_string(chmod_entry_mode(entry), mode_str) {
+          Some(next_mode) => next_mode
+          None => 0
+        }
+      None => 0
     }
     try {
       ctx.fs.chmod(resolved, target_mode)
@@ -540,8 +533,12 @@ fn cmd_chmod(ctx : CommandContext) -> @ast.ExecResult {
       })
       for child_path in child_paths {
         let child_mode = match ctx.fs.entries.get(child_path) {
-          Some(entry) => chmod_apply_mode(entry, mode, add_exec, remove_exec)
-          None => mode
+          Some(entry) =>
+            match chmod_apply_mode_string(chmod_entry_mode(entry), mode_str) {
+              Some(next_mode) => next_mode
+              None => 0
+            }
+          None => 0
         }
         try {
           ctx.fs.chmod(child_path, child_mode)
@@ -560,11 +557,16 @@ fn cmd_chmod(ctx : CommandContext) -> @ast.ExecResult {
 /// ln: create links
 fn cmd_ln(ctx : CommandContext) -> @ast.ExecResult {
   let mut symbolic = false
+  let mut force = false
   let args : Array[String] = []
   for arg in ctx.args {
     match arg {
       "-s" => symbolic = true
-      "-sf" | "-fs" => symbolic = true
+      "-f" => force = true
+      "-sf" | "-fs" => {
+        symbolic = true
+        force = true
+      }
       _ => args.push(arg)
     }
   }
@@ -581,6 +583,13 @@ fn cmd_ln(ctx : CommandContext) -> @ast.ExecResult {
     @fs.resolve_path(ctx.cwd, link_name)
   } catch {
     @fs.FsError(msg) => return @ast.ExecResult::err("ln: \{msg}\n")
+  }
+  if force {
+    try {
+      ctx.fs.rm(link_resolved, force=true)
+    } catch {
+      _ => ()
+    }
   }
   try {
     ctx.fs.symlink(target, link_resolved)

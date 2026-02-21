@@ -232,19 +232,18 @@ fn arith_parse_number_literal(token : String) -> Int64? {
 
   if body.length() > 1 && body[0] == '0' {
     let digits = body.view(start_offset=1).to_string()
-    let mut is_octal = true
     for i = 0; i < digits.length(); i = i + 1 {
       let ch = digits[i].to_int().unsafe_to_char()
-      if ch < '0' || ch > '7' {
-        is_octal = false
-        break
+      if ch < '0' || ch > '9' {
+        return None
+      }
+      if ch > '7' {
+        return None
       }
     }
-    if is_octal {
-      match arith_parse_base_digits(digits, 8) {
-        Some(v) => return Some(v * sign)
-        None => return None
-      }
+    match arith_parse_base_digits(digits, 8) {
+      Some(v) => return Some(v * sign)
+      None => return None
     }
   }
 

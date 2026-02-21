@@ -18,15 +18,11 @@ fn brace_expand_collect(input : String, out : Array[String]) -> Unit {
   if out.length() >= brace_expansion_result_limit {
     return
   }
-  match find_first_brace_pair(input) {
+  match find_first_expandable_brace_pair(input) {
     None => out.push(input)
     Some((start, end_)) => {
       let content = input.view(start_offset=start + 1, end_offset=end_).to_string()
       let options = parse_brace_options(content)
-      if options.length() == 0 {
-        out.push(input)
-        return
-      }
       let prefix = input.view(start_offset=0, end_offset=start).to_string()
       let suffix = input.view(start_offset=end_ + 1).to_string()
       for option in options {
@@ -39,24 +35,32 @@ fn brace_expand_collect(input : String, out : Array[String]) -> Unit {
   }
 }
 
-fn find_first_brace_pair(s : String) -> (Int, Int)? {
+fn find_first_expandable_brace_pair(s : String) -> (Int, Int)? {
   let mut i = 0
   while i < s.length() {
     if s[i] == '{' {
       let mut depth = 1
       let mut j = i + 1
+      let mut matched = false
       while j < s.length() {
         if s[j] == '{' {
           depth += 1
         } else if s[j] == '}' {
           depth -= 1
           if depth == 0 {
-            return Some((i, j))
+            matched = true
+            break
           }
         }
         j += 1
       }
-      return None
+      if not(matched) {
+        return None
+      }
+      let content = s.view(start_offset=i + 1, end_offset=j).to_string()
+      if parse_brace_options(content).length() > 0 {
+        return Some((i, j))
+      }
     }
     i += 1
   }
