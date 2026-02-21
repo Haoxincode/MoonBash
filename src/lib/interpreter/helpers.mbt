@@ -354,13 +354,53 @@ fn test_var_is_set(name : String, ctx : ExecContext) -> Bool {
   match parse_array_reference_name(name) {
     Some((base, index)) => {
       if index == "@" || index == "*" {
-        ctx.env.contains(base) || ctx.env.contains(base + "[@]")
-      } else {
-        ctx.env.contains("\{base}[\{index}]")
+        let count = parse_int32_str(ctx.env.get(test_array_count_storage_key(base)).unwrap_or("-1"))
+        if count >= 0 {
+          return count > 0
+        }
+        return ctx.env.contains(base) || ctx.env.contains(base + "[@]")
+      }
+      let kind = ctx.env.get(test_array_kind_storage_key(base)).unwrap_or("")
+      if kind == "assoc" {
+        return ctx.env.contains("\{base}[\{index}]")
+      }
+      let key = test_indexed_lookup_key(base, index, ctx)
+      ctx.env.contains(key)
+    }
+    None => {
+      match ctx.env.get(test_array_count_storage_key(name)) {
+        Some(count_text) => parse_int32_str(count_text) > 0
+        None => ctx.env.contains(name)
       }
     }
-    None => ctx.env.contains(name)
   }
+}
+
+fn test_array_count_storage_key(name : String) -> String {
+  "__MOON_BASH_ARRAY_COUNT__" + name
+}
+
+fn test_array_kind_storage_key(name : String) -> String {
+  "__MOON_BASH_ARRAY_KIND__" + name
+}
+
+fn test_indexed_lookup_key(
+  base : String,
+  index_expr : String,
+  ctx : ExecContext
+) -> String {
+  let trimmed = trim_ascii_space_simple(index_expr)
+  if trimmed.length() == 0 {
+    return "\{base}[\{index_expr}]"
+  }
+
+  let raw_index = ctx.eval_arith(@ast.ArithExpr::Raw(trimmed))
+  let count = parse_int32_str(ctx.env.get(test_array_count_storage_key(base)).unwrap_or("0")).to_int64()
+  let resolved = if raw_index < 0L { count + raw_index } else { raw_index }
+  if resolved < 0L {
+    return "\{base}[\{index_expr}]"
+  }
+  "\{base}[\{resolved.to_string()}]"
 }
 
 fn test_string_compare(left : String, right : String) -> Bool {

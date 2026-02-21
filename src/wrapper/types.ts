@@ -26,6 +26,10 @@ export interface BashLogger {
   debug(message: string, data?: Record<string, unknown>): void;
 }
 
+export interface FeatureCoverageWriter {
+  hit(feature: string): void;
+}
+
 export interface MoonBashFetchRequest {
   url: string;
   method: string;
@@ -153,6 +157,8 @@ export interface BashOptions {
   sleep?: (durationMs: number) => void | Promise<void>;
   /** Optional execution logger. */
   logger?: BashLogger;
+  /** Optional feature coverage writer used by fuzzing instrumentation. */
+  coverage?: FeatureCoverageWriter;
   /** Enable debug tracing */
   trace?: boolean;
   /** Network bridge options used by curl/html-to-markdown */

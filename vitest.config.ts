@@ -6,9 +6,20 @@ const rootDir = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   resolve: {
-    alias: {
-      "../../index.js": resolve(rootDir, "src/wrapper/index.ts"),
-    },
+    alias: [
+      {
+        find: "../../index.js",
+        replacement: resolve(rootDir, "src/wrapper/index.ts"),
+      },
+      {
+        find: /^fast-check$/,
+        replacement: resolve(rootDir, "src/wrapper/fast-check-compat.ts"),
+      },
+      {
+        find: /^fast-check-real$/,
+        replacement: resolve(rootDir, "node_modules/fast-check/lib/fast-check.js"),
+      },
+    ],
   },
   test: {
     include: ["tests/**/*.test.ts"],

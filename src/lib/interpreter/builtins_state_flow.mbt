@@ -402,6 +402,8 @@ fn ExecContext::builtin_declare(
   let mut lowercase_mode = false
   let mut uppercase_mode = false
   let mut export_mode = false
+  let mut indexed_array_mode = false
+  let mut assoc_array_mode = false
   let filtered : Array[String] = []
   for arg in args {
     if arg.length() > 0 && arg[0] == '-' {
@@ -428,6 +430,12 @@ fn ExecContext::builtin_declare(
       }
       if declare_flag_contains(arg, 'x') {
         export_mode = true
+      }
+      if declare_flag_contains(arg, 'a') {
+        indexed_array_mode = true
+      }
+      if declare_flag_contains(arg, 'A') {
+        assoc_array_mode = true
       }
       continue
     }
@@ -498,6 +506,34 @@ fn ExecContext::builtin_declare(
     self.exit_code = 0
     return
   }
+
+  if (indexed_array_mode || assoc_array_mode) &&
+    not(readonly_mode || integer_mode || lowercase_mode || uppercase_mode || export_mode) {
+      for spec in filtered {
+        match parse_name_value_spec(spec) {
+          Some((name, assigned_value)) => {
+            self.capture_local_binding(name)
+            self.env[test_array_kind_storage_key(name)] = if assoc_array_mode { "assoc" } else { "indexed" }
+            match assigned_value {
+              Some(value) => {
+                if not(self.store_scalar_assignment_with_options(name, value, false)) {
+                  self.exit_code = 1
+                  return
+                }
+              }
+              None => {
+                if not(self.env.contains(test_array_count_storage_key(name))) {
+                  self.store_array_assignment(name, [])
+                }
+              }
+            }
+          }
+          None => ()
+        }
+      }
+      self.exit_code = 0
+      return
+    }
 
   if not(
     readonly_mode || integer_mode || lowercase_mode || uppercase_mode || export_mode

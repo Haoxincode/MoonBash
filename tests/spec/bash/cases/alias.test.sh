@@ -111,7 +111,6 @@ status=0
 ## END
 
 #### List aliases by providing names
-## SKIP (unimplementable): alias expansion not implemented - parsing happens before execution
 
 alias e=echo ll='ls -l'
 alias e ll
@@ -311,7 +310,6 @@ FOR2 eye2 IN onetwo 3; do echo $i; done
 ## BUG zsh stdout-json: ""
 
 #### Alias with a quote in the middle is a syntax error
-## SKIP (unimplementable): alias expansion not implemented - parsing happens before execution
 shopt -s expand_aliases
 alias e_='echo "'
 var=x
@@ -333,7 +331,6 @@ e_ ${var}
 ## END
 
 #### Alias trailing newline
-## SKIP (unimplementable): alias expansion not implemented - parsing happens before execution
 shopt -s expand_aliases
 alias e_='echo 1
 echo 2
@@ -526,7 +523,6 @@ four
 ## END
 
 #### Alias and command sub (bug regression)
-## SKIP (unimplementable): alias expansion not implemented - parsing happens before execution
 cd $TMP
 shopt -s expand_aliases
 echo foo bar > tmp.txt
@@ -535,7 +531,6 @@ a `cat tmp.txt`
 ## stdout: ['foo', 'bar']
 
 #### Alias and arithmetic
-## SKIP (unimplementable): alias expansion not implemented - parsing happens before execution
 shopt -s expand_aliases
 alias a=argv.py
 a $((1 + 2))

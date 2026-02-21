@@ -124,7 +124,12 @@ fn ExecContext::builtin_alias(
   self : ExecContext,
   args : Array[String]
 ) -> Unit {
-  if args.length() == 0 {
+  let mut start = 0
+  if args.length() > 0 && args[0] == "--" {
+    start = 1
+  }
+
+  if start >= args.length() {
     // List all aliases
     for k, v in self.env {
       if k.has_prefix(alias_prefix) {
@@ -135,7 +140,8 @@ fn ExecContext::builtin_alias(
     self.exit_code = 0
     return
   }
-  for arg in args {
+  for i = start; i < args.length(); i = i + 1 {
+    let arg = args[i]
     // Find '=' to distinguish set vs show
     let mut eq_pos = -1
     for i = 0; i < arg.length(); i = i + 1 {
@@ -177,7 +183,20 @@ fn ExecContext::builtin_unalias(
     self.exit_code = 2
     return
   }
-  if args[0] == "-a" {
+
+  let mut start = 0
+  let mut remove_all = false
+  if args[start] == "--" {
+    start += 1
+  } else if args[start] == "-a" {
+    remove_all = true
+    start += 1
+  }
+
+  if remove_all {
+    if start < args.length() && args[start] == "--" {
+      start += 1
+    }
     // Remove all aliases
     let to_remove : Array[String] = []
     for k, _v in self.env {
@@ -191,7 +210,15 @@ fn ExecContext::builtin_unalias(
     self.exit_code = 0
     return
   }
-  for arg in args {
+
+  if start >= args.length() {
+    self.stderr_buf.write_string("moon_bash: unalias: usage: unalias [-a] name ...\n")
+    self.exit_code = 2
+    return
+  }
+
+  for i = start; i < args.length(); i = i + 1 {
+    let arg = args[i]
     let key = alias_prefix + arg
     if self.env.contains(key) {
       self.env.remove(key)
