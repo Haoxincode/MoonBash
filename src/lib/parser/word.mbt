@@ -59,10 +59,16 @@ pub fn parse_word_parts(s : String) -> Array[@ast.WordPart] {
         i += 2
       }
       let quoted_text = quoted.to_string()
+      let normalized_quoted_text = if quoted_text.length() == 1 &&
+        wchar_at(quoted_text, 0) == '\u0000' {
+          ""
+        } else {
+          quoted_text
+        }
       if ansi_c_quote {
-        parts.push(@ast.WordPart::Literal(decode_ansi_c_escapes(quoted_text)))
+        parts.push(@ast.WordPart::Literal(decode_ansi_c_escapes(normalized_quoted_text)))
       } else {
-        parts.push(@ast.WordPart::SingleQuoted(quoted_text))
+        parts.push(@ast.WordPart::SingleQuoted(normalized_quoted_text))
       }
       continue
     } else if ch == '\\' {
@@ -382,7 +388,7 @@ fn parse_param_expansion_content(content : String) -> @ast.WordPart {
       }
       let op2 = wchar_at(content, rest_start)
       let word_str = wsubstr(content, rest_start + 1, len)
-      let word : @ast.Word = { parts: [@ast.WordPart::Literal(word_str)] }
+      let word = parse_word_content(word_str)
       match op2 {
         '-' => @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Default(name, word, true))
         '=' => @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Assign(name, word, true))
@@ -400,22 +406,22 @@ fn parse_param_expansion_content(content : String) -> @ast.WordPart {
     }
     '-' => {
       let word_str = wsubstr(content, rest_start, len)
-      let word : @ast.Word = { parts: [@ast.WordPart::Literal(word_str)] }
+      let word = parse_word_content(word_str)
       @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Default(name, word, false))
     }
     '=' => {
       let word_str = wsubstr(content, rest_start, len)
-      let word : @ast.Word = { parts: [@ast.WordPart::Literal(word_str)] }
+      let word = parse_word_content(word_str)
       @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Assign(name, word, false))
     }
     '?' => {
       let word_str = wsubstr(content, rest_start, len)
-      let word : @ast.Word = { parts: [@ast.WordPart::Literal(word_str)] }
+      let word = parse_word_content(word_str)
       @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Error(name, Some(word), false))
     }
     '+' => {
       let word_str = wsubstr(content, rest_start, len)
-      let word : @ast.Word = { parts: [@ast.WordPart::Literal(word_str)] }
+      let word = parse_word_content(word_str)
       @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Alternative(name, word, false))
     }
     '#' => {

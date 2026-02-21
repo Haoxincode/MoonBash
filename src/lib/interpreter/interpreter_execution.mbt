@@ -372,6 +372,11 @@ fn ExecContext::execute_simple(
             keep_expansion_status = true
           }
           if self.try_store_array_assignment(assign.name, word, assign.append) {
+            if has_words {
+              self.exit_code = 2
+              self.should_exit = true
+              return
+            }
             continue
           }
           let value = self.expand_word_to_string(word)
@@ -493,6 +498,29 @@ fn ExecContext::execute_simple(
       }
       return
     }
+
+    if word_starts_with_literal_paren(cmd.words[0]) {
+      let mut has_empty_prefix_assignment = false
+      for assign in cmd.assignments {
+        match assign.value {
+          Some(word) => {
+            if assignment_word_is_empty_literal(word) {
+              has_empty_prefix_assignment = true
+              break
+            }
+          }
+          None => {
+            has_empty_prefix_assignment = true
+            break
+          }
+        }
+      }
+      if has_empty_prefix_assignment {
+        self.exit_code = 2
+        self.should_exit = true
+        return
+      }
+    }
   }
 
   // Expand all words
@@ -607,6 +635,15 @@ fn ExecContext::execute_simple(
   }
   let should_restore_prefix_assignments = track_prefix_assignment_restore &&
     not(command_keeps_prefix_assignments(cmd_name))
+  let originally_exported_prefix_assignments : Map[String, Bool] = {}
+  if has_words {
+    for name in prefix_assignment_restore_names {
+      if self.exported.contains(name) {
+        originally_exported_prefix_assignments[name] = true
+      }
+      self.exported[name] = true
+    }
+  }
 
   // Apply redirections
   let saved_stdout = self.stdout_buf
@@ -817,6 +854,11 @@ fn ExecContext::execute_simple(
       prefix_assignment_restore_names,
       prefix_assignment_snapshot,
     )
+    for name in prefix_assignment_restore_names {
+      if not(originally_exported_prefix_assignments.contains(name)) {
+        self.exported.remove(name)
+      }
+    }
   }
 
   // Handle redirections output
@@ -893,6 +935,30 @@ fn is_assignment_builtin_name(cmd_name : String) -> Bool {
   cmd_name == "typeset" ||
   cmd_name == "local" ||
   cmd_name == "readonly"
+}
+
+fn word_starts_with_literal_paren(word : @ast.Word) -> Bool {
+  if word.parts.length() == 0 {
+    return false
+  }
+  match word.parts[0] {
+    @ast.WordPart::Literal(text) =>
+      text.length() > 0 && text[0].to_int().unsafe_to_char() == '('
+    _ => false
+  }
+}
+
+fn assignment_word_is_empty_literal(word : @ast.Word) -> Bool {
+  if word.parts.length() == 0 {
+    return true
+  }
+  if word.parts.length() != 1 {
+    return false
+  }
+  match word.parts[0] {
+    @ast.WordPart::Literal(text) => text.length() == 0
+    _ => false
+  }
 }
 
 fn ExecContext::append_scalar_array_assignment(

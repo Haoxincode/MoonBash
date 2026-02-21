@@ -493,6 +493,30 @@ fn parse_array_reference_name(name : String) -> (String, String)? {
     return None
   }
 
+  // Validate bracket structure for a single array reference.
+  // The outermost bracket pair must close at the end of the name, while
+  // nested brackets inside the index expression are still allowed.
+  let mut depth = 0
+  for i = bracket; i < name.length(); i = i + 1 {
+    let ch = name[i].to_int().unsafe_to_char()
+    if ch == '[' {
+      depth += 1
+      continue
+    }
+    if ch == ']' {
+      depth -= 1
+      if depth < 0 {
+        return None
+      }
+      if depth == 0 && i != name.length() - 1 {
+        return None
+      }
+    }
+  }
+  if depth != 0 {
+    return None
+  }
+
   let index = name.view(start_offset=bracket + 1, end_offset=name.length() - 1).to_string()
   Some((base, index))
 }

@@ -85,6 +85,11 @@ fn ExecContext::try_store_array_assignment(
 
   let values : Array[String] = []
   for item_word in items {
+    if array_assignment_item_is_invalid_operator(item_word) {
+      self.exit_code = 2
+      self.should_exit = true
+      return true
+    }
     let expanded = self.expand_array_assignment_item_values(item_word)
     for item in expanded {
       values.push(item)
@@ -105,6 +110,17 @@ fn ExecContext::try_store_array_assignment(
   }
   self.store_indexed_assignment(name, values, append)
   true
+}
+
+fn array_assignment_item_is_invalid_operator(item_word : @ast.Word) -> Bool {
+  if item_word.parts.length() != 1 {
+    return false
+  }
+  match item_word.parts[0] {
+    @ast.WordPart::Literal(token) =>
+      token == "&" || token == "|" || token == "&&" || token == "||" || token == ";"
+    _ => false
+  }
 }
 
 fn ExecContext::expand_array_assignment_item_values(
@@ -285,17 +301,18 @@ fn ExecContext::normalize_compound_assignment_value(
   self : ExecContext,
   value : String
 ) -> String {
-  if value.length() == 0 {
-    return value
+  let cleaned_value = strip_array_assignment_index_markers(value)
+  if cleaned_value.length() == 0 {
+    return cleaned_value
   }
 
   let home = self.env.get("HOME").unwrap_or("/home/user")
   let out = StringBuilder::new()
   let mut segment_start = 0
   let mut i = 0
-  while i <= value.length() {
-    if i == value.length() || value[i].to_int().unsafe_to_char() == ':' {
-      let segment = value.view(start_offset=segment_start, end_offset=i).to_string()
+  while i <= cleaned_value.length() {
+    if i == cleaned_value.length() || cleaned_value[i].to_int().unsafe_to_char() == ':' {
+      let segment = cleaned_value.view(start_offset=segment_start, end_offset=i).to_string()
       let normalized = if segment == "~" {
         home
       } else if segment.length() >= 2 &&
@@ -306,7 +323,7 @@ fn ExecContext::normalize_compound_assignment_value(
           segment
         }
       out.write_string(normalized)
-      if i < value.length() {
+      if i < cleaned_value.length() {
         out.write_char(':')
       }
       segment_start = i + 1
@@ -809,9 +826,13 @@ fn strip_array_assignment_index_markers(s : String) -> String {
   let mut i = 0
   while i < s.length() {
     let ch = s[i].to_int().unsafe_to_char()
-    if ch == '\u0001' && i + 1 < s.length() {
-      out.write_char(s[i + 1].to_int().unsafe_to_char())
-      i += 2
+    if ch == '\u0001' {
+      if i + 1 < s.length() {
+        out.write_char(s[i + 1].to_int().unsafe_to_char())
+        i += 2
+      } else {
+        i += 1
+      }
       continue
     }
     if ch == '\u0002' || ch == '\u0003' {
@@ -988,6 +1009,22 @@ fn ExecContext::collect_array_values(self : ExecContext, name : String) -> Array
   values
 }
 
+fn ExecContext::build_external_command_env(self : ExecContext) -> Map[String, String] {
+  let out : Map[String, String] = {}
+  for name, enabled in self.exported {
+    if not(enabled) {
+      continue
+    }
+    // Arrays are shell-only data structures and are not exported to external
+    // commands.
+    if self.env.contains(test_array_count_storage_key(name)) {
+      continue
+    }
+    out[name] = self.env.get(name).unwrap_or("")
+  }
+  out
+}
+
 // ============================================================================
 // Command Dispatch
 // ============================================================================
@@ -1012,7 +1049,7 @@ fn ExecContext::run_virtual_command(
         args,
         stdin_content: self.stdin_buf,
         cwd: self.cwd,
-        env: self.env,
+        env: self.build_external_command_env(),
         fs: self.fs,
       }
       let result = cmd_fn(ctx)

@@ -67,6 +67,9 @@ fn ExecContext::expand_word_internal(
     }
   }
   if parts.length() == 0 {
+    if has_splittable_expansion {
+      return []
+    }
     return [""]
   }
   if allow_glob && word_should_apply_glob(word.parts) {
@@ -195,6 +198,63 @@ fn ExecContext::expand_array_parameter_words(
         None => None
       }
     }
+    @ast.ParamExpansion::Default(name, word, colon) => {
+      let mut join_with_ifs = false
+      let mut current_values : Array[String]? = None
+
+      if name == "@" {
+        current_values = Some(self.expand_positional_parameters_for_words())
+      } else if name == "*" {
+        join_with_ifs = true
+        current_values = Some(self.expand_positional_parameters_for_words())
+      } else {
+        match parse_array_reference_name(name) {
+          Some((base, index)) => {
+            if index == "@" {
+              current_values = Some(self.expand_array_elements_for_words(base))
+            } else if index == "*" {
+              join_with_ifs = true
+              current_values = Some(self.expand_array_elements_for_words(base))
+            } else {
+              return None
+            }
+          }
+          None => return None
+        }
+      }
+
+      let values = current_values.unwrap_or([])
+      let current_joined = if join_with_ifs {
+        join_values_with_ifs(values, self.env.get("IFS").unwrap_or(" \t\n"))
+      } else {
+        join_values_with_space(values)
+      }
+      let is_set = self.parameter_is_set(name)
+      let is_null = self.parameter_is_null(name, current_joined)
+      let use_default = if colon { is_null } else { not(is_set) }
+      if not(use_default) {
+        if join_with_ifs {
+          Some([join_values_with_ifs(values, self.env.get("IFS").unwrap_or(" \t\n"))])
+        } else {
+          Some(values)
+        }
+      } else {
+        if word.parts.length() == 1 {
+          match self.double_quoted_multiword_values(word.parts[0]) {
+            Some(default_values) => {
+              if join_with_ifs {
+                Some([join_values_with_ifs(default_values, self.env.get("IFS").unwrap_or(" \t\n"))])
+              } else {
+                Some(default_values)
+              }
+            }
+            None => Some([self.expand_word_to_string(word)])
+          }
+        } else {
+          Some([self.expand_word_to_string(word)])
+        }
+      }
+    }
     @ast.ParamExpansion::Indirection(name) => {
       match parse_indirection_array_keys_mode(name) {
         Some((base, join_with_ifs)) => {
@@ -245,6 +305,16 @@ fn ExecContext::expand_array_parameter_words(
       }
       match parse_array_reference_name(name) {
         Some((base, index_expr)) if index_expr == "@" || index_expr == "*" => {
+          match len {
+            Some(length) => {
+              if length < 0L {
+                self.exit_code = 1
+                self.env["__MOON_BASH_ABORT_CURRENT_COMMAND__"] = "1"
+                return Some([])
+              }
+            }
+            None => ()
+          }
           if self.env.get(test_array_kind_storage_key(base)).unwrap_or("") == "assoc" {
             self.exit_code = 1
             self.should_exit = true
@@ -528,9 +598,16 @@ fn ExecContext::expand_word_part(
     @ast.WordPart::Literal(s) => s
     @ast.WordPart::SingleQuoted(s) => s
     @ast.WordPart::DoubleQuoted(inner_parts) => {
+      let marker_key = "__MOON_BASH_IN_DQUOTE_EXPANSION__"
+      let saved_marker = self.env.get(marker_key)
+      self.env[marker_key] = "1"
       let buf = StringBuilder::new()
       for p in inner_parts {
         buf.write_string(self.expand_word_part(p))
+      }
+      match saved_marker {
+        Some(value) => self.env[marker_key] = value
+        None => self.env.remove(marker_key)
       }
       buf.to_string()
     }
@@ -572,6 +649,12 @@ fn ExecContext::expand_named_variable(self : ExecContext, name : String) -> Stri
   match parse_array_reference_name(name) {
     Some((base, index_expr)) => self.expand_array_element_reference(base, index_expr)
     None => {
+      if contains_char(name, '[') || contains_char(name, ']') {
+        self.emit_bad_array_subscript(name, name)
+        self.exit_code = 1
+        self.env["__MOON_BASH_ABORT_CURRENT_COMMAND__"] = "1"
+        return ""
+      }
       match self.env.get("__MOON_BASH_NAMEREF__" + name) {
         Some(target) => {
           if target == name {
@@ -592,7 +675,17 @@ fn ExecContext::expand_array_element_reference(
   index_expr : String
 ) -> String {
   if index_expr == "@" || index_expr == "*" {
-    return self.env.get("\{base}[\{index_expr}]").unwrap_or("")
+    match self.env.get("\{base}[\{index_expr}]") {
+      Some(value) => return value
+      None => {
+        let has_array_metadata = self.env.contains(test_array_count_storage_key(base)) ||
+          self.collect_array_keys(base).length() > 0
+        if not(has_array_metadata) {
+          return self.env.get(base).unwrap_or("")
+        }
+        return ""
+      }
+    }
   }
 
   let trimmed = trim_ascii_space_simple(index_expr)
@@ -653,8 +746,12 @@ fn ExecContext::expand_array_element_reference(
     numeric_index
   }
   if resolved_numeric_index < 0 {
-    let fragment = "\{base}[\{resolved_index_expr}]"
-    self.emit_bad_array_subscript(base, fragment)
+    if self.env.get("__MOON_BASH_IN_DQUOTE_EXPANSION__").unwrap_or("") == "1" {
+      let fragment = "\{base}[\{resolved_index_expr}]"
+      self.emit_bad_array_subscript(base, fragment)
+    }
+    // For regular parameter expansion, out-of-range negative index expands to
+    // empty string instead of raising an error.
     return ""
   }
   let numeric_lookup = "\{base}[\{resolved_numeric_index.to_string()}]"
@@ -774,37 +871,89 @@ fn ExecContext::expand_param(
       match array_count_var_name(name) {
         Some(count_key) => self.env.get(count_key).unwrap_or("0")
         None => {
+          match parse_array_reference_name(name) {
+            Some((base, index_expr)) => {
+              if index_expr != "@" && index_expr != "*" {
+                let has_array_metadata = self.env.contains(test_array_count_storage_key(base)) ||
+                  self.collect_array_keys(base).length() > 0
+                if not(has_array_metadata) {
+                  let fragment = "\{base}[\{index_expr}]"
+                  self.emit_bad_array_subscript(base, fragment)
+                  self.exit_code = 1
+                  self.env["__MOON_BASH_ABORT_CURRENT_COMMAND__"] = "1"
+                  self.should_exit = true
+                  return ""
+                }
+              }
+            }
+            None => ()
+          }
           let value = self.expand_variable(name)
           value.length().to_string()
         }
       }
     }
     @ast.ParamExpansion::PrefixRemove(name, pattern, greedy) => {
-      let value = self.expand_variable(name)
       let pat = self.expand_word_to_string(pattern)
-      strip_prefix_pattern(value, pat, greedy)
+      match self.expand_array_parameter_transform(name, fn(value) {
+        strip_prefix_pattern(value, pat, greedy)
+      }) {
+        Some(values) => join_values_with_space(values)
+        None => {
+          let value = self.expand_variable(name)
+          strip_prefix_pattern(value, pat, greedy)
+        }
+      }
     }
     @ast.ParamExpansion::SuffixRemove(name, pattern, greedy) => {
-      let value = self.expand_variable(name)
       let pat = self.expand_word_to_string(pattern)
-      strip_suffix_pattern(value, pat, greedy)
+      match self.expand_array_parameter_transform(name, fn(value) {
+        strip_suffix_pattern(value, pat, greedy)
+      }) {
+        Some(values) => join_values_with_space(values)
+        None => {
+          let value = self.expand_variable(name)
+          strip_suffix_pattern(value, pat, greedy)
+        }
+      }
     }
     @ast.ParamExpansion::Replace(name, pattern, replacement, mode) => {
-      let value = self.expand_variable(name)
       let pat = self.expand_word_to_string(pattern)
       let repl = match replacement {
         Some(w) => self.expand_word_to_string(w)
         None => ""
       }
-      replace_pattern(value, pat, repl, mode)
+      match self.expand_array_parameter_transform(name, fn(value) {
+        replace_pattern(value, pat, repl, mode)
+      }) {
+        Some(values) => join_values_with_space(values)
+        None => {
+          let value = self.expand_variable(name)
+          replace_pattern(value, pat, repl, mode)
+        }
+      }
     }
     @ast.ParamExpansion::Uppercase(name, _pattern, all) => {
-      let value = self.expand_variable(name)
-      if all { to_upper(value) } else { upper_first(value) }
+      match self.expand_array_parameter_transform(name, fn(value) {
+        if all { to_upper(value) } else { upper_first(value) }
+      }) {
+        Some(values) => join_values_with_space(values)
+        None => {
+          let value = self.expand_variable(name)
+          if all { to_upper(value) } else { upper_first(value) }
+        }
+      }
     }
     @ast.ParamExpansion::Lowercase(name, _pattern, all) => {
-      let value = self.expand_variable(name)
-      if all { to_lower(value) } else { lower_first(value) }
+      match self.expand_array_parameter_transform(name, fn(value) {
+        if all { to_lower(value) } else { lower_first(value) }
+      }) {
+        Some(values) => join_values_with_space(values)
+        None => {
+          let value = self.expand_variable(name)
+          if all { to_lower(value) } else { lower_first(value) }
+        }
+      }
     }
     @ast.ParamExpansion::Substring(name, offset_expr, length_expr) => {
       let offset = self.eval_arith(offset_expr)
@@ -818,6 +967,16 @@ fn ExecContext::expand_param(
       }
       match parse_array_reference_name(name) {
         Some((base, index_expr)) if index_expr == "@" || index_expr == "*" => {
+          match len {
+            Some(length) => {
+              if length < 0L {
+                self.exit_code = 1
+                self.env["__MOON_BASH_ABORT_CURRENT_COMMAND__"] = "1"
+                return ""
+              }
+            }
+            None => ()
+          }
           if self.env.get(test_array_kind_storage_key(base)).unwrap_or("") == "assoc" {
             self.exit_code = 1
             self.should_exit = true

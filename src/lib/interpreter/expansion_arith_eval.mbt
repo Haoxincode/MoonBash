@@ -97,10 +97,18 @@ fn ExecContext::arith_set_target(
     NoTarget => ()
     Var(name) => self.env[name] = value.to_string()
     ArrayElem(name, index) => {
-      if index < 0L {
+      let resolved_index = if index < 0L {
+        self.indexed_array_origin(name) + index
+      } else {
+        index
+      }
+      if resolved_index < 0L {
+        let fragment = "$((\{name}[\{index.to_string()}]))"
+        self.emit_bad_array_subscript(name, fragment)
+        self.exit_code = 1
         return
       }
-      let key = name + "[" + index.to_string() + "]"
+      let key = name + "[" + resolved_index.to_string() + "]"
       self.env[key] = value.to_string()
       self.refresh_array_metadata(name)
       self.env[test_array_kind_storage_key(name)] = "indexed"
@@ -653,7 +661,7 @@ fn ExecContext::word_split(
   s : String
 ) -> Array[String] {
   if s.length() == 0 {
-    return [""]
+    return []
   }
   let ifs = self.env.get("IFS").unwrap_or(" \t\n")
   if ifs.length() == 0 {
@@ -678,7 +686,7 @@ fn ExecContext::word_split(
     result.push(remaining)
   }
   if result.length() == 0 {
-    return [s]
+    return []
   }
   result
 }

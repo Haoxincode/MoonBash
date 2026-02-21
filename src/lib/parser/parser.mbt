@@ -585,6 +585,16 @@ fn Parser::parse_simple_command(self : Parser) -> @ast.SimpleCommand raise @ast.
     break
   }
 
+  if assignments.length() > 0 &&
+    words.length() == 0 &&
+    redirections.length() == 0 {
+    match self.peek() {
+      @ast.Token::LeftParen =>
+        raise @ast.BashError("syntax error near unexpected token `('")
+      _ => ()
+    }
+  }
+
   if self.pos == start_pos {
     raise @ast.BashError("expected command, got \{self.peek()}")
   }

@@ -623,16 +623,24 @@ fn Lexer::scan_parenthesized_assignment_value(
   let mut depth = 0
   let mut in_single = false
   let mut in_double = false
+  let mut single_quote_has_content = false
 
   while not(self.at_end()) {
     if in_single {
       let ch = self.advance()
       if ch == '\'' {
+        if not(single_quote_has_content) {
+          // Preserve empty single-quoted token (e.g. (''))
+          // so word parser can materialize it as SingleQuoted("").
+          buf.write_char('\u0001')
+          buf.write_char('\u0000')
+        }
         in_single = false
       } else {
         // Reuse single-quote marker encoding.
         buf.write_char('\u0001')
         buf.write_char(ch)
+        single_quote_has_content = true
       }
       continue
     }
@@ -687,6 +695,7 @@ fn Lexer::scan_parenthesized_assignment_value(
       '\'' => {
         self.pos += 1
         in_single = true
+        single_quote_has_content = false
       }
       '"' => {
         self.pos += 1

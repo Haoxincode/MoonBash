@@ -450,7 +450,16 @@ fn test_indexed_lookup_key(
     return "\{base}[\{index_expr}]"
   }
 
-  let raw_index = ctx.eval_arith(@ast.ArithExpr::Raw(trimmed))
+  let raw_index = if arith_is_identifier_text(trimmed) {
+    let referenced = trim_ascii_space_simple(ctx.env.get(trimmed).unwrap_or(""))
+    if referenced.length() > 0 && contains_test_arith_operator(referenced) {
+      ctx.eval_arith(@ast.ArithExpr::Raw(referenced))
+    } else {
+      ctx.eval_arith(@ast.ArithExpr::Raw(trimmed))
+    }
+  } else {
+    ctx.eval_arith(@ast.ArithExpr::Raw(trimmed))
+  }
   let resolved = if raw_index < 0L {
     ctx.indexed_array_origin(base) + raw_index
   } else {
@@ -464,6 +473,31 @@ fn test_indexed_lookup_key(
     return "\{base}[\{index_expr}]"
   }
   "\{base}[\{resolved.to_string()}]"
+}
+
+fn contains_test_arith_operator(text : String) -> Bool {
+  for i = 0; i < text.length(); i = i + 1 {
+    let ch = text[i].to_int().unsafe_to_char()
+    if ch == '+' ||
+      ch == '-' ||
+      ch == '*' ||
+      ch == '/' ||
+      ch == '%' ||
+      ch == '&' ||
+      ch == '|' ||
+      ch == '^' ||
+      ch == '<' ||
+      ch == '>' ||
+      ch == '(' ||
+      ch == ')' ||
+      ch == '?' ||
+      ch == ':' ||
+      ch == '[' ||
+      ch == ']' {
+      return true
+    }
+  }
+  false
 }
 
 fn test_string_compare(left : String, right : String) -> Bool {
