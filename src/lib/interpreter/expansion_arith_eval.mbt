@@ -40,10 +40,37 @@ fn ExecContext::arith_get_var_value(self : ExecContext, name : String) -> Int64 
       continue
     }
 
+    if arith_value_looks_like_expression(trimmed) {
+      return self.eval_arith_raw(trimmed)
+    }
+
     return self.arith_parse_value_text(trimmed)
   }
 
   0L
+}
+
+fn arith_value_looks_like_expression(text : String) -> Bool {
+  for i = 0; i < text.length(); i = i + 1 {
+    let ch = text[i].to_int().unsafe_to_char()
+    if ch == '+' ||
+      ch == '-' ||
+      ch == '*' ||
+      ch == '/' ||
+      ch == '%' ||
+      ch == '&' ||
+      ch == '|' ||
+      ch == '^' ||
+      ch == '<' ||
+      ch == '>' ||
+      ch == '(' ||
+      ch == ')' ||
+      ch == '?' ||
+      ch == ':' {
+      return true
+    }
+  }
+  false
 }
 
 fn ExecContext::arith_get_array_elem(
@@ -586,7 +613,13 @@ fn ExecContext::arith_expand_dollar_refs(self : ExecContext, raw : String) -> St
 }
 
 fn ExecContext::eval_arith_raw(self : ExecContext, raw : String) -> Int64 {
-  let expanded = self.arith_expand_dollar_refs(raw)
+  let expanded_word = self.expand_word_to_string(@parser.parse_word_content(raw))
+  if contains_char(expanded_word, '\'') {
+    self.exit_code = 1
+    self.env["__MOON_BASH_ABORT_CURRENT_COMMAND__"] = "1"
+    return 0L
+  }
+  let expanded = self.arith_expand_dollar_refs(expanded_word)
   let tokens = arith_tokenize(expanded)
   if tokens.length() == 0 {
     return 0L
