@@ -23,6 +23,16 @@ fn ExecContext::arith_parse_value_text(self : ExecContext, text : String) -> Int
   }
 }
 
+fn ExecContext::arith_fail(self : ExecContext) -> Unit {
+  self.exit_code = 1
+  self.env["__MOON_BASH_ABORT_CURRENT_COMMAND__"] = "1"
+}
+
+fn ExecContext::arith_fail_nounset(self : ExecContext) -> Unit {
+  self.arith_fail()
+  self.should_exit = true
+}
+
 fn ExecContext::arith_get_var_value(self : ExecContext, name : String) -> Int64 {
   let mut current = name
   let mut depth = 0
@@ -32,8 +42,7 @@ fn ExecContext::arith_get_var_value(self : ExecContext, name : String) -> Int64 
     let trimmed = arith_trim(raw)
     if trimmed.length() == 0 {
       if self.options.nounset {
-        self.exit_code = 1
-        self.env["__MOON_BASH_ABORT_CURRENT_COMMAND__"] = "1"
+        self.arith_fail_nounset()
       }
       return 0L
     }
@@ -113,16 +122,14 @@ fn ExecContext::arith_get_array_elem(
 
   if trimmed.length() > 0 && resolved_index == 0L {
     if contains_char(trimmed, ' ') || contains_char(trimmed, '\t') {
-      self.exit_code = 1
-      self.env["__MOON_BASH_ABORT_CURRENT_COMMAND__"] = "1"
+      self.arith_fail()
       return 0L
     }
     return self.arith_parse_value_text(trimmed)
   }
 
   if self.options.nounset {
-    self.exit_code = 1
-    self.env["__MOON_BASH_ABORT_CURRENT_COMMAND__"] = "1"
+    self.arith_fail_nounset()
   }
 
   0L
@@ -135,6 +142,9 @@ fn ExecContext::arith_set_target(
   execute : Bool
 ) -> Unit {
   if not(execute) {
+    return
+  }
+  if self.env.contains("__MOON_BASH_ABORT_CURRENT_COMMAND__") {
     return
   }
 
@@ -180,7 +190,10 @@ fn ExecContext::arith_parse_primary(
       if arith_is_identifier_text(tok) {
         if p.match_tok("[") {
           let idx_expr = self.arith_parse_comma(p, execute)
-          ignore(p.match_tok("]"))
+          if not(p.match_tok("]")) {
+            self.arith_fail()
+            return arith_plain(0L)
+          }
           let idx = idx_expr.value
           let value = self.arith_get_array_elem(tok, idx)
           return arith_with_target(value, ArrayElem(tok, idx))
@@ -191,7 +204,10 @@ fn ExecContext::arith_parse_primary(
 
       match arith_parse_number_literal(tok) {
         Some(v) => arith_plain(v)
-        None => arith_plain(parse_int_str(tok))
+        None => {
+          self.arith_fail()
+          arith_plain(0L)
+        }
       }
     }
     None => arith_plain(0L)
@@ -610,6 +626,53 @@ fn arith_is_special_var_char(ch : Char) -> Bool {
   ch == '-'
 }
 
+fn arith_strip_line_continuations(raw : String) -> String {
+  let out = StringBuilder::new()
+  let mut i = 0
+  while i < raw.length() {
+    let ch = raw[i].to_int().unsafe_to_char()
+    if ch == '\\' && i + 1 < raw.length() {
+      let next = raw[i + 1].to_int().unsafe_to_char()
+      if next == '\n' {
+        i += 2
+        continue
+      }
+      if next == '\r' && i + 2 < raw.length() &&
+        raw[i + 2].to_int().unsafe_to_char() == '\n' {
+        i += 3
+        continue
+      }
+    }
+    out.write_char(ch)
+    i += 1
+  }
+  out.to_string()
+}
+
+fn arith_prepare_word_for_expansion(raw : String) -> @ast.Word {
+  let parsed = @parser.parse_word_content(raw)
+  let normalized_parts : Array[@ast.WordPart] = []
+  for part in parsed.parts {
+    match part {
+      @ast.WordPart::TildePrefix(user) =>
+        normalized_parts.push(@ast.WordPart::Literal("~" + user))
+      _ => normalized_parts.push(part)
+    }
+  }
+  { parts: normalized_parts }
+}
+
+fn arith_strip_double_quotes(text : String) -> String {
+  let out = StringBuilder::new()
+  for i = 0; i < text.length(); i = i + 1 {
+    let ch = text[i].to_int().unsafe_to_char()
+    if ch != '"' {
+      out.write_char(ch)
+    }
+  }
+  out.to_string()
+}
+
 fn ExecContext::arith_expand_dollar_refs(self : ExecContext, raw : String) -> String {
   let out = StringBuilder::new()
   let mut i = 0
@@ -651,18 +714,20 @@ fn ExecContext::arith_expand_dollar_refs(self : ExecContext, raw : String) -> St
 }
 
 fn ExecContext::eval_arith_raw(self : ExecContext, raw : String) -> Int64 {
-  let expanded_word = self.expand_word_to_string(@parser.parse_word_content(raw))
+  let normalized_raw = arith_strip_line_continuations(raw)
+  let expanded_word = self.expand_word_to_string(arith_prepare_word_for_expansion(normalized_raw))
   if contains_char(expanded_word, '\'') {
-    self.exit_code = 1
-    self.env["__MOON_BASH_ABORT_CURRENT_COMMAND__"] = "1"
+    self.arith_fail()
     return 0L
   }
-  let expanded = self.arith_expand_dollar_refs(expanded_word)
+  let expanded = self.arith_expand_dollar_refs(arith_strip_double_quotes(expanded_word))
   let tokens = arith_tokenize(expanded)
   for i = 0; i < tokens.length(); i = i + 1 {
-    if tokens[i] == "__MOON_BASH_ARITH_INVALID__" {
-      self.exit_code = 1
-      self.env["__MOON_BASH_ABORT_CURRENT_COMMAND__"] = "1"
+    if tokens[i].has_prefix("__MOON_BASH_ARITH_INVALID__") {
+      if tokens[i] == "__MOON_BASH_ARITH_INVALID__#" {
+        self.should_exit = true
+      }
+      self.arith_fail()
       return 0L
     }
   }
@@ -671,6 +736,10 @@ fn ExecContext::eval_arith_raw(self : ExecContext, raw : String) -> Int64 {
   }
   let parser : ArithParser = { tokens, pos: 0 }
   let result = self.arith_parse_comma(parser, true)
+  if parser.pos < tokens.length() {
+    self.arith_fail()
+    return 0L
+  }
   result.value
 }
 

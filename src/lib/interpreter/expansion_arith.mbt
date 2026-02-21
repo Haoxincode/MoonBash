@@ -361,7 +361,7 @@ fn arith_tokenize(expr : String) -> Array[String] {
       }
       _ => {
         // Keep an explicit invalid marker so caller can report an error.
-        tokens.push("__MOON_BASH_ARITH_INVALID__")
+        tokens.push("__MOON_BASH_ARITH_INVALID__" + expr.view(start_offset=i, end_offset=i + 1).to_string())
         return tokens
       }
     }

@@ -19,7 +19,15 @@ fn ExecContext::execute_compound(
     @ast.CompoundCommand::Group(script) => self.execute_script(script)
     @ast.CompoundCommand::CStyleFor(clause) => self.execute_cstyle_for(clause)
     @ast.CompoundCommand::ArithmeticCommand(expr) => {
+      self.env.remove("__MOON_BASH_ABORT_CURRENT_COMMAND__")
       let result = self.eval_arith(expr)
+      if self.env.contains("__MOON_BASH_ABORT_CURRENT_COMMAND__") {
+        self.env.remove("__MOON_BASH_ABORT_CURRENT_COMMAND__")
+        if self.exit_code == 0 {
+          self.exit_code = 1
+        }
+        return
+      }
       self.exit_code = if result != 0L { 0 } else { 1 }
     }
     @ast.CompoundCommand::ConditionalCommand(cond) =>

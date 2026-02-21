@@ -383,6 +383,9 @@ fn ExecContext::execute_simple(
           if self.should_exit {
             return
           }
+          if self.env.contains("__MOON_BASH_ABORT_CURRENT_COMMAND__") {
+            return
+          }
           match self.resolve_array_assignment_target(assign.name) {
             Some((base, index)) => {
               if self.should_exit {
