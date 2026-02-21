@@ -362,6 +362,10 @@ fn test_var_is_set(name : String, ctx : ExecContext) -> Bool {
       }
       let kind = ctx.env.get(test_array_kind_storage_key(base)).unwrap_or("")
       if kind == "assoc" {
+        let resolved_index = ctx.expand_array_index_expr(index)
+        if resolved_index.length() > 0 && ctx.env.contains("\{base}[\{resolved_index}]") {
+          return true
+        }
         return ctx.env.contains("\{base}[\{index}]")
       }
       let key = test_indexed_lookup_key(base, index, ctx)
@@ -417,189 +421,199 @@ fn test_string_compare(left : String, right : String) -> Bool {
 
 fn format_printf(format : String, args : Array[String]) -> String {
   let buf = StringBuilder::new()
-  let mut i = 0
   let mut arg_idx = 0
-
-  while i < format.length() {
-    let ch = format[i].to_int().unsafe_to_char()
-    if ch == '\\' && i + 1 < format.length() {
-      let next = format[i + 1].to_int().unsafe_to_char()
-      if next == 'x' {
-        let mut j = i + 2
-        let mut value = 0
-        let mut digits = 0
-        while j < format.length() && digits < 2 {
-          let hex_ch = format[j].to_int().unsafe_to_char()
-          match printf_hex_digit_value(hex_ch) {
-            Some(hex_value) => {
-              value = value * 16 + hex_value
-              digits += 1
-              j += 1
+  let mut first_pass = true
+  while true {
+    let start_arg_idx = arg_idx
+    let mut i = 0
+    while i < format.length() {
+      let ch = format[i].to_int().unsafe_to_char()
+      if ch == '\\' && i + 1 < format.length() {
+        let next = format[i + 1].to_int().unsafe_to_char()
+        if next == 'x' {
+          let mut j = i + 2
+          let mut value = 0
+          let mut digits = 0
+          while j < format.length() && digits < 2 {
+            let hex_ch = format[j].to_int().unsafe_to_char()
+            match printf_hex_digit_value(hex_ch) {
+              Some(hex_value) => {
+                value = value * 16 + hex_value
+                digits += 1
+                j += 1
+              }
+              None => break
             }
-            None => break
           }
+          if digits > 0 {
+            buf.write_char(value.unsafe_to_char())
+            i = j
+          } else {
+            buf.write_char('x')
+            i += 2
+          }
+          continue
         }
-        if digits > 0 {
+        if printf_is_octal_digit(next) {
+          let mut j = i + 1
+          let mut value = 0
+          let mut digits = 0
+          while j < format.length() && digits < 3 {
+            let oct_ch = format[j].to_int().unsafe_to_char()
+            if not(printf_is_octal_digit(oct_ch)) {
+              break
+            }
+            value = value * 8 + (oct_ch.to_int() - '0'.to_int())
+            digits += 1
+            j += 1
+          }
           buf.write_char(value.unsafe_to_char())
           i = j
-        } else {
-          buf.write_char('x')
-          i += 2
+          continue
         }
-        continue
-      }
-      if printf_is_octal_digit(next) {
+        match next {
+          'n' => { buf.write_char('\n'); i += 2 }
+          't' => { buf.write_char('\t'); i += 2 }
+          '\\' => { buf.write_char('\\'); i += 2 }
+          '"' => { buf.write_char('"'); i += 2 }
+          _ => { buf.write_char('\\'); buf.write_char(next); i += 2 }
+        }
+      } else if ch == '%' {
+        if i + 1 >= format.length() {
+          buf.write_char('%')
+          i += 1
+          continue
+        }
+
         let mut j = i + 1
-        let mut value = 0
-        let mut digits = 0
-        while j < format.length() && digits < 3 {
-          let oct_ch = format[j].to_int().unsafe_to_char()
-          if not(printf_is_octal_digit(oct_ch)) {
-            break
+        let mut left_justify = false
+        let mut zero_pad = false
+        while j < format.length() {
+          let flag = format[j].to_int().unsafe_to_char()
+          if flag == '-' {
+            left_justify = true
+            j += 1
+            continue
           }
-          value = value * 8 + (oct_ch.to_int() - '0'.to_int())
-          digits += 1
-          j += 1
-        }
-        buf.write_char(value.unsafe_to_char())
-        i = j
-        continue
-      }
-      match next {
-        'n' => { buf.write_char('\n'); i += 2 }
-        't' => { buf.write_char('\t'); i += 2 }
-        '\\' => { buf.write_char('\\'); i += 2 }
-        '"' => { buf.write_char('"'); i += 2 }
-        _ => { buf.write_char('\\'); buf.write_char(next); i += 2 }
-      }
-    } else if ch == '%' {
-      if i + 1 >= format.length() {
-        buf.write_char('%')
-        i += 1
-        continue
-      }
-
-      let mut j = i + 1
-      let mut left_justify = false
-      let mut zero_pad = false
-      while j < format.length() {
-        let flag = format[j].to_int().unsafe_to_char()
-        if flag == '-' {
-          left_justify = true
-          j += 1
-          continue
-        }
-        if flag == '0' {
-          zero_pad = true
-          j += 1
-          continue
-        }
-        break
-      }
-
-      let mut width = 0
-      while j < format.length() {
-        let digit = format[j].to_int().unsafe_to_char()
-        if not(printf_is_digit(digit)) {
+          if flag == '0' {
+            zero_pad = true
+            j += 1
+            continue
+          }
           break
         }
-        width = width * 10 + (digit.to_int() - '0'.to_int())
-        j += 1
-      }
 
-      let mut precision : Int? = None
-      if j < format.length() && format[j].to_int().unsafe_to_char() == '.' {
-        j += 1
-        let mut p = 0
-        let mut has_digits = false
+        let mut width = 0
         while j < format.length() {
           let digit = format[j].to_int().unsafe_to_char()
           if not(printf_is_digit(digit)) {
             break
           }
-          has_digits = true
-          p = p * 10 + (digit.to_int() - '0'.to_int())
+          width = width * 10 + (digit.to_int() - '0'.to_int())
           j += 1
         }
-        if has_digits {
-          precision = Some(p)
-        } else {
-          precision = Some(0)
-        }
-      }
 
-      if j >= format.length() {
-        buf.write_char('%')
-        i += 1
-        continue
-      }
-
-      let spec = format[j].to_int().unsafe_to_char()
-      if spec == '%' {
-        let rendered = printf_apply_width(
-          "%",
-          width,
-          left_justify,
-          false,
-        )
-        buf.write_string(rendered)
-        i = j + 1
-        continue
-      }
-
-      let arg = if arg_idx < args.length() { args[arg_idx] } else { "" }
-      if arg_idx < args.length() {
-        arg_idx += 1
-      }
-
-      let mut rendered = match spec {
-        's' => {
-          match precision {
-            Some(p) => {
-              if p < arg.length() {
-                substring_slice(arg, 0, p)
-              } else {
-                arg
-              }
+        let mut precision : Int? = None
+        if j < format.length() && format[j].to_int().unsafe_to_char() == '.' {
+          j += 1
+          let mut p = 0
+          let mut has_digits = false
+          while j < format.length() {
+            let digit = format[j].to_int().unsafe_to_char()
+            if not(printf_is_digit(digit)) {
+              break
             }
-            None => arg
+            has_digits = true
+            p = p * 10 + (digit.to_int() - '0'.to_int())
+            j += 1
+          }
+          if has_digits {
+            precision = Some(p)
+          } else {
+            precision = Some(0)
           }
         }
-        'd' => {
-          let value = parse_int_str(arg)
-          printf_format_decimal(value, precision)
-        }
-        'x' => {
-          let value = parse_int_str(arg)
-          printf_to_hex(value)
-        }
-        'f' => {
-          let p = precision.unwrap_or(6)
-          printf_format_float(arg, p)
-        }
-        'q' => printf_shell_quote(arg)
-        _ => {
+
+        if j >= format.length() {
           buf.write_char('%')
           i += 1
           continue
         }
-      }
 
-      let allow_zero_pad = zero_pad &&
-        not(left_justify) &&
-        (precision is None) &&
-        (spec == 'd' || spec == 'x' || spec == 'f')
-      rendered = printf_apply_width(
-        rendered,
-        width,
-        left_justify,
-        allow_zero_pad,
-      )
-      buf.write_string(rendered)
-      i = j + 1
-    } else {
-      buf.write_char(ch)
-      i += 1
+        let spec = format[j].to_int().unsafe_to_char()
+        if spec == '%' {
+          let rendered = printf_apply_width(
+            "%",
+            width,
+            left_justify,
+            false,
+          )
+          buf.write_string(rendered)
+          i = j + 1
+          continue
+        }
+
+        let arg = if arg_idx < args.length() { args[arg_idx] } else { "" }
+        if arg_idx < args.length() {
+          arg_idx += 1
+        }
+
+        let mut rendered = match spec {
+          's' => {
+            match precision {
+              Some(p) => {
+                if p < arg.length() {
+                  substring_slice(arg, 0, p)
+                } else {
+                  arg
+                }
+              }
+              None => arg
+            }
+          }
+          'd' => {
+            let value = parse_int_str(arg)
+            printf_format_decimal(value, precision)
+          }
+          'x' => {
+            let value = parse_int_str(arg)
+            printf_to_hex(value)
+          }
+          'f' => {
+            let p = precision.unwrap_or(6)
+            printf_format_float(arg, p)
+          }
+          'q' => printf_shell_quote(arg)
+          _ => {
+            buf.write_char('%')
+            i += 1
+            continue
+          }
+        }
+
+        let allow_zero_pad = zero_pad &&
+          not(left_justify) &&
+          (precision is None) &&
+          (spec == 'd' || spec == 'x' || spec == 'f')
+        rendered = printf_apply_width(
+          rendered,
+          width,
+          left_justify,
+          allow_zero_pad,
+        )
+        buf.write_string(rendered)
+        i = j + 1
+      } else {
+        buf.write_char(ch)
+        i += 1
+      }
+    }
+
+    if first_pass {
+      first_pass = false
+    }
+    if args.length() == 0 || arg_idx >= args.length() || arg_idx == start_arg_idx {
+      break
     }
   }
   buf.to_string()

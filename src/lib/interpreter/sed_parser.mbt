@@ -343,6 +343,10 @@ fn parse_sed_substitute_matcher(
   if pattern.length() == 0 {
     return None
   }
+  // Python-style comment groups like \(?#...\) are not valid in sed BRE.
+  if sed_pattern_has_python_comment_group(pattern) {
+    return None
+  }
   let compiled = try {
     @regex.compile_grep_matcher(
       pattern,
@@ -389,6 +393,22 @@ fn sed_pattern_has_regex_meta(pattern : String) -> Bool {
       ch == '\\' {
       return true
     }
+  }
+  false
+}
+
+fn sed_pattern_has_python_comment_group(pattern : String) -> Bool {
+  let mut i = 0
+  while i + 4 < pattern.length() {
+    let a = pattern[i].to_int().unsafe_to_char()
+    let b = pattern[i + 1].to_int().unsafe_to_char()
+    let c = pattern[i + 2].to_int().unsafe_to_char()
+    let d = pattern[i + 3].to_int().unsafe_to_char()
+    let e = pattern[i + 4].to_int().unsafe_to_char()
+    if a == '\\' && b == '(' && c == '\\' && d == '?' && e == '#' {
+      return true
+    }
+    i += 1
   }
   false
 }
@@ -513,6 +533,9 @@ fn parse_sed_address(
     }
     if pattern.length() == 0 {
       return Some((LastRegex, next_idx))
+    }
+    if sed_pattern_has_python_comment_group(pattern) {
+      return None
     }
     let matcher = try {
       @regex.compile_grep_matcher(

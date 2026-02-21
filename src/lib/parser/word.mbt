@@ -472,6 +472,13 @@ fn parse_param_expansion_content(content : String) -> @ast.WordPart {
       }
       @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Lowercase(name, pat, greedy))
     }
+    '@' => {
+      if rest_start + 1 == len && wchar_at(content, rest_start) == 'Q' {
+        @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Simple(name + "@Q"))
+      } else {
+        @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Simple(name))
+      }
+    }
     _ => {
       // Unknown operator, treat as simple
       @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Simple(name))

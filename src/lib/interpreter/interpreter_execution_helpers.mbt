@@ -73,6 +73,11 @@ fn ExecContext::try_store_array_assignment(
   raw_value : @ast.Word,
   append : Bool
 ) -> Bool {
+  // Only plain shell names can take compound array literals `(a b c)`.
+  if not(is_valid_shell_name(name)) {
+    return false
+  }
+
   let items = match split_array_assignment_items(raw_value.parts) {
     Some(parsed) => parsed
     None => return false
@@ -80,7 +85,7 @@ fn ExecContext::try_store_array_assignment(
 
   let values : Array[String] = []
   for item_word in items {
-    let expanded = self.expand_word(item_word)
+    let expanded = self.expand_array_assignment_item_values(item_word)
     for item in expanded {
       values.push(item)
       if values.length() > self.limits.max_array_elements {
@@ -92,28 +97,402 @@ fn ExecContext::try_store_array_assignment(
       return true
     }
   }
-  if append {
-    let merged : Array[String] = []
-    let existing = self.expand_array_elements_for_words(name)
-    for existing_value in existing {
-      merged.push(existing_value)
-      if merged.length() > self.limits.max_array_elements {
-        self.fail_execution_limit("array element limit exceeded")
-        return true
-      }
-    }
-    for value in values {
-      merged.push(value)
-      if merged.length() > self.limits.max_array_elements {
-        self.fail_execution_limit("array element limit exceeded")
-        return true
-      }
-    }
-    self.store_array_assignment(name, merged)
-  } else {
-    self.store_array_assignment(name, values)
+  let is_assoc = self.env.get(test_array_kind_storage_key(name)).unwrap_or("") == "assoc"
+  if is_assoc {
+    let entries = self.parse_assoc_assignment_entries(name, values)
+    self.store_assoc_assignment(name, entries, append)
+    return true
   }
+  self.store_indexed_assignment(name, values, append)
   true
+}
+
+fn ExecContext::expand_array_assignment_item_values(
+  self : ExecContext,
+  item_word : @ast.Word
+) -> Array[String] {
+  // `[index]=value` words should keep literal braces and skip word splitting.
+  let raw = self.expand_word_to_string(item_word)
+  if self.should_exit {
+    return []
+  }
+  match parse_array_assignment_explicit_entry(raw) {
+    Some(_) => [raw]
+    None => self.expand_word(item_word)
+  }
+}
+
+fn ExecContext::parse_assoc_assignment_entries(
+  self : ExecContext,
+  name : String,
+  values : Array[String]
+) -> Array[(String, String, Bool)] {
+  let entries : Array[(String, String, Bool)] = []
+  let mut has_explicit = false
+  for token in values {
+    match parse_array_assignment_explicit_entry(token) {
+      Some(_) => {
+        has_explicit = true
+        break
+      }
+      None => ()
+    }
+  }
+
+  if has_explicit {
+    for token in values {
+      match parse_array_assignment_explicit_entry(token) {
+        Some(entry) => entries.push(entry)
+        None => {
+          self.stderr_buf.write_string(
+            "bash: line 2: \{name}: \{token}: must use subscript when assigning associative array\n",
+          )
+        }
+      }
+    }
+    return entries
+  }
+
+  let mut i = 0
+  while i < values.length() {
+    let token = values[i]
+    match parse_array_assignment_explicit_entry(token) {
+      Some(entry) => {
+        entries.push(entry)
+        i += 1
+      }
+      None => {
+        let key = normalize_array_assignment_index(token)
+        let value = if i + 1 < values.length() { values[i + 1] } else { "" }
+        entries.push((key, value, false))
+        i += 2
+      }
+    }
+  }
+  entries
+}
+
+fn parse_array_assignment_explicit_entry(token : String) -> (String, String, Bool)? {
+  if token.length() < 3 {
+    return None
+  }
+  if token[0].to_int().unsafe_to_char() != '[' {
+    return None
+  }
+
+  let close = match find_array_assignment_close_bracket(token) {
+    Some(pos) => pos
+    None => return None
+  }
+
+  let (value_start, append_mode) = if close + 1 < token.length() &&
+    token[close + 1].to_int().unsafe_to_char() == '=' {
+      (close + 2, false)
+    } else if close + 2 < token.length() &&
+      token[close + 1].to_int().unsafe_to_char() == '+' &&
+      token[close + 2].to_int().unsafe_to_char() == '=' {
+        (close + 3, true)
+      } else {
+        return None
+      }
+
+  let raw_key = token.view(start_offset=1, end_offset=close).to_string()
+  let value = token.view(start_offset=value_start).to_string()
+  let key = normalize_array_assignment_index(raw_key)
+  Some((key, value, append_mode))
+}
+
+fn find_array_assignment_close_bracket(token : String) -> Int? {
+  let mut depth = 1
+  let mut in_single = false
+  let mut in_double = false
+  let mut escaped = false
+
+  for i = 1; i < token.length(); i = i + 1 {
+    let ch = token[i].to_int().unsafe_to_char()
+    if escaped {
+      escaped = false
+      continue
+    }
+
+    if in_single {
+      if ch == '\'' {
+        in_single = false
+      }
+      continue
+    }
+    if in_double {
+      if ch == '"' {
+        in_double = false
+      } else if ch == '\\' {
+        escaped = true
+      }
+      continue
+    }
+
+    if ch == '\'' {
+      in_single = true
+      continue
+    }
+    if ch == '"' {
+      in_double = true
+      continue
+    }
+    if ch == '\\' {
+      escaped = true
+      continue
+    }
+    if ch == '[' {
+      depth += 1
+      continue
+    }
+    if ch == ']' {
+      depth -= 1
+      if depth == 0 {
+        return Some(i)
+      }
+    }
+  }
+  None
+}
+
+fn ExecContext::normalize_compound_assignment_value(
+  self : ExecContext,
+  value : String
+) -> String {
+  if value.length() == 0 {
+    return value
+  }
+
+  let home = self.env.get("HOME").unwrap_or("/home/user")
+  let out = StringBuilder::new()
+  let mut segment_start = 0
+  let mut i = 0
+  while i <= value.length() {
+    if i == value.length() || value[i].to_int().unsafe_to_char() == ':' {
+      let segment = value.view(start_offset=segment_start, end_offset=i).to_string()
+      let normalized = if segment == "~" {
+        home
+      } else if segment.length() >= 2 &&
+        segment[0].to_int().unsafe_to_char() == '~' &&
+        segment[1].to_int().unsafe_to_char() == '/' {
+          home + segment.view(start_offset=1).to_string()
+        } else {
+          segment
+        }
+      out.write_string(normalized)
+      if i < value.length() {
+        out.write_char(':')
+      }
+      segment_start = i + 1
+    }
+    i += 1
+  }
+  out.to_string()
+}
+
+fn ExecContext::store_assoc_assignment(
+  self : ExecContext,
+  name : String,
+  entries : Array[(String, String, Bool)],
+  append : Bool
+) -> Unit {
+  if not(append) {
+    self.store_array_assignment(name, [])
+  }
+
+  for entry in entries {
+    let (key, value, append_mode) = entry
+    let storage_key = "\{name}[\{key}]"
+    let normalized = self.normalize_compound_assignment_value(value)
+    if append_mode {
+      self.env[storage_key] = self.env.get(storage_key).unwrap_or("") + normalized
+    } else {
+      self.env[storage_key] = normalized
+    }
+  }
+  self.refresh_array_metadata(name)
+  self.env[test_array_kind_storage_key(name)] = "assoc"
+}
+
+fn ExecContext::next_indexed_assignment_seed(
+  self : ExecContext,
+  name : String,
+  append : Bool
+) -> Int {
+  if not(append) {
+    return 0
+  }
+
+  let keys = self.collect_array_keys(name)
+  let mut seed = 0
+  for key in keys {
+    match parse_non_negative_int_for_sort(key) {
+      Some(idx) => {
+        if idx + 1 > seed {
+          seed = idx + 1
+        }
+      }
+      None => ()
+    }
+  }
+  seed
+}
+
+fn ExecContext::parse_indexed_assignment_index(
+  self : ExecContext,
+  raw_index : String
+) -> Int {
+  match parse_array_reference_name(raw_index) {
+    Some((base, index_expr)) => {
+      let resolved = self.expand_array_element_reference(base, index_expr)
+      if self.should_exit {
+        return 0
+      }
+      let next_raw = if resolved.length() > 0 { resolved } else { "0" }
+      if next_raw != raw_index {
+        return self.parse_indexed_assignment_index(next_raw)
+      }
+    }
+    None => ()
+  }
+
+  match parse_non_negative_int_for_sort(raw_index) {
+    Some(idx) => idx
+    None => {
+      let evaluated = self.eval_arith(@ast.ArithExpr::Raw(raw_index))
+      if evaluated <= 0L {
+        0
+      } else if evaluated > 2147483647L {
+        2147483647
+      } else {
+        evaluated.to_int()
+      }
+    }
+  }
+}
+
+fn ExecContext::store_indexed_assignment(
+  self : ExecContext,
+  name : String,
+  values : Array[String],
+  append : Bool
+) -> Unit {
+  if not(append) {
+    self.store_array_assignment(name, [])
+  }
+  let mut next_index = self.next_indexed_assignment_seed(name, append)
+  for token in values {
+    match parse_array_assignment_explicit_entry(token) {
+      Some((raw_index, value, append_mode)) => {
+        let index = self.parse_indexed_assignment_index(raw_index)
+        let storage_key = "\{name}[\{index.to_string()}]"
+        let normalized = self.normalize_compound_assignment_value(value)
+        if append_mode {
+          self.env[storage_key] = self.env.get(storage_key).unwrap_or("") + normalized
+        } else {
+          self.env[storage_key] = normalized
+        }
+        next_index = index + 1
+      }
+      None => {
+        let storage_key = "\{name}[\{next_index.to_string()}]"
+        let normalized = self.normalize_compound_assignment_value(token)
+        self.env[storage_key] = normalized
+        next_index += 1
+      }
+    }
+  }
+  self.refresh_array_metadata(name)
+  self.env[test_array_kind_storage_key(name)] = "indexed"
+}
+
+fn collect_assignment_restore_names(
+  assignments : Array[@ast.Assignment]
+) -> Array[String] {
+  let names : Array[String] = []
+  for assign in assignments {
+    let name = assignment_restore_base_name(assign.name)
+    let mut exists = false
+    for existing in names {
+      if existing == name {
+        exists = true
+        break
+      }
+    }
+    if not(exists) {
+      names.push(name)
+    }
+  }
+  names
+}
+
+fn assignment_restore_base_name(raw_name : String) -> String {
+  match parse_array_element_assignment_name(raw_name) {
+    Some((base, _index)) => base
+    None => raw_name
+  }
+}
+
+fn snapshot_assignment_env_entries(
+  env : Map[String, String],
+  names : Array[String]
+) -> Map[String, String] {
+  let snapshot : Map[String, String] = {}
+  for key, value in env {
+    if env_key_matches_assignment_restore_names(key, names) {
+      snapshot[key] = value
+    }
+  }
+  snapshot
+}
+
+fn restore_assignment_env_entries(
+  env : Map[String, String],
+  names : Array[String],
+  snapshot : Map[String, String]
+) -> Unit {
+  let to_remove : Array[String] = []
+  for key, _value in env {
+    if env_key_matches_assignment_restore_names(key, names) {
+      to_remove.push(key)
+    }
+  }
+  for key in to_remove {
+    env.remove(key)
+  }
+  for key, value in snapshot {
+    env[key] = value
+  }
+}
+
+fn env_key_matches_assignment_restore_names(
+  key : String,
+  names : Array[String]
+) -> Bool {
+  for name in names {
+    if env_key_matches_assignment_restore_name(key, name) {
+      return true
+    }
+  }
+  false
+}
+
+fn env_key_matches_assignment_restore_name(key : String, name : String) -> Bool {
+  if key == name ||
+    key == test_array_count_storage_key(name) ||
+    key == test_array_kind_storage_key(name) {
+    return true
+  }
+  string_has_prefix(key, name + "[")
+}
+
+fn command_keeps_prefix_assignments(cmd_name : String) -> Bool {
+  cmd_name == "declare" ||
+  cmd_name == "typeset" ||
+  cmd_name == "local" ||
+  cmd_name == "export" ||
+  cmd_name == "readonly"
 }
 
 fn split_array_assignment_items(
@@ -245,6 +624,12 @@ fn ExecContext::store_array_element_assignment(
   value : String,
   append : Bool
 ) -> Unit {
+  if self.env.contains(readonly_storage_key(base)) {
+    self.stderr_buf.write_string("moon_bash: \{base}: readonly variable\n")
+    self.exit_code = 1
+    self.should_exit = true
+    return
+  }
   let key = "\{base}[\{index}]"
   if append {
     let existing = self.env.get(key).unwrap_or("")

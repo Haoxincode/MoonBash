@@ -249,8 +249,23 @@ fn ExecContext::builtin_printf(
   let result = format_printf(format, fmt_args)
   match value_target {
     Some(name) => {
-      if not(self.store_scalar_assignment(name, result)) {
-        return
+      match self.resolve_array_assignment_target(name) {
+        Some((base, index)) => {
+          if self.should_exit {
+            self.exit_code = 1
+            return
+          }
+          self.store_array_element_assignment(base, index, result, false)
+          if self.should_exit {
+            self.exit_code = 1
+            return
+          }
+        }
+        None => {
+          if not(self.store_scalar_assignment(name, result)) {
+            return
+          }
+        }
       }
     }
     None => self.stdout_buf.write_string(result)

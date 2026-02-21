@@ -242,14 +242,39 @@ fn ExecContext::resolve_array_assignment_target(
         return Some((base, index_expr))
       }
 
-      let expanded_index = self.expand_word_to_string(@parser.parse_word_content(trimmed))
+      let expanded_index = self.expand_array_index_expr(trimmed)
       if self.should_exit {
         return Some((base, index_expr))
       }
-      let resolved_index = if expanded_index.length() > 0 { expanded_index } else { trimmed }
+      let mut resolved_index = if expanded_index.length() > 0 { expanded_index } else { trimmed }
+      if arith_is_identifier_text(trimmed) {
+        let dynamic_raw = self.env.get(trimmed).unwrap_or("")
+        if dynamic_raw.length() > 0 {
+          let dynamic_expanded = self.expand_array_index_expr(dynamic_raw)
+          if self.should_exit {
+            return Some((base, index_expr))
+          }
+          resolved_index = if dynamic_expanded.length() > 0 { dynamic_expanded } else { dynamic_raw }
+        }
+      }
+      if contains_char(resolved_index, '$') {
+        let second_pass = self.expand_array_index_expr(resolved_index)
+        if self.should_exit {
+          return Some((base, index_expr))
+        }
+        if second_pass.length() > 0 {
+          resolved_index = second_pass
+        }
+      }
 
       let array_kind_key = "__MOON_BASH_ARRAY_KIND__" + base
       if self.env.get(array_kind_key).unwrap_or("") == "assoc" {
+        return Some((base, resolved_index))
+      }
+
+      if contains_char(resolved_index, '#') {
+        self.exit_code = 1
+        self.should_exit = true
         return Some((base, resolved_index))
       }
 

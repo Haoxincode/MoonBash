@@ -569,6 +569,23 @@ fn Lexer::scan_parenthesized_assignment_value(
     }
 
     if in_double {
+      if self.peek() == '$' && self.peek_at(1) == '{' {
+        self.scan_dollar_brace_into_word(buf)
+        continue
+      }
+      if self.peek() == '$' && self.peek_at(1) == '(' {
+        if self.peek_at(2) == '(' {
+          self.scan_dollar_paren_into_word(buf, arithmetic=true)
+        } else {
+          self.scan_dollar_paren_into_word(buf)
+        }
+        continue
+      }
+      if self.peek() == '`' {
+        self.scan_backtick_into_word(buf)
+        continue
+      }
+
       let ch = self.advance()
       if ch == '"' {
         in_double = false
@@ -641,19 +658,138 @@ fn word_looks_like_assignment_prefix(word : String) -> Bool {
     return false
   }
 
-  let mut eq_pos = -1
-  for i = 0; i < word.length(); i = i + 1 {
-    let ch = char_at(word, i)
-    if ch == '=' {
-      eq_pos = i
-      break
-    }
-  }
+  let eq_pos = find_assignment_operator_pos(word)
 
   match parse_assignment_name_end(word, eq_pos) {
     Some(_) => true
     None => false
   }
+}
+
+fn find_assignment_operator_pos(word : String) -> Int {
+  let mut bracket_depth = 0
+  for i = 0; i < word.length(); i = i + 1 {
+    let ch = char_at(word, i)
+    if ch == '[' {
+      bracket_depth += 1
+      continue
+    }
+    if ch == ']' {
+      if bracket_depth > 0 {
+        bracket_depth -= 1
+      }
+      continue
+    }
+    if ch == '=' && bracket_depth == 0 {
+      return i
+    }
+  }
+  -1
+}
+
+fn assignment_name_prefix_bracket_depth(word : String) -> Int? {
+  if word.length() == 0 {
+    return None
+  }
+  if not(is_name_start(char_at(word, 0))) {
+    return None
+  }
+
+  let mut i = 1
+  while i < word.length() && is_name_char(char_at(word, i)) {
+    i += 1
+  }
+
+  let mut depth = 0
+  while i < word.length() {
+    if depth == 0 {
+      if char_at(word, i) != '[' {
+        return None
+      }
+      depth = 1
+      i += 1
+      continue
+    }
+
+    let ch = char_at(word, i)
+    if ch == '[' {
+      depth += 1
+    } else if ch == ']' {
+      depth -= 1
+    }
+    i += 1
+  }
+
+  Some(depth)
+}
+
+fn token_allows_assignment_prefix_continuation(tok : @ast.Token) -> Bool {
+  match tok {
+    @ast.Token::AssignmentWord(_, _, _) => true
+    @ast.Token::RedirectIn
+    | @ast.Token::RedirectOut
+    | @ast.Token::RedirectAppend
+    | @ast.Token::RedirectClobber
+    | @ast.Token::HereDoc
+    | @ast.Token::HereDocStrip
+    | @ast.Token::HereString
+    | @ast.Token::DupIn
+    | @ast.Token::DupOut
+    | @ast.Token::RedirectInOut
+    | @ast.Token::RedirectAndOut
+    | @ast.Token::RedirectAndAppend
+    | @ast.Token::FdNumber(_) => true
+    _ => false
+  }
+}
+
+fn token_starts_new_command_context(tok : @ast.Token) -> Bool {
+  match tok {
+    @ast.Token::Newline
+    | @ast.Token::Semi
+    | @ast.Token::And
+    | @ast.Token::Or
+    | @ast.Token::Pipe
+    | @ast.Token::PipeAnd
+    | @ast.Token::Ampersand
+    | @ast.Token::LeftParen
+    | @ast.Token::If
+    | @ast.Token::Then
+    | @ast.Token::Elif
+    | @ast.Token::Else
+    | @ast.Token::Do
+    | @ast.Token::While
+    | @ast.Token::Until
+    | @ast.Token::For
+    | @ast.Token::In
+    | @ast.Token::Case
+    | @ast.Token::Function
+    | @ast.Token::Bang
+    | @ast.Token::Time
+    | @ast.Token::LeftBrace
+    | @ast.Token::RightBrace => true
+    _ => false
+  }
+}
+
+fn Lexer::is_assignment_prefix_position(self : Lexer) -> Bool {
+  if self.tokens.length() == 0 {
+    return true
+  }
+
+  let mut i = self.tokens.length()
+  while i > 0 {
+    i -= 1
+    let tok = self.tokens[i]
+    if token_allows_assignment_prefix_continuation(tok) {
+      continue
+    }
+    if token_starts_new_command_context(tok) {
+      return true
+    }
+    return false
+  }
+  true
 }
 
 fn Lexer::scan_word(self : Lexer) -> Unit raise @ast.BashError {
@@ -691,7 +827,16 @@ fn Lexer::scan_word(self : Lexer) -> Unit raise @ast.BashError {
     }
 
     if is_metachar(ch) {
-      break
+      let mut keep_scanning = false
+      if (ch == ' ' || ch == '\t') && self.is_assignment_prefix_position() {
+        match assignment_name_prefix_bracket_depth(buf.to_string()) {
+          Some(depth) => keep_scanning = depth > 0
+          None => ()
+        }
+      }
+      if not(keep_scanning) {
+        break
+      }
     }
 
     match ch {
@@ -774,6 +919,23 @@ fn Lexer::scan_double_quote(self : Lexer, buf : StringBuilder) -> Unit raise @as
   // Mark double-quoted region so parser can preserve quote context.
   buf.write_char('\u0002')
   while not(self.at_end()) {
+    if self.peek() == '$' && self.peek_at(1) == '{' {
+      self.scan_dollar_brace_into_word(buf)
+      continue
+    }
+    if self.peek() == '$' && self.peek_at(1) == '(' {
+      if self.peek_at(2) == '(' {
+        self.scan_dollar_paren_into_word(buf, arithmetic=true)
+      } else {
+        self.scan_dollar_paren_into_word(buf)
+      }
+      continue
+    }
+    if self.peek() == '`' {
+      self.scan_backtick_into_word(buf)
+      continue
+    }
+
     let ch = self.advance()
     match ch {
       '"' => {
@@ -842,14 +1004,7 @@ fn parse_int64(s : String) -> Int64 {
 /// Try to split a word into an assignment: NAME=VALUE or NAME+=VALUE.
 /// Returns Some((name, value, append)) or None.
 fn try_split_assignment(word : String) -> (String, String, Bool)? {
-  let mut eq_pos = -1
-  for i = 0; i < word.length(); i = i + 1 {
-    let ch = char_at(word, i)
-    if ch == '=' {
-      eq_pos = i
-      break
-    }
-  }
+  let eq_pos = find_assignment_operator_pos(word)
   if eq_pos <= 0 {
     return None
   }
@@ -890,14 +1045,32 @@ fn parse_assignment_name_end(word : String, eq_pos : Int) -> Int? {
       return None
     }
     i += 1
-    let subscript_start = i
-    while i < name_end && char_at(word, i) != ']' {
+    let mut depth = 1
+    let mut has_subscript_content = false
+    while i < name_end && depth > 0 {
+      let ch = char_at(word, i)
+      if ch == '[' {
+        depth += 1
+        has_subscript_content = true
+        i += 1
+        continue
+      }
+      if ch == ']' {
+        depth -= 1
+        if depth == 0 {
+          i += 1
+          break
+        }
+        has_subscript_content = true
+        i += 1
+        continue
+      }
+      has_subscript_content = true
       i += 1
     }
-    if i >= name_end || char_at(word, i) != ']' || i == subscript_start {
+    if depth != 0 || not(has_subscript_content) {
       return None
     }
-    i += 1
   }
 
   Some(name_end)

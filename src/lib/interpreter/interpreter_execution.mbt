@@ -344,9 +344,22 @@ fn ExecContext::execute_simple(
 ) -> Unit {
   // Handle assignments
   let has_words = cmd.words.length() > 0
+  let mut prefix_assignment_restore_names : Array[String] = []
+  let mut prefix_assignment_snapshot : Map[String, String] = {}
+  let mut track_prefix_assignment_restore = false
 
   // Process variable assignments
   if cmd.assignments.length() > 0 {
+    if has_words {
+      prefix_assignment_restore_names = collect_assignment_restore_names(cmd.assignments)
+      if prefix_assignment_restore_names.length() > 0 {
+        prefix_assignment_snapshot = snapshot_assignment_env_entries(
+          self.env,
+          prefix_assignment_restore_names,
+        )
+        track_prefix_assignment_restore = true
+      }
+    }
     let mut keep_expansion_status = false
     for assign in cmd.assignments {
       match assign.value {
@@ -363,6 +376,17 @@ fn ExecContext::execute_simple(
           }
           match self.resolve_array_assignment_target(assign.name) {
             Some((base, index)) => {
+              if self.should_exit {
+                return
+              }
+              match split_array_assignment_items(word.parts) {
+                Some(_) => {
+                  self.exit_code = 2
+                  self.should_exit = true
+                  return
+                }
+                None => ()
+              }
               self.store_array_element_assignment(base, index, value, assign.append)
               continue
             }
@@ -371,6 +395,32 @@ fn ExecContext::execute_simple(
           let target_name = self.env.get("__MOON_BASH_NAMEREF__" + assign.name).unwrap_or(
             assign.name,
           )
+          match self.resolve_array_assignment_target(target_name) {
+            Some((target_base, target_index)) => {
+              if self.should_exit {
+                return
+              }
+              self.store_array_element_assignment(
+                target_base,
+                target_index,
+                value,
+                assign.append,
+              )
+              if self.should_exit {
+                return
+              }
+              continue
+            }
+            None => ()
+          }
+          if assign.append {
+            if self.append_scalar_array_assignment(target_name, value) {
+              if self.should_exit {
+                return
+              }
+              continue
+            }
+          }
           let next_value = if assign.append {
             let existing = self.env.get(target_name).unwrap_or("")
             existing + value
@@ -384,6 +434,9 @@ fn ExecContext::execute_simple(
         None => {
           match self.resolve_array_assignment_target(assign.name) {
             Some((base, index)) => {
+              if self.should_exit {
+                return
+              }
               self.store_array_element_assignment(base, index, "", assign.append)
               continue
             }
@@ -392,6 +445,32 @@ fn ExecContext::execute_simple(
           let target_name = self.env.get("__MOON_BASH_NAMEREF__" + assign.name).unwrap_or(
             assign.name,
           )
+          match self.resolve_array_assignment_target(target_name) {
+            Some((target_base, target_index)) => {
+              if self.should_exit {
+                return
+              }
+              self.store_array_element_assignment(
+                target_base,
+                target_index,
+                "",
+                assign.append,
+              )
+              if self.should_exit {
+                return
+              }
+              continue
+            }
+            None => ()
+          }
+          if assign.append {
+            if self.append_scalar_array_assignment(target_name, "") {
+              if self.should_exit {
+                return
+              }
+              continue
+            }
+          }
           let next_value = if assign.append {
             self.env.get(target_name).unwrap_or("")
           } else {
@@ -423,6 +502,8 @@ fn ExecContext::execute_simple(
       return
     }
     let cmd_name_for_expansion = if expanded.length() > 0 { expanded[0] } else { "" }
+    let assignment_builtin = is_assignment_builtin_name(cmd_name_for_expansion)
+    let conditional_test = cmd_name_for_expansion == "[["
     let disable_glob_args = cmd_name_for_expansion == "find"
     let grep_like = is_grep_like_command(cmd_name_for_expansion)
     let mut grep_pattern_set = false
@@ -430,7 +511,14 @@ fn ExecContext::execute_simple(
     let mut grep_expect_e_pattern = false
 
     for i = 1; i < cmd.words.length(); i = i + 1 {
-      let parts = if disable_glob_args {
+      let parts = if assignment_builtin {
+        match self.expand_compound_assignment_argument(cmd.words[i]) {
+          Some(raw) => [raw]
+          None => self.expand_word(cmd.words[i])
+        }
+      } else if conditional_test {
+        [self.expand_word_to_string(cmd.words[i])]
+      } else if disable_glob_args {
         self.expand_word_no_glob(cmd.words[i])
       } else if grep_like {
         let raw_parts = self.expand_word_no_glob(cmd.words[i])
@@ -508,6 +596,8 @@ fn ExecContext::execute_simple(
   for i = 1; i < expanded.length(); i = i + 1 {
     args.push(expanded[i])
   }
+  let should_restore_prefix_assignments = track_prefix_assignment_restore &&
+    not(command_keeps_prefix_assignments(cmd_name))
 
   // Apply redirections
   let saved_stdout = self.stdout_buf
@@ -712,6 +802,13 @@ fn ExecContext::execute_simple(
   ) {
     self.run_command(cmd_name, args)
   }
+  if should_restore_prefix_assignments {
+    restore_assignment_env_entries(
+      self.env,
+      prefix_assignment_restore_names,
+      prefix_assignment_snapshot,
+    )
+  }
 
   // Handle redirections output
   match redirected_file {
@@ -780,4 +877,54 @@ fn ExecContext::execute_simple(
     self.stdin_buf = saved_stdin
   }
   self.enforce_output_size_limit()
+}
+
+fn is_assignment_builtin_name(cmd_name : String) -> Bool {
+  cmd_name == "declare" ||
+  cmd_name == "typeset" ||
+  cmd_name == "local" ||
+  cmd_name == "readonly"
+}
+
+fn ExecContext::append_scalar_array_assignment(
+  self : ExecContext,
+  name : String,
+  suffix : String
+) -> Bool {
+  if not(self.env.contains(test_array_count_storage_key(name))) {
+    return false
+  }
+
+  let kind = self.env.get(test_array_kind_storage_key(name)).unwrap_or("indexed")
+  if kind == "assoc" {
+    self.exit_code = 1
+    self.should_exit = true
+    return true
+  }
+
+  let element_key = "\{name}[0]"
+  self.env[element_key] = self.env.get(element_key).unwrap_or("") + suffix
+  self.refresh_array_metadata(name)
+  true
+}
+
+fn ExecContext::expand_compound_assignment_argument(
+  self : ExecContext,
+  word : @ast.Word
+) -> String? {
+  let raw = self.expand_word_to_string(word)
+  if self.should_exit {
+    return None
+  }
+
+  match parse_name_value_spec(raw) {
+    Some((_name, Some(raw_value), _append)) => {
+      let parsed = @parser.parse_word_content(raw_value)
+      match split_array_assignment_items(parsed.parts) {
+        Some(_) => Some(raw)
+        None => None
+      }
+    }
+    _ => None
+  }
 }

@@ -316,6 +316,133 @@ test "parse word with length expansion" {
   }
 }
 
+test "parse quoted assoc subscript expansion in command word" {
+  let script = parse("echo \"${foo[\"key\"]}\"")
+  match script.statements[0] {
+    @ast.Statement::Pipeline(pipeline) => {
+      match pipeline.commands[0] {
+        @ast.Command::Simple(cmd) => {
+          assert_eq(cmd.words.length(), 2)
+          match cmd.words[1].parts[0] {
+            @ast.WordPart::DoubleQuoted(inner) => {
+              assert_eq(inner.length(), 1)
+              match inner[0] {
+                @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Simple(name)) => {
+                  assert_eq(name, "foo[\"key\"]")
+                }
+                _ => fail("expected simple parameter expansion")
+              }
+            }
+            _ => fail("expected double quoted word")
+          }
+        }
+        _ => fail("expected simple command")
+      }
+    }
+    _ => fail("expected pipeline")
+  }
+}
+
+test "parse quoted assoc subscript expansion in compound assignment value" {
+  let script = parse("foo=([\"key\"]=\"${foo[\"key\"]} value2\")")
+  match script.statements[0] {
+    @ast.Statement::Pipeline(pipeline) => {
+      match pipeline.commands[0] {
+        @ast.Command::Simple(cmd) => {
+          assert_eq(cmd.assignments.length(), 1)
+          let value = match cmd.assignments[0].value {
+            Some(word) => word
+            None => fail("expected assignment value")
+          }
+          let mut seen_target = false
+          for part in value.parts {
+            match part {
+              @ast.WordPart::DoubleQuoted(inner) => {
+                for inner_part in inner {
+                  match inner_part {
+                    @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Simple(name)) =>
+                      assert_eq(name, "foo[\"key\"]")
+                    _ => ()
+                  }
+                }
+                if inner.length() == 2 {
+                  match inner[0] {
+                    @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Simple(_)) => {
+                      match inner[1] {
+                        @ast.WordPart::Literal(text) => {
+                          assert_eq(text, " value2")
+                          seen_target = true
+                        }
+                        _ => ()
+                      }
+                    }
+                    _ => ()
+                  }
+                }
+              }
+              _ => ()
+            }
+          }
+          assert_true(seen_target)
+        }
+        _ => fail("expected simple command")
+      }
+    }
+    _ => fail("expected pipeline")
+  }
+}
+
+test "parse reassignment with quoted assoc subscript expansion in value" {
+  let script = parse(
+    "declare -A foo\nfoo=([\"key\"]=\"value1\")\nfoo=([\"key\"]=\"${foo[\"key\"]} value2\")",
+  )
+  match script.statements[2] {
+    @ast.Statement::Pipeline(pipeline) => {
+      match pipeline.commands[0] {
+        @ast.Command::Simple(cmd) => {
+          assert_eq(cmd.assignments.length(), 1)
+          let value = match cmd.assignments[0].value {
+            Some(word) => word
+            None => fail("expected assignment value")
+          }
+          let mut matched = false
+          for part in value.parts {
+            match part {
+              @ast.WordPart::DoubleQuoted(inner) => {
+                for inner_part in inner {
+                  match inner_part {
+                    @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Simple(name)) =>
+                      assert_eq(name, "foo[\"key\"]")
+                    _ => ()
+                  }
+                }
+                if inner.length() == 2 {
+                  match inner[0] {
+                    @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Simple(_)) => {
+                      match inner[1] {
+                        @ast.WordPart::Literal(text) => {
+                          assert_eq(text, " value2")
+                          matched = true
+                        }
+                        _ => ()
+                      }
+                    }
+                    _ => ()
+                  }
+                }
+              }
+              _ => ()
+            }
+          }
+          assert_true(matched)
+        }
+        _ => fail("expected simple command")
+      }
+    }
+    _ => fail("expected pipeline")
+  }
+}
+
 test "parse word with tilde" {
   let word = parse_word_content("~/path")
   match word.parts[0] {

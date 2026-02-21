@@ -197,6 +197,31 @@ test "tokenize assignment append" {
   assert_eq(tokens[0], @ast.Token::AssignmentWord("VAR", "value", true))
 }
 
+test "tokenize array assignment with nested index expression" {
+  let tokens = tokenize("a[i[0]]=x")
+  assert_eq(tokens[0], @ast.Token::AssignmentWord("a[i[0]]", "x", false))
+}
+
+test "tokenize array assignment with spaces in index expression" {
+  let tokens = tokenize("a[ 1 + 2 ]=z")
+  assert_eq(tokens[0], @ast.Token::AssignmentWord("a[ 1 + 2 ]", "z", false))
+}
+
+test "tokenize array assignment append with nested index expression" {
+  let tokens = tokenize("a[i[0]]+=x")
+  assert_eq(tokens[0], @ast.Token::AssignmentWord("a[i[0]]", "x", true))
+}
+
+test "tokenize array assignment with equals in index expression" {
+  let tokens = tokenize("a[a[0]=1]=X")
+  assert_eq(tokens[0], @ast.Token::AssignmentWord("a[a[0]=1]", "X", false))
+}
+
+test "tokenize array assignment append with equals in index expression" {
+  let tokens = tokenize("a[a[0]+=1]+=X")
+  assert_eq(tokens[0], @ast.Token::AssignmentWord("a[a[0]+=1]", "X", true))
+}
+
 // ============================================================================
 // Comments
 // ============================================================================
