@@ -604,10 +604,7 @@ fn ExecContext::store_array_assignment(
     self.env.remove(key)
   }
 
-  let joined = values.iter().fold(
-    init="",
-    fn(acc, value) { if acc.length() == 0 { value } else { acc + " " + value } },
-  )
+  let joined = join_values_for_array_storage(values)
   self.env[name] = if values.length() > 0 { values[0] } else { "" }
   self.env[name + "[@]"] = joined
   self.env[name + "[*]"] = joined
@@ -666,14 +663,22 @@ fn ExecContext::refresh_array_metadata(self : ExecContext, name : String) -> Uni
     values.push(self.env.get(key).unwrap_or(""))
   }
 
-  let joined = values.iter().fold(
-    init="",
-    fn(acc, v) { if acc.length() == 0 { v } else { acc + " " + v } },
-  )
+  let joined = join_values_for_array_storage(values)
   self.env[name + "[@]"] = joined
   self.env[name + "[*]"] = joined
   self.env[count_key] = values.length().to_string()
   self.env[name] = self.env.get(name + "[0]").unwrap_or("")
+}
+
+fn join_values_for_array_storage(values : Array[String]) -> String {
+  let out = StringBuilder::new()
+  for i = 0; i < values.length(); i = i + 1 {
+    if i > 0 {
+      out.write_char(' ')
+    }
+    out.write_string(values[i])
+  }
+  out.to_string()
 }
 
 fn string_has_prefix(s : String, prefix : String) -> Bool {
@@ -814,6 +819,26 @@ fn parse_non_negative_int_for_sort(text : String) -> Int? {
     value = value * 10 + (ch.to_int() - '0'.to_int())
   }
   Some(value)
+}
+
+fn ExecContext::indexed_array_origin(self : ExecContext, name : String) -> Int64 {
+  let keys = self.collect_array_keys(name)
+  let mut max_index = -1
+  for key in keys {
+    match parse_non_negative_int_for_sort(key) {
+      Some(idx) => {
+        if idx > max_index {
+          max_index = idx
+        }
+      }
+      None => ()
+    }
+  }
+  if max_index < 0 {
+    0L
+  } else {
+    max_index.to_int64() + 1L
+  }
 }
 
 fn compare_text(a : String, b : String) -> Int {

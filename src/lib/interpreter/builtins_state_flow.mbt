@@ -47,6 +47,7 @@ fn ExecContext::builtin_export(self : ExecContext, args : Array[String]) -> Unit
 
 fn ExecContext::builtin_unset(self : ExecContext, args : Array[String]) -> Unit {
   let mut unset_functions = false
+  let mut failed = false
   for arg in args {
     if arg == "-f" {
       unset_functions = true
@@ -59,6 +60,33 @@ fn ExecContext::builtin_unset(self : ExecContext, args : Array[String]) -> Unit 
     if unset_functions {
       self.functions.remove(arg)
       continue
+    }
+    match parse_array_element_assignment_name(arg) {
+      Some((base, index_expr)) => {
+        if self.env.get(test_array_kind_storage_key(base)).unwrap_or("") != "assoc" {
+          let expanded_index = self.expand_array_index_expr(index_expr)
+          let raw_text = if expanded_index.length() > 0 {
+            expanded_index
+          } else {
+            index_expr
+          }
+          let raw_index = self.eval_arith(@ast.ArithExpr::Raw(raw_text))
+          let resolved_index = if raw_index < 0L {
+            self.indexed_array_origin(base) + raw_index
+          } else {
+            raw_index
+          }
+          if resolved_index < 0L {
+            let line = self.line_number_for_fragment(arg)
+            self.stderr_buf.write_string(
+              "bash: line \{line.to_string()}: unset: [\{raw_index.to_string()}]: bad array subscript\n",
+            )
+            failed = true
+            continue
+          }
+        }
+      }
+      None => ()
     }
     match self.resolve_array_assignment_target(arg) {
       Some((base, index)) => {
@@ -80,7 +108,7 @@ fn ExecContext::builtin_unset(self : ExecContext, args : Array[String]) -> Unit 
     self.env.remove(upper_attr_storage_key(arg))
     self.exported.remove(arg)
   }
-  self.exit_code = 0
+  self.exit_code = if failed { 1 } else { 0 }
 }
 
 fn ExecContext::builtin_set(self : ExecContext, args : Array[String]) -> Unit {

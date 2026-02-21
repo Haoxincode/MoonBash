@@ -279,10 +279,16 @@ fn ExecContext::resolve_array_assignment_target(
       }
 
       let raw_index = self.eval_arith(@ast.ArithExpr::Raw(resolved_index))
-      let count_key = "__MOON_BASH_ARRAY_COUNT__" + base
-      let count = parse_int32_str(self.env.get(count_key).unwrap_or("0")).to_int64()
-      let final_index = if raw_index < 0L { count + raw_index } else { raw_index }
+      let final_index = if raw_index < 0L {
+        self.indexed_array_origin(base) + raw_index
+      } else {
+        raw_index
+      }
       if final_index < 0L {
+        let subject = "\{base}[\{raw_index.to_string()}]"
+        self.emit_bad_array_subscript(subject, raw_name)
+        self.exit_code = 1
+        self.should_exit = true
         return Some((base, raw_index.to_string()))
       }
       Some((base, final_index.to_string()))

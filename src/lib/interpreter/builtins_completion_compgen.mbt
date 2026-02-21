@@ -333,12 +333,6 @@ fn ExecContext::builtin_compgen(
       }
       let replies = self.collect_compreply_values()
       for value in replies {
-        if value == "0" {
-          self.exit_code = 1
-          return
-        }
-      }
-      for value in replies {
         completion_add_unique(candidates, seen, value)
       }
     }

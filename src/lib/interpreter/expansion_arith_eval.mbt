@@ -51,11 +51,18 @@ fn ExecContext::arith_get_array_elem(
   name : String,
   index : Int64
 ) -> Int64 {
-  if index < 0L {
+  let resolved_index = if index < 0L {
+    self.indexed_array_origin(name) + index
+  } else {
+    index
+  }
+  if resolved_index < 0L {
+    let fragment = "\{name}[\{index.to_string()}]"
+    self.emit_bad_array_subscript(name, fragment)
     return 0L
   }
 
-  let key = name + "[" + index.to_string() + "]"
+  let key = name + "[" + resolved_index.to_string() + "]"
   match self.env.get(key) {
     Some(v) => return self.arith_parse_value_text(v)
     None => ()
@@ -68,8 +75,8 @@ fn ExecContext::arith_get_array_elem(
     trimmed[trimmed.length() - 1] == ')' {
     let inner = trimmed.view(start_offset=1, end_offset=trimmed.length() - 1).to_string()
     let parts = split_by_whitespace(inner)
-    if index < parts.length().to_int64() {
-      return self.arith_parse_value_text(parts[index.to_int()])
+    if resolved_index < parts.length().to_int64() {
+      return self.arith_parse_value_text(parts[resolved_index.to_int()])
     }
   }
 
@@ -685,4 +692,3 @@ fn is_ifs_char(ch : Char, ifs : String) -> Bool {
   }
   false
 }
-

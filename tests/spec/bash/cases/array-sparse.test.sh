@@ -207,7 +207,6 @@ declare -a sp1=([0]=D [2]=C [6]=B [9]=A)
 
 
 #### a[i]=v with BigInt
-## SKIP (unimplementable): BigInt array indices not supported - JavaScript limitation
 case $SH in mksh) exit ;; esac
 
 sp1[1]=x

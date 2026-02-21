@@ -39,6 +39,7 @@ pub(all) struct ExecContext {
 
   // Filesystem
   fs : @fs.InMemoryFs
+  mut current_script : String
 }
 
 /// Create a new execution context.
@@ -86,6 +87,7 @@ pub fn ExecContext::new(
     substitution_depth: 0,
     glob_operations: 0,
     fs,
+    current_script: "",
   }
 }
 
@@ -101,6 +103,7 @@ pub fn ExecContext::execute(
   self.return_requested = false
   self.substitution_depth = 0
   self.glob_operations = 0
+  self.current_script = script
 
   let parsed = try {
     @parser.parse(script)

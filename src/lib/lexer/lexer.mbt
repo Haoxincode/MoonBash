@@ -945,8 +945,13 @@ fn Lexer::scan_double_quote(self : Lexer, buf : StringBuilder) -> Unit raise @as
       '\\' => {
         if not(self.at_end()) {
           let next = self.peek()
-          if next == '$' || next == '`' || next == '"' || next == '\\' || next == '\n' {
+          if next == '$' || next == '`' || next == '"' || next == '\\' {
+            // Preserve escape marker for expansion parser.
+            buf.write_char('\\')
             buf.write_char(self.advance())
+          } else if next == '\n' {
+            // Line continuation inside double quotes.
+            ignore(self.advance())
           } else {
             buf.write_char('\\')
           }

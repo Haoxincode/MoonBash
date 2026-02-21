@@ -820,6 +820,18 @@ fn match_pattern(s : String, si : Int, p : String, pi : Int) -> Bool {
   if si >= s.length() {
     return false
   }
+  if pch == '[' {
+    let sch = s[si].to_int().unsafe_to_char()
+    match match_char_class_pattern(sch, p, pi) {
+      Some((matched, next_pi)) => {
+        if matched {
+          return match_pattern(s, si + 1, p, next_pi)
+        }
+        return false
+      }
+      None => ()
+    }
+  }
   if pch == '?' {
     return match_pattern(s, si + 1, p, pi + 1)
   }
@@ -828,6 +840,66 @@ fn match_pattern(s : String, si : Int, p : String, pi : Int) -> Bool {
     return match_pattern(s, si + 1, p, pi + 1)
   }
   false
+}
+
+fn match_char_class_pattern(
+  ch : Char,
+  pattern : String,
+  start : Int
+) -> (Bool, Int)? {
+  if start + 1 >= pattern.length() {
+    return None
+  }
+
+  let mut i = start + 1
+  let mut negated = false
+  if i < pattern.length() {
+    let first = pattern[i].to_int().unsafe_to_char()
+    if first == '!' || first == '^' {
+      negated = true
+      i += 1
+    }
+  }
+
+  let mut seen_any = false
+  let mut matched = false
+  while i < pattern.length() {
+    let current = pattern[i].to_int().unsafe_to_char()
+    if current == ']' && seen_any {
+      let final_match = if negated { not(matched) } else { matched }
+      return Some((final_match, i + 1))
+    }
+
+    if current == '\\' && i + 1 < pattern.length() {
+      seen_any = true
+      let escaped = pattern[i + 1].to_int().unsafe_to_char()
+      if ch == escaped {
+        matched = true
+      }
+      i += 2
+      continue
+    }
+
+    if i + 2 < pattern.length() &&
+      pattern[i + 1].to_int().unsafe_to_char() == '-' &&
+      pattern[i + 2].to_int().unsafe_to_char() != ']' {
+      seen_any = true
+      let end_ch = pattern[i + 2].to_int().unsafe_to_char()
+      if ch >= current && ch <= end_ch {
+        matched = true
+      }
+      i += 3
+      continue
+    }
+
+    seen_any = true
+    if ch == current {
+      matched = true
+    }
+    i += 1
+  }
+
+  None
 }
 
 fn replace_pattern(

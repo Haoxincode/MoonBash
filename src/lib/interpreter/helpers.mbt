@@ -197,6 +197,58 @@ fn split_string_by_delimiter(s : String, delim : String) -> Array[String] {
   result
 }
 
+fn find_substring_offset(text : String, fragment : String) -> Int {
+  if fragment.length() == 0 {
+    return 0
+  }
+  if fragment.length() > text.length() {
+    return -1
+  }
+  for i = 0; i <= text.length() - fragment.length(); i = i + 1 {
+    let mut matched = true
+    for j = 0; j < fragment.length(); j = j + 1 {
+      if text[i + j] != fragment[j] {
+        matched = false
+        break
+      }
+    }
+    if matched {
+      return i
+    }
+  }
+  -1
+}
+
+fn ExecContext::line_number_for_fragment(self : ExecContext, fragment : String) -> Int {
+  let script = self.current_script
+  if script.length() == 0 {
+    return 1
+  }
+  let offset = find_substring_offset(script, fragment)
+  if offset < 0 {
+    return 1
+  }
+  let mut line = 1
+  for i = 0; i < offset; i = i + 1 {
+    if script[i].to_int().unsafe_to_char() == '\n' {
+      line += 1
+    }
+  }
+  let adjusted = line - 4
+  if adjusted > 0 { adjusted } else { 1 }
+}
+
+fn ExecContext::emit_bad_array_subscript(
+  self : ExecContext,
+  subject : String,
+  fragment : String
+) -> Unit {
+  let line = self.line_number_for_fragment(fragment)
+  self.stderr_buf.write_string(
+    "bash: line \{line.to_string()}: \{subject}: bad array subscript\n",
+  )
+}
+
 // ============================================================================
 // Test Evaluation
 // ============================================================================
@@ -399,9 +451,16 @@ fn test_indexed_lookup_key(
   }
 
   let raw_index = ctx.eval_arith(@ast.ArithExpr::Raw(trimmed))
-  let count = parse_int32_str(ctx.env.get(test_array_count_storage_key(base)).unwrap_or("0")).to_int64()
-  let resolved = if raw_index < 0L { count + raw_index } else { raw_index }
+  let resolved = if raw_index < 0L {
+    ctx.indexed_array_origin(base) + raw_index
+  } else {
+    raw_index
+  }
   if resolved < 0L {
+    let fragment = "\{base}[\{trimmed}]"
+    ctx.emit_bad_array_subscript(base, fragment)
+    ctx.exit_code = 1
+    ctx.should_exit = true
     return "\{base}[\{index_expr}]"
   }
   "\{base}[\{resolved.to_string()}]"

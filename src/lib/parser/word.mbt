@@ -343,13 +343,19 @@ fn parse_param_expansion_content(content : String) -> @ast.WordPart {
   }
 
   // Find the variable name (supports optional array-style subscripts).
-  let name_end = parse_param_name_end(content)
+  let raw_name_end = parse_param_name_end(content)
+  let name_end = if raw_name_end == 0 {
+    // Special variable like ${?}, ${*}, ${@}, etc.
+    if len >= 1 && is_special_var(wchar_at(content, 0)) {
+      1
+    } else {
+      0
+    }
+  } else {
+    raw_name_end
+  }
 
   if name_end == 0 {
-    // Special variable like ${?}, ${!}, etc.
-    if len >= 1 && is_special_var(wchar_at(content, 0)) {
-      return @ast.WordPart::Variable(wsubstr(content, 0, 1))
-    }
     return @ast.WordPart::Literal(content)
   }
 
@@ -473,11 +479,15 @@ fn parse_param_expansion_content(content : String) -> @ast.WordPart {
       @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Lowercase(name, pat, greedy))
     }
     '@' => {
-      if rest_start + 1 == len && wchar_at(content, rest_start) == 'Q' {
-        @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Simple(name + "@Q"))
-      } else {
-        @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Simple(name))
+      if rest_start + 1 == len {
+        let transform = wchar_at(content, rest_start)
+        if transform == 'Q' || transform == 'P' || transform == 'a' {
+          return @ast.WordPart::ParameterExpansion(
+            @ast.ParamExpansion::Simple(name + "@" + transform.to_string()),
+          )
+        }
       }
+      @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Simple(name))
     }
     _ => {
       // Unknown operator, treat as simple
