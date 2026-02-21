@@ -517,6 +517,75 @@ fn Lexer::scan_dollar_paren_into_word(
   }
 }
 
+fn Lexer::scan_dollar_bracket_into_word(
+  self : Lexer,
+  buf : StringBuilder
+) -> Unit raise @ast.BashError {
+  // Consume "$["
+  buf.write_char(self.advance())
+  buf.write_char(self.advance())
+
+  let mut depth = 1
+  let mut in_single = false
+  let mut in_double = false
+  let mut escaped = false
+
+  while not(self.at_end()) {
+    let ch = self.advance()
+    buf.write_char(ch)
+
+    if escaped {
+      escaped = false
+      continue
+    }
+
+    if in_single {
+      if ch == '\'' {
+        in_single = false
+      }
+      continue
+    }
+
+    if in_double {
+      if ch == '"' {
+        in_double = false
+      } else if ch == '\\' {
+        escaped = true
+      }
+      continue
+    }
+
+    if ch == '\\' {
+      escaped = true
+      continue
+    }
+
+    if ch == '\'' {
+      in_single = true
+      continue
+    }
+
+    if ch == '"' {
+      in_double = true
+      continue
+    }
+
+    if ch == '[' {
+      depth += 1
+      continue
+    }
+
+    if ch == ']' {
+      depth -= 1
+      if depth == 0 {
+        return
+      }
+    }
+  }
+
+  raise @ast.BashError("unterminated legacy arithmetic expansion")
+}
+
 fn Lexer::scan_backtick_into_word(
   self : Lexer,
   buf : StringBuilder
@@ -579,6 +648,10 @@ fn Lexer::scan_parenthesized_assignment_value(
         } else {
           self.scan_dollar_paren_into_word(buf)
         }
+        continue
+      }
+      if self.peek() == '$' && self.peek_at(1) == '[' {
+        self.scan_dollar_bracket_into_word(buf)
         continue
       }
       if self.peek() == '`' {
@@ -812,6 +885,10 @@ fn Lexer::scan_word(self : Lexer) -> Unit raise @ast.BashError {
       }
       continue
     }
+    if ch == '$' && self.peek_at(1) == '[' {
+      self.scan_dollar_bracket_into_word(buf)
+      continue
+    }
 
     if ch == '`' {
       self.scan_backtick_into_word(buf)
@@ -929,6 +1006,10 @@ fn Lexer::scan_double_quote(self : Lexer, buf : StringBuilder) -> Unit raise @as
       } else {
         self.scan_dollar_paren_into_word(buf)
       }
+      continue
+    }
+    if self.peek() == '$' && self.peek_at(1) == '[' {
+      self.scan_dollar_bracket_into_word(buf)
       continue
     }
     if self.peek() == '`' {
@@ -1051,12 +1132,10 @@ fn parse_assignment_name_end(word : String, eq_pos : Int) -> Int? {
     }
     i += 1
     let mut depth = 1
-    let mut has_subscript_content = false
     while i < name_end && depth > 0 {
       let ch = char_at(word, i)
       if ch == '[' {
         depth += 1
-        has_subscript_content = true
         i += 1
         continue
       }
@@ -1066,14 +1145,12 @@ fn parse_assignment_name_end(word : String, eq_pos : Int) -> Int? {
           i += 1
           break
         }
-        has_subscript_content = true
         i += 1
         continue
       }
-      has_subscript_content = true
       i += 1
     }
-    if depth != 0 || not(has_subscript_content) {
+    if depth != 0 {
       return None
     }
   }

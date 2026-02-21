@@ -53,6 +53,14 @@ test "tokenize double quoted with dollar" {
   assert_eq(tokens[2], @ast.Token::EOF)
 }
 
+test "tokenize legacy arithmetic expansion word" {
+  let tokens = tokenize("echo $[3 * 4]")
+  assert_eq(tokens.length(), 3)
+  assert_eq(tokens[0], @ast.Token::Word("echo"))
+  assert_eq(tokens[1], @ast.Token::Word("$[3 * 4]"))
+  assert_eq(tokens[2], @ast.Token::EOF)
+}
+
 // ============================================================================
 // Pipes
 // ============================================================================
@@ -220,6 +228,11 @@ test "tokenize array assignment with equals in index expression" {
 test "tokenize array assignment append with equals in index expression" {
   let tokens = tokenize("a[a[0]+=1]+=X")
   assert_eq(tokens[0], @ast.Token::AssignmentWord("a[a[0]+=1]", "X", true))
+}
+
+test "tokenize array assignment with empty subscript" {
+  let tokens = tokenize("a[]=42")
+  assert_eq(tokens[0], @ast.Token::AssignmentWord("a[]", "42", false))
 }
 
 // ============================================================================

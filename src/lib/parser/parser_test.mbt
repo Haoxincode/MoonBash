@@ -460,6 +460,62 @@ test "parse word plain literal" {
   }
 }
 
+test "parse legacy arithmetic expansion in word" {
+  let word = parse_word_content("$[1+2]")
+  assert_eq(word.parts.length(), 1)
+  match word.parts[0] {
+    @ast.WordPart::ArithmeticExpansion(@ast.ArithExpr::Raw(expr)) => assert_eq(expr, "1+2")
+    _ => fail("expected arithmetic expansion")
+  }
+}
+
+test "parse substring with ternary offset and length" {
+  let word = parse_word_content("${s: 0 < 1 ? 2 : 0 : 1}")
+  assert_eq(word.parts.length(), 1)
+  match word.parts[0] {
+    @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Substring(name, offset, length)) => {
+      assert_eq(name, "s")
+      match offset {
+        @ast.ArithExpr::Raw(text) => assert_eq(text, "0 < 1 ? 2 : 0")
+        _ => fail("expected raw offset")
+      }
+      match length {
+        Some(@ast.ArithExpr::Raw(text)) => assert_eq(text, "1")
+        _ => fail("expected raw length")
+      }
+    }
+    _ => fail("expected substring expansion")
+  }
+}
+
+test "parse substring empty length expression" {
+  let word = parse_word_content("${a[@]: : }")
+  assert_eq(word.parts.length(), 1)
+  match word.parts[0] {
+    @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Substring(name, offset, length)) => {
+      assert_eq(name, "a[@]")
+      match offset {
+        @ast.ArithExpr::Raw(text) => assert_eq(text, "0")
+        _ => fail("expected raw offset")
+      }
+      match length {
+        Some(@ast.ArithExpr::Raw(text)) => assert_eq(text, "0")
+        _ => fail("expected empty-length parsed as 0")
+      }
+    }
+    _ => fail("expected substring expansion")
+  }
+}
+
+test "parse empty array subscript parameter name" {
+  let word = parse_word_content("${a[]}")
+  assert_eq(word.parts.length(), 1)
+  match word.parts[0] {
+    @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Simple(name)) => assert_eq(name, "a[]")
+    _ => fail("expected simple parameter expansion")
+  }
+}
+
 // ============================================================================
 // Assignment
 // ============================================================================

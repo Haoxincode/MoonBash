@@ -307,14 +307,68 @@ fn ExecContext::builtin_return(
   self.return_requested = true
 }
 
+fn is_positive_decimal_text(text : String) -> Bool {
+  if text.length() == 0 {
+    return false
+  }
+  for i = 0; i < text.length(); i = i + 1 {
+    let ch = text[i].to_int().unsafe_to_char()
+    if ch < '0' || ch > '9' {
+      return false
+    }
+  }
+  true
+}
+
+fn ExecContext::parse_loop_control_count_arg(
+  self : ExecContext,
+  builtin_name : String,
+  args : Array[String]
+) -> Int? {
+  if args.length() == 0 {
+    return Some(1)
+  }
+  if args.length() > 1 {
+    self.stderr_buf.write_string("moon_bash: \{builtin_name}: too many arguments\n")
+    self.exit_code = 1
+    self.should_exit = true
+    return None
+  }
+
+  let raw = args[0]
+  if not(is_positive_decimal_text(raw)) {
+    self.stderr_buf.write_string("moon_bash: \{builtin_name}: \{raw}: numeric argument required\n")
+    self.exit_code = 1
+    self.should_exit = true
+    return None
+  }
+
+  let n = parse_int32_str(raw)
+  if n <= 0 {
+    self.stderr_buf.write_string("moon_bash: \{builtin_name}: \{raw}: loop count out of range\n")
+    self.exit_code = 1
+    self.should_exit = true
+    return None
+  }
+  Some(n)
+}
+
 fn ExecContext::builtin_break(
   self : ExecContext,
   args : Array[String]
 ) -> Unit {
-  let n = if args.length() > 0 { parse_int32_str(args[0]) } else { 1 }
-  if self.loop_depth > 0 {
-    self.break_count = n
+  let n = match self.parse_loop_control_count_arg("break", args) {
+    Some(value) => value
+    None => return
   }
+  if self.loop_depth <= 0 {
+    self.stderr_buf.write_string(
+      "moon_bash: break: only meaningful in a `for', `while', or `until' loop\n",
+    )
+    self.exit_code = 1
+    return
+  }
+  self.break_count = n
   self.exit_code = 0
 }
 
@@ -322,10 +376,18 @@ fn ExecContext::builtin_continue(
   self : ExecContext,
   args : Array[String]
 ) -> Unit {
-  let n = if args.length() > 0 { parse_int32_str(args[0]) } else { 1 }
-  if self.loop_depth > 0 {
-    self.continue_count = n
+  let n = match self.parse_loop_control_count_arg("continue", args) {
+    Some(value) => value
+    None => return
   }
+  if self.loop_depth <= 0 {
+    self.stderr_buf.write_string(
+      "moon_bash: continue: only meaningful in a `for', `while', or `until' loop\n",
+    )
+    self.exit_code = 1
+    return
+  }
+  self.continue_count = n
   self.exit_code = 0
 }
 
@@ -333,6 +395,80 @@ fn ExecContext::builtin_local(
   self : ExecContext,
   args : Array[String]
 ) -> Unit {
+  let mut indexed_array_mode = false
+  let mut assoc_array_mode = false
+  let mut has_other_flags = false
+  for arg in args {
+    if arg.length() > 0 && arg[0] == '-' {
+      if declare_flag_contains(arg, 'a') {
+        indexed_array_mode = true
+      }
+      if declare_flag_contains(arg, 'A') {
+        assoc_array_mode = true
+      }
+      if not(declare_flag_contains(arg, 'a')) && not(declare_flag_contains(arg, 'A')) {
+        has_other_flags = true
+      }
+    }
+  }
+
+  if indexed_array_mode || assoc_array_mode {
+    let mut failed = false
+    for arg in args {
+      if arg.length() > 0 && arg[0] == '-' {
+        continue
+      }
+      match parse_name_value_spec(arg) {
+        Some((name, assigned_value, append)) => {
+          self.capture_local_binding(name)
+          self.env[test_array_kind_storage_key(name)] = if assoc_array_mode { "assoc" } else { "indexed" }
+          match assigned_value {
+            Some(raw_value) => {
+              let word = @parser.parse_word_content(raw_value)
+              if self.try_store_array_assignment(name, word, append) {
+                if self.should_exit {
+                  failed = true
+                  break
+                }
+                continue
+              }
+
+              let value = self.expand_word_to_string(word)
+              if self.should_exit {
+                failed = true
+                break
+              }
+              let next_value = if append { self.env.get(name).unwrap_or("") + value } else { value }
+              if not(self.store_scalar_assignment_with_options(name, next_value, false)) {
+                failed = true
+                break
+              }
+            }
+            None => self.store_array_assignment(name, [])
+          }
+        }
+        None => {
+          failed = true
+          break
+        }
+      }
+    }
+    self.exit_code = if failed { 1 } else { 0 }
+    return
+  }
+
+  if has_other_flags {
+    self.builtin_declare(args)
+    return
+  }
+
+  for arg in args {
+    if arg.length() > 0 && arg[0] == '-' {
+      self.builtin_declare(args)
+      return
+    }
+  }
+
   let mut failed = false
   for arg in args {
     match parse_name_value_spec(arg) {

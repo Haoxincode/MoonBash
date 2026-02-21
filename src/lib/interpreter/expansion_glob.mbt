@@ -473,7 +473,7 @@ fn ExecContext::expand_variables_with_prefix(
 }
 
 fn parse_array_reference_name(name : String) -> (String, String)? {
-  if name.length() < 4 || name[name.length() - 1] != ']' {
+  if name.length() < 3 || name[name.length() - 1] != ']' {
     return None
   }
 
@@ -494,10 +494,6 @@ fn parse_array_reference_name(name : String) -> (String, String)? {
   }
 
   let index = name.view(start_offset=bracket + 1, end_offset=name.length() - 1).to_string()
-  if index.length() == 0 {
-    return None
-  }
-
   Some((base, index))
 }
 

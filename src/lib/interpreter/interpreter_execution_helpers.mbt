@@ -118,8 +118,33 @@ fn ExecContext::expand_array_assignment_item_values(
   }
   match parse_array_assignment_explicit_entry(raw) {
     Some(_) => [raw]
-    None => self.expand_word(item_word)
+    None => {
+      let expanded = self.expand_word(item_word)
+      if expanded.length() == 0 && array_assignment_word_has_quoted_part(item_word.parts) {
+        [raw]
+      } else {
+        expanded
+      }
+    }
   }
+}
+
+fn array_assignment_word_has_quoted_part(parts : Array[@ast.WordPart]) -> Bool {
+  for part in parts {
+    match part {
+      @ast.WordPart::SingleQuoted(_) => return true
+      @ast.WordPart::DoubleQuoted(_) => return true
+      @ast.WordPart::BraceExpansion(options) => {
+        for option in options {
+          if array_assignment_word_has_quoted_part(option) {
+            return true
+          }
+        }
+      }
+      _ => ()
+    }
+  }
+  false
 }
 
 fn ExecContext::parse_assoc_assignment_entries(
@@ -380,6 +405,8 @@ fn ExecContext::store_indexed_assignment(
 ) -> Unit {
   if not(append) {
     self.store_array_assignment(name, [])
+  } else {
+    self.seed_indexed_assignment_from_scalar(name)
   }
   let mut next_index = self.next_indexed_assignment_seed(name, append)
   for token in values {
@@ -405,6 +432,23 @@ fn ExecContext::store_indexed_assignment(
   }
   self.refresh_array_metadata(name)
   self.env[test_array_kind_storage_key(name)] = "indexed"
+}
+
+fn ExecContext::seed_indexed_assignment_from_scalar(
+  self : ExecContext,
+  name : String
+) -> Unit {
+  if self.env.contains(test_array_count_storage_key(name)) ||
+    self.collect_array_keys(name).length() > 0 ||
+    not(self.env.contains(name)) {
+    return
+  }
+
+  let scalar = self.env.get(name).unwrap_or("")
+  self.env["\{name}[0]"] = scalar
+  self.env[name + "[@]"] = scalar
+  self.env[name + "[*]"] = scalar
+  self.env[test_array_count_storage_key(name)] = "1"
 }
 
 fn collect_assignment_restore_names(
@@ -621,6 +665,11 @@ fn ExecContext::store_array_element_assignment(
   value : String,
   append : Bool
 ) -> Unit {
+  if trim_ascii_space_for_array_index(index).length() == 0 {
+    self.emit_bad_array_subscript(base, "\{base}[]")
+    self.exit_code = 1
+    return
+  }
   if self.env.contains(readonly_storage_key(base)) {
     self.stderr_buf.write_string("moon_bash: \{base}: readonly variable\n")
     self.exit_code = 1
@@ -694,7 +743,7 @@ fn string_has_prefix(s : String, prefix : String) -> Bool {
 }
 
 fn parse_array_element_assignment_name(name : String) -> (String, String)? {
-  if name.length() < 4 || name[name.length() - 1] != ']' {
+  if name.length() < 3 || name[name.length() - 1] != ']' {
     return None
   }
 
@@ -716,9 +765,6 @@ fn parse_array_element_assignment_name(name : String) -> (String, String)? {
 
   let raw_index = name.view(start_offset=bracket + 1, end_offset=name.length() - 1).to_string()
   let index = normalize_array_assignment_index(raw_index)
-  if index.length() == 0 {
-    return None
-  }
 
   Some((base, index))
 }

@@ -57,7 +57,7 @@ fn ExecContext::arith_get_array_elem(
     index
   }
   if resolved_index < 0L {
-    let fragment = "\{name}[\{index.to_string()}]"
+    let fragment = "$((\{name}[\{index.to_string()}]))"
     self.emit_bad_array_subscript(name, fragment)
     return 0L
   }
@@ -102,9 +102,8 @@ fn ExecContext::arith_set_target(
       }
       let key = name + "[" + index.to_string() + "]"
       self.env[key] = value.to_string()
-      if index == 0L {
-        self.env[name] = value.to_string()
-      }
+      self.refresh_array_metadata(name)
+      self.env[test_array_kind_storage_key(name)] = "indexed"
     }
   }
 }

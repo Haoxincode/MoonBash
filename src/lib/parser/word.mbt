@@ -110,6 +110,12 @@ pub fn parse_word_parts(s : String) -> Array[@ast.WordPart] {
           i = result.1
           continue
         }
+      } else if next == '[' {
+        // $[...] legacy arithmetic expansion
+        let result = parse_legacy_arith_expansion(s, i + 2)
+        parts.push(result.0)
+        i = result.1
+        continue
       } else if is_var_start(next) {
         // $VAR simple variable
         let result = parse_simple_variable(s, i + 1)
@@ -263,8 +269,8 @@ fn parse_param_name_end(content : String) -> Int {
       }
       i += 1
     }
-    // Malformed or empty subscript, fallback to base name only.
-    if depth > 0 || i <= bracket_start + 2 {
+    // Malformed subscript, fallback to base name only.
+    if depth > 0 {
       return bracket_start
     }
   }
@@ -498,13 +504,7 @@ fn parse_param_expansion_content(content : String) -> @ast.WordPart {
 
 fn parse_substring_spec(spec : String) -> (@ast.ArithExpr, @ast.ArithExpr?) {
   let trimmed = trim_ascii_space_word(spec)
-  let mut colon_pos = -1
-  for i = 0; i < trimmed.length(); i = i + 1 {
-    if wchar_at(trimmed, i) == ':' {
-      colon_pos = i
-      break
-    }
-  }
+  let colon_pos = find_substring_length_separator(trimmed)
 
   if colon_pos < 0 {
     let offset_text = if trimmed.length() == 0 { "0" } else { trimmed }
@@ -514,12 +514,118 @@ fn parse_substring_spec(spec : String) -> (@ast.ArithExpr, @ast.ArithExpr?) {
   let left = trim_ascii_space_word(wsubstr(trimmed, 0, colon_pos))
   let right = trim_ascii_space_word(wsubstr(trimmed, colon_pos + 1, trimmed.length()))
   let offset_expr = @ast.ArithExpr::Raw(if left.length() == 0 { "0" } else { left })
-  let length_expr = if right.length() == 0 {
-    None
-  } else {
-    Some(@ast.ArithExpr::Raw(right))
-  }
+  let length_expr = Some(@ast.ArithExpr::Raw(if right.length() == 0 { "0" } else { right }))
   (offset_expr, length_expr)
+}
+
+fn find_substring_length_separator(spec : String) -> Int {
+  let mut paren_depth = 0
+  let mut bracket_depth = 0
+  let mut brace_depth = 0
+  let mut ternary_depth = 0
+  let mut in_single = false
+  let mut in_double = false
+  let mut escaped = false
+  let mut i = 0
+
+  while i < spec.length() {
+    let ch = wchar_at(spec, i)
+
+    if escaped {
+      escaped = false
+      i += 1
+      continue
+    }
+
+    if in_single {
+      if ch == '\'' {
+        in_single = false
+      }
+      i += 1
+      continue
+    }
+
+    if in_double {
+      if ch == '"' {
+        in_double = false
+      } else if ch == '\\' {
+        escaped = true
+      }
+      i += 1
+      continue
+    }
+
+    if ch == '\\' {
+      escaped = true
+      i += 1
+      continue
+    }
+
+    if ch == '\'' {
+      in_single = true
+      i += 1
+      continue
+    }
+
+    if ch == '"' {
+      in_double = true
+      i += 1
+      continue
+    }
+
+    if ch == '(' {
+      paren_depth += 1
+      i += 1
+      continue
+    }
+    if ch == ')' && paren_depth > 0 {
+      paren_depth -= 1
+      i += 1
+      continue
+    }
+
+    if ch == '[' {
+      bracket_depth += 1
+      i += 1
+      continue
+    }
+    if ch == ']' && bracket_depth > 0 {
+      bracket_depth -= 1
+      i += 1
+      continue
+    }
+
+    if ch == '{' {
+      brace_depth += 1
+      i += 1
+      continue
+    }
+    if ch == '}' && brace_depth > 0 {
+      brace_depth -= 1
+      i += 1
+      continue
+    }
+
+    if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 {
+      if ch == '?' {
+        ternary_depth += 1
+        i += 1
+        continue
+      }
+      if ch == ':' {
+        if ternary_depth > 0 {
+          ternary_depth -= 1
+          i += 1
+          continue
+        }
+        return i
+      }
+    }
+
+    i += 1
+  }
+
+  -1
 }
 
 fn trim_ascii_space_word(s : String) -> String {
@@ -652,6 +758,80 @@ fn parse_arith_expansion(s : String, start : Int) -> (@ast.WordPart, Int) {
   }
 
   (@ast.WordPart::ArithmeticExpansion(@ast.ArithExpr::Raw(content)), i)
+}
+
+/// Parse $[...] legacy arithmetic expansion starting after the opening `[`.
+fn parse_legacy_arith_expansion(
+  s : String,
+  start : Int
+) -> (@ast.WordPart, Int) {
+  let mut depth = 1
+  let mut i = start
+  let mut in_single = false
+  let mut in_double = false
+  let mut escaped = false
+
+  while i < s.length() {
+    let ch = wchar_at(s, i)
+
+    if escaped {
+      escaped = false
+      i += 1
+      continue
+    }
+
+    if in_single {
+      if ch == '\'' {
+        in_single = false
+      }
+      i += 1
+      continue
+    }
+
+    if in_double {
+      if ch == '"' {
+        in_double = false
+      } else if ch == '\\' {
+        escaped = true
+      }
+      i += 1
+      continue
+    }
+
+    if ch == '\\' {
+      escaped = true
+      i += 1
+      continue
+    }
+
+    if ch == '\'' {
+      in_single = true
+      i += 1
+      continue
+    }
+
+    if ch == '"' {
+      in_double = true
+      i += 1
+      continue
+    }
+
+    if ch == '[' {
+      depth += 1
+    } else if ch == ']' {
+      depth -= 1
+      if depth == 0 {
+        let content = wsubstr(s, start, i)
+        i += 1 // skip closing ]
+        return (@ast.WordPart::ArithmeticExpansion(@ast.ArithExpr::Raw(content)), i)
+      }
+    }
+
+    i += 1
+  }
+
+  let content = wsubstr(s, start, s.length())
+  (@ast.WordPart::ArithmeticExpansion(@ast.ArithExpr::Raw(content)), s.length())
 }
 
 // ============================================================================

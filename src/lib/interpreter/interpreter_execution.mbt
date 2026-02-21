@@ -342,6 +342,8 @@ fn ExecContext::execute_simple(
   self : ExecContext,
   cmd : @ast.SimpleCommand
 ) -> Unit {
+  self.env.remove("__MOON_BASH_ABORT_CURRENT_COMMAND__")
+
   // Handle assignments
   let has_words = cmd.words.length() > 0
   let mut prefix_assignment_restore_names : Array[String] = []
@@ -350,6 +352,8 @@ fn ExecContext::execute_simple(
 
   // Process variable assignments
   if cmd.assignments.length() > 0 {
+    // Assignment command status is independent from previous pipeline status.
+    self.exit_code = 0
     if has_words {
       prefix_assignment_restore_names = collect_assignment_restore_names(cmd.assignments)
       if prefix_assignment_restore_names.length() > 0 {
@@ -484,7 +488,7 @@ fn ExecContext::execute_simple(
     }
     // If no words follow, we're done (assignment-only command)
     if not(has_words) {
-      if not(self.should_exit) && not(keep_expansion_status) {
+      if not(self.should_exit) && not(keep_expansion_status) && self.exit_code == 0 {
         self.exit_code = 0
       }
       return
@@ -576,6 +580,11 @@ fn ExecContext::execute_simple(
   }
 
   if self.should_exit {
+    return
+  }
+
+  if self.env.contains("__MOON_BASH_ABORT_CURRENT_COMMAND__") {
+    self.env.remove("__MOON_BASH_ABORT_CURRENT_COMMAND__")
     return
   }
 

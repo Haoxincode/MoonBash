@@ -230,6 +230,37 @@ fn ExecContext::expand_array_parameter_words(
         replace_pattern(value, pat, repl, mode)
       })
     }
+    @ast.ParamExpansion::Substring(name, offset_expr, length_expr) => {
+      let offset = self.eval_arith(offset_expr)
+      let len = match length_expr {
+        Some(le) => Some(self.eval_arith(le))
+        None => None
+      }
+      if name == "@" {
+        return Some(self.slice_positional_parameters_for_substring(offset, len))
+      }
+      if name == "*" {
+        let values = self.slice_positional_parameters_for_substring(offset, len)
+        return Some([join_values_with_ifs(values, self.env.get("IFS").unwrap_or(" \t\n"))])
+      }
+      match parse_array_reference_name(name) {
+        Some((base, index_expr)) if index_expr == "@" || index_expr == "*" => {
+          if self.env.get(test_array_kind_storage_key(base)).unwrap_or("") == "assoc" {
+            self.exit_code = 1
+            self.should_exit = true
+            Some([])
+          } else {
+            let sliced = self.expand_indexed_array_substring_values(base, offset, len)
+            if index_expr == "*" {
+              Some([join_values_with_ifs(sliced, self.env.get("IFS").unwrap_or(" \t\n"))])
+            } else {
+              Some(sliced)
+            }
+          }
+        }
+        _ => None
+      }
+    }
     _ => None
   }
 }
@@ -565,6 +596,12 @@ fn ExecContext::expand_array_element_reference(
   }
 
   let trimmed = trim_ascii_space_simple(index_expr)
+  if trimmed.length() == 0 {
+    self.emit_bad_array_subscript(base, "\{base}[]")
+    self.exit_code = 1
+    self.env["__MOON_BASH_ABORT_CURRENT_COMMAND__"] = "1"
+    return ""
+  }
   let literal_key = strip_wrapping_quotes(trimmed)
   let literal_lookup = "\{base}[\{literal_key}]"
   if self.env.contains(literal_lookup) {
