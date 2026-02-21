@@ -161,10 +161,15 @@ fn arith_parse_base_digits(digits : String, base : Int) -> Int64? {
     let ch = digits[i].to_int().unsafe_to_char()
     match arith_digit_value(ch) {
       Some(d) => {
-        if d >= base {
+        let normalized = if base > 36 && ch >= 'A' && ch <= 'Z' {
+          d + 26
+        } else {
+          d
+        }
+        if normalized >= base {
           return None
         }
-        value = value * base.to_int64() + d.to_int64()
+        value = value * base.to_int64() + normalized.to_int64()
       }
       None => return None
     }
@@ -325,6 +330,7 @@ fn arith_tokenize(expr : String) -> Array[String] {
       let b = expr[i + 1].to_int().unsafe_to_char()
       if (a == '+' && b == '+') ||
         (a == '-' && b == '-') ||
+        (a == '*' && b == '*') ||
         (a == '&' && b == '&') ||
         (a == '|' && b == '|') ||
         (a == '=' && b == '=') ||
@@ -354,8 +360,9 @@ fn arith_tokenize(expr : String) -> Array[String] {
         i += 1
       }
       _ => {
-        // Ignore unsupported characters without failing the whole expression.
-        i += 1
+        // Keep an explicit invalid marker so caller can report an error.
+        tokens.push("__MOON_BASH_ARITH_INVALID__")
+        return tokens
       }
     }
   }
@@ -396,4 +403,3 @@ fn arith_shift_right(v : Int64, amount : Int64) -> Int64 {
     v >> amount.to_int()
   }
 }
-

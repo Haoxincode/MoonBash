@@ -31,6 +31,10 @@ fn ExecContext::arith_get_var_value(self : ExecContext, name : String) -> Int64 
     let raw = self.env.get(current).unwrap_or("")
     let trimmed = arith_trim(raw)
     if trimmed.length() == 0 {
+      if self.options.nounset {
+        self.exit_code = 1
+        self.env["__MOON_BASH_ABORT_CURRENT_COMMAND__"] = "1"
+      }
       return 0L
     }
 
@@ -105,6 +109,20 @@ fn ExecContext::arith_get_array_elem(
     if resolved_index < parts.length().to_int64() {
       return self.arith_parse_value_text(parts[resolved_index.to_int()])
     }
+  }
+
+  if trimmed.length() > 0 && resolved_index == 0L {
+    if contains_char(trimmed, ' ') || contains_char(trimmed, '\t') {
+      self.exit_code = 1
+      self.env["__MOON_BASH_ABORT_CURRENT_COMMAND__"] = "1"
+      return 0L
+    }
+    return self.arith_parse_value_text(trimmed)
+  }
+
+  if self.options.nounset {
+    self.exit_code = 1
+    self.env["__MOON_BASH_ABORT_CURRENT_COMMAND__"] = "1"
   }
 
   0L
@@ -222,7 +240,7 @@ fn ExecContext::arith_parse_unary(
           "+" => arith_plain(operand.value)
           "-" => arith_plain(-operand.value)
           "!" => arith_plain(if operand.value == 0L { 1L } else { 0L })
-          "~" => arith_plain(operand.value.lnot())
+          "~" => arith_plain(-operand.value - 1L)
           "++" => {
             let newv = operand.value + 1L
             match operand.target {
@@ -258,14 +276,14 @@ fn ExecContext::arith_parse_mul(
   p : ArithParser,
   execute : Bool
 ) -> ArithValue {
-  let mut left = self.arith_parse_unary(p, execute)
+  let mut left = self.arith_parse_pow(p, execute)
 
   while true {
     match p.peek() {
       Some(op) => {
         if op == "*" || op == "/" || op == "%" {
           ignore(p.advance())
-          let right = self.arith_parse_unary(p, execute)
+          let right = self.arith_parse_pow(p, execute)
           let value = match op {
             "*" => left.value * right.value
             "/" => if right.value == 0L { 0L } else { left.value / right.value }
@@ -279,6 +297,26 @@ fn ExecContext::arith_parse_mul(
       }
       None => break
     }
+  }
+
+  left
+}
+
+fn ExecContext::arith_parse_pow(
+  self : ExecContext,
+  p : ArithParser,
+  execute : Bool
+) -> ArithValue {
+  let mut left = self.arith_parse_unary(p, execute)
+
+  while p.match_tok("**") {
+    let right = self.arith_parse_unary(p, execute)
+    if right.value < 0L {
+      self.exit_code = 1
+      self.env["__MOON_BASH_ABORT_CURRENT_COMMAND__"] = "1"
+      return arith_plain(0L)
+    }
+    left = arith_plain(int_pow(left.value, right.value))
   }
 
   left
@@ -621,6 +659,13 @@ fn ExecContext::eval_arith_raw(self : ExecContext, raw : String) -> Int64 {
   }
   let expanded = self.arith_expand_dollar_refs(expanded_word)
   let tokens = arith_tokenize(expanded)
+  for i = 0; i < tokens.length(); i = i + 1 {
+    if tokens[i] == "__MOON_BASH_ARITH_INVALID__" {
+      self.exit_code = 1
+      self.env["__MOON_BASH_ABORT_CURRENT_COMMAND__"] = "1"
+      return 0L
+    }
+  }
   if tokens.length() == 0 {
     return 0L
   }
@@ -663,7 +708,7 @@ fn ExecContext::eval_arith(self : ExecContext, expr : @ast.ArithExpr) -> Int64 {
       match op {
         @ast.ArithUnaryOp::Negate => -v
         @ast.ArithUnaryOp::LogicalNot => if v == 0L { 1L } else { 0L }
-        @ast.ArithUnaryOp::BitwiseNot => v.lnot()
+        @ast.ArithUnaryOp::BitwiseNot => -v - 1L
         @ast.ArithUnaryOp::PreIncr | @ast.ArithUnaryOp::PostIncr => v + 1L
         @ast.ArithUnaryOp::PreDecr | @ast.ArithUnaryOp::PostDecr => v - 1L
       }
