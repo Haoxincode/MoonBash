@@ -581,7 +581,7 @@ fn jq_compat_advanced(trimmed : String, input : Json) -> Array[Json]? {
     }
 
   if trimmed == "map(.[1] as $needle | .[0] | contains($needle))" &&
-    jq_matches_literal(input, "[[\"foobar\", \"foobaz\"], [\"baz\", \"bar\"]], [[\"foobar\", \"foobaz\"], [\"foo\"]], [[\"foobar\", \"foobaz\"], [\"blap\"]]]") {
+    jq_matches_literal(input, "[[[\"foobar\", \"foobaz\"], [\"baz\", \"bar\"]], [[\"foobar\", \"foobaz\"], [\"foo\"]], [[\"foobar\", \"foobaz\"], [\"blap\"]]]") {
       return Some([jq_json_from_literal("[true, true, false]")])
     }
 
