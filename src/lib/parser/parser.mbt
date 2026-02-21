@@ -507,12 +507,12 @@ fn Parser::parse_double_bracket_simple_command(
 
   let mut closed = false
   while not(self.at_end()) {
-    if self.is_redirection() {
-      redirections.push(self.parse_redirection())
-      continue
-    }
     match self.peek() {
-      @ast.Token::Newline | @ast.Token::EOF => break
+      @ast.Token::Newline => {
+        self.advance() |> ignore
+        continue
+      }
+      @ast.Token::EOF => break
       _ => ()
     }
 
@@ -520,9 +520,6 @@ fn Parser::parse_double_bracket_simple_command(
     let token_text = match tok {
       @ast.Token::DoubleBracketClose => "]]"
       _ => arith_token_to_string(tok)
-    }
-    if token_text.length() == 0 {
-      raise @ast.BashError("unsupported token in [[ expression")
     }
     words.push(parse_word_content(token_text))
     if token_text == "]]" {

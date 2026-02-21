@@ -4,33 +4,64 @@
 
 let brace_expansion_result_limit : Int = 10_000
 
-fn expand_brace_literal(s : String) -> Array[String] {
+priv enum BraceOptionParseResult {
+  BraceNoOption
+  BraceOptions(Array[String])
+  BraceOptionSyntaxError
+}
+
+priv enum BraceRangeParseResult {
+  BraceNoRange
+  BraceRangeOptions(Array[String])
+  BraceRangeSyntaxError
+}
+
+fn expand_brace_literal(s : String) -> (Array[String], Bool) {
   let out : Array[String] = []
-  brace_expand_collect(s, out)
+  if brace_expand_collect(s, out) {
+    return ([], true)
+  }
   if out.length() == 0 {
-    [s]
+    ([brace_unescape(s)], false)
   } else {
-    out
+    let normalized : Array[String] = []
+    for item in out {
+      normalized.push(brace_unescape(item))
+    }
+    (normalized, false)
   }
 }
 
-fn brace_expand_collect(input : String, out : Array[String]) -> Unit {
+fn brace_expand_collect(input : String, out : Array[String]) -> Bool {
   if out.length() >= brace_expansion_result_limit {
-    return
+    return false
   }
   match find_first_expandable_brace_pair(input) {
-    None => out.push(input)
+    None => {
+      out.push(input)
+      false
+    }
     Some((start, end_)) => {
       let content = input.view(start_offset=start + 1, end_offset=end_).to_string()
-      let options = parse_brace_options(content)
+      let options = match parse_brace_options(content) {
+        BraceOptionParseResult::BraceOptions(v) => v
+        BraceOptionParseResult::BraceOptionSyntaxError => return true
+        BraceOptionParseResult::BraceNoOption => {
+          out.push(input)
+          return false
+        }
+      }
       let prefix = input.view(start_offset=0, end_offset=start).to_string()
       let suffix = input.view(start_offset=end_ + 1).to_string()
       for option in options {
         if out.length() >= brace_expansion_result_limit {
-          return
+          return false
         }
-        brace_expand_collect(prefix + option + suffix, out)
+        if brace_expand_collect(prefix + option + suffix, out) {
+          return true
+        }
       }
+      false
     }
   }
 }
@@ -38,11 +69,19 @@ fn brace_expand_collect(input : String, out : Array[String]) -> Unit {
 fn find_first_expandable_brace_pair(s : String) -> (Int, Int)? {
   let mut i = 0
   while i < s.length() {
+    if s[i] == '\\' && i + 1 < s.length() {
+      i += 2
+      continue
+    }
     if s[i] == '{' {
       let mut depth = 1
       let mut j = i + 1
       let mut matched = false
       while j < s.length() {
+        if s[j] == '\\' && j + 1 < s.length() {
+          j += 2
+          continue
+        }
         if s[j] == '{' {
           depth += 1
         } else if s[j] == '}' {
@@ -55,11 +94,18 @@ fn find_first_expandable_brace_pair(s : String) -> (Int, Int)? {
         j += 1
       }
       if not(matched) {
-        return None
+        i += 1
+        continue
       }
       let content = s.view(start_offset=i + 1, end_offset=j).to_string()
-      if parse_brace_options(content).length() > 0 {
-        return Some((i, j))
+      match parse_brace_options(content) {
+        BraceOptionParseResult::BraceOptions(options) => {
+          if options.length() > 0 {
+            return Some((i, j))
+          }
+        }
+        BraceOptionParseResult::BraceOptionSyntaxError => return Some((i, j))
+        BraceOptionParseResult::BraceNoOption => ()
       }
     }
     i += 1
@@ -67,17 +113,19 @@ fn find_first_expandable_brace_pair(s : String) -> (Int, Int)? {
   None
 }
 
-fn parse_brace_options(content : String) -> Array[String] {
+fn parse_brace_options(content : String) -> BraceOptionParseResult {
   let (comma_options, has_comma) = split_brace_top_level_commas(content)
   if has_comma {
-    return comma_options
+    return BraceOptionParseResult::BraceOptions(comma_options)
   }
 
-  let range_options = parse_brace_range(content)
-  if range_options.length() > 0 {
-    return range_options
+  match parse_brace_range(content) {
+    BraceRangeParseResult::BraceRangeOptions(values) =>
+      BraceOptionParseResult::BraceOptions(values)
+    BraceRangeParseResult::BraceRangeSyntaxError =>
+      BraceOptionParseResult::BraceOptionSyntaxError
+    BraceRangeParseResult::BraceNoRange => BraceOptionParseResult::BraceNoOption
   }
-  []
 }
 
 fn split_brace_top_level_commas(content : String) -> (Array[String], Bool) {
@@ -86,7 +134,12 @@ fn split_brace_top_level_commas(content : String) -> (Array[String], Bool) {
   let mut start = 0
   let mut has_comma = false
 
-  for i = 0; i < content.length(); i = i + 1 {
+  let mut i = 0
+  while i < content.length() {
+    if content[i] == '\\' && i + 1 < content.length() {
+      i += 2
+      continue
+    }
     if content[i] == '{' {
       depth += 1
     } else if content[i] == '}' {
@@ -98,6 +151,7 @@ fn split_brace_top_level_commas(content : String) -> (Array[String], Bool) {
       start = i + 1
       has_comma = true
     }
+    i += 1
   }
 
   if has_comma {
@@ -106,10 +160,26 @@ fn split_brace_top_level_commas(content : String) -> (Array[String], Bool) {
   (parts, has_comma)
 }
 
-fn parse_brace_range(content : String) -> Array[String] {
+fn brace_unescape(text : String) -> String {
+  let out = StringBuilder::new()
+  let mut i = 0
+  while i < text.length() {
+    let ch = text[i].to_int().unsafe_to_char()
+    if ch == '\\' && i + 1 < text.length() {
+      out.write_char(text[i + 1].to_int().unsafe_to_char())
+      i += 2
+      continue
+    }
+    out.write_char(ch)
+    i += 1
+  }
+  out.to_string()
+}
+
+fn parse_brace_range(content : String) -> BraceRangeParseResult {
   let parts = split_by_double_dot(content)
   if parts.length() != 2 && parts.length() != 3 {
-    return []
+    return BraceRangeParseResult::BraceNoRange
   }
 
   let step_opt = if parts.length() == 3 {
@@ -124,28 +194,113 @@ fn parse_brace_range(content : String) -> Array[String] {
         None => if end_num >= start_num { 1L } else { -1L }
       }
       if step == 0L {
-        return []
+        return BraceRangeParseResult::BraceRangeSyntaxError
       }
-      return generate_numeric_range(start_num, end_num, step)
+      if start_num != end_num {
+        if start_num < end_num && step < 0L {
+          return BraceRangeParseResult::BraceRangeSyntaxError
+        }
+        if start_num > end_num && step > 0L {
+          return BraceRangeParseResult::BraceRangeSyntaxError
+        }
+      }
+      let pad_width = brace_numeric_pad_width(parts[0], parts[1])
+      return BraceRangeParseResult::BraceRangeOptions(
+        generate_numeric_range(start_num, end_num, step, pad_width),
+      )
     }
     _ => ()
   }
 
-  if parts[0].length() == 1 && parts[1].length() == 1 {
-    let start_ch = parts[0][0].to_int()
-    let end_ch = parts[1][0].to_int()
-    let step_i64 = match step_opt {
-      Some(v) => v
-      None => if end_ch >= start_ch { 1L } else { -1L }
-    }
-    if step_i64 == 0L {
-      return []
-    }
-    let step = step_i64.to_int()
-    return generate_char_range(start_ch, end_ch, step)
+  if (parse_signed_int(parts[0]) is Some(_)) || (parse_signed_int(parts[1]) is Some(_)) {
+    return BraceRangeParseResult::BraceNoRange
   }
 
-  []
+  if parts[0].length() == 1 && parts[1].length() == 1 {
+    let start_ch = parts[0][0].to_int().unsafe_to_char()
+    let end_ch = parts[1][0].to_int().unsafe_to_char()
+    let start_kind = brace_char_kind(start_ch)
+    let end_kind = brace_char_kind(end_ch)
+    if start_kind == 3 || end_kind == 3 {
+      return BraceRangeParseResult::BraceNoRange
+    }
+    if start_kind == 0 || end_kind == 0 {
+      return BraceRangeParseResult::BraceNoRange
+    }
+    if start_kind != end_kind {
+      return BraceRangeParseResult::BraceRangeSyntaxError
+    }
+    let step_i64 = match step_opt {
+      Some(v) => v
+      None => if end_ch.to_int() >= start_ch.to_int() { 1L } else { -1L }
+    }
+    if step_i64 == 0L {
+      return BraceRangeParseResult::BraceRangeSyntaxError
+    }
+    if start_ch != end_ch {
+      if start_ch.to_int() < end_ch.to_int() && step_i64 < 0L {
+        return BraceRangeParseResult::BraceRangeSyntaxError
+      }
+      if start_ch.to_int() > end_ch.to_int() && step_i64 > 0L {
+        return BraceRangeParseResult::BraceRangeSyntaxError
+      }
+    }
+    let step = step_i64.to_int()
+    return BraceRangeParseResult::BraceRangeOptions(
+      generate_char_range(start_ch.to_int(), end_ch.to_int(), step),
+    )
+  }
+
+  BraceRangeParseResult::BraceNoRange
+}
+
+fn brace_char_kind(ch : Char) -> Int {
+  if ch >= 'a' && ch <= 'z' {
+    1
+  } else if ch >= 'A' && ch <= 'Z' {
+    2
+  } else if ch >= '0' && ch <= '9' {
+    3
+  } else {
+    0
+  }
+}
+
+fn brace_numeric_pad_width(start_text : String, end_text : String) -> Int {
+  match (brace_numeric_digit_info(start_text), brace_numeric_digit_info(end_text)) {
+    (Some((start_width, start_zero)), Some((end_width, end_zero))) => {
+      if not(start_zero) && not(end_zero) {
+        0
+      } else if start_width >= end_width {
+        start_width
+      } else {
+        end_width
+      }
+    }
+    _ => 0
+  }
+}
+
+fn brace_numeric_digit_info(text : String) -> (Int, Bool)? {
+  if text.length() == 0 {
+    return None
+  }
+  let mut start = 0
+  if text[0] == '-' || text[0] == '+' {
+    start = 1
+  }
+  if start >= text.length() {
+    return None
+  }
+  for i = start; i < text.length(); i = i + 1 {
+    let ch = text[i].to_int().unsafe_to_char()
+    if ch < '0' || ch > '9' {
+      return None
+    }
+  }
+  let width = text.length() - start
+  let leading_zero = width > 1 && text[start] == '0'
+  Some((width, leading_zero))
 }
 
 fn split_by_double_dot(content : String) -> Array[String] {
@@ -192,7 +347,12 @@ fn parse_signed_int(text : String) -> Int64? {
   Some(value * sign)
 }
 
-fn generate_numeric_range(start_num : Int64, end_num : Int64, step : Int64) -> Array[String] {
+fn generate_numeric_range(
+  start_num : Int64,
+  end_num : Int64,
+  step : Int64,
+  pad_width : Int
+) -> Array[String] {
   let out : Array[String] = []
   let mut current = start_num
   while true {
@@ -206,10 +366,37 @@ fn generate_numeric_range(start_num : Int64, end_num : Int64, step : Int64) -> A
     } else if current < end_num {
       break
     }
-    out.push(current.to_string())
+    if pad_width > 0 {
+      out.push(format_padded_numeric(current, pad_width))
+    } else {
+      out.push(current.to_string())
+    }
     current += step
   }
   out
+}
+
+fn format_padded_numeric(value : Int64, width : Int) -> String {
+  if width <= 0 {
+    return value.to_string()
+  }
+  let negative = value < 0L
+  let abs_value = if negative { -value } else { value }
+  let digits = abs_value.to_string()
+  if digits.length() >= width {
+    if negative { "-" + digits } else { digits }
+  } else {
+    let pad_len = width - digits.length()
+    let out = StringBuilder::new()
+    if negative {
+      out.write_char('-')
+    }
+    for _i = 0; _i < pad_len; _i = _i + 1 {
+      out.write_char('0')
+    }
+    out.write_string(digits)
+    out.to_string()
+  }
 }
 
 fn generate_char_range(start_ch : Int, end_ch : Int, step : Int) -> Array[String] {
@@ -683,11 +870,17 @@ fn split_path_segments(path : String) -> Array[String] {
 }
 
 fn has_glob_meta(s : String) -> Bool {
-  for i = 0; i < s.length(); i = i + 1 {
+  let mut i = 0
+  while i < s.length() {
     let ch = s[i].to_int().unsafe_to_char()
+    if ch == '\\' && i + 1 < s.length() {
+      i += 2
+      continue
+    }
     if ch == '*' || ch == '?' || ch == '[' {
       return true
     }
+    i += 1
   }
   false
 }
@@ -832,6 +1025,22 @@ fn match_pattern(s : String, si : Int, p : String, pi : Int) -> Bool {
     return si >= s.length()
   }
   let pch = p[pi].to_int().unsafe_to_char()
+  if pch == '\\' {
+    if pi + 1 >= p.length() {
+      return si < s.length() &&
+      s[si].to_int().unsafe_to_char() == '\\' &&
+      match_pattern(s, si + 1, p, pi + 1)
+    }
+    if si >= s.length() {
+      return false
+    }
+    let escaped = p[pi + 1].to_int().unsafe_to_char()
+    let sch = s[si].to_int().unsafe_to_char()
+    if sch == escaped {
+      return match_pattern(s, si + 1, p, pi + 2)
+    }
+    return false
+  }
   if pch == '*' {
     // Try matching zero or more characters
     for i = si; i <= s.length(); i = i + 1 {
@@ -890,6 +1099,17 @@ fn match_char_class_pattern(
   while i < pattern.length() {
     let current = pattern[i].to_int().unsafe_to_char()
     if current == ']' && seen_any {
+      // Allow doubled `]]` to include a literal `]` inside the class before
+      // closing. This is needed for patterns normalized from forms like
+      // `['[]']`.
+      if i + 1 < pattern.length() && pattern[i + 1].to_int().unsafe_to_char() == ']' {
+        if ch == ']' {
+          matched = true
+        }
+        seen_any = true
+        i += 1
+        continue
+      }
       let final_match = if negated { not(matched) } else { matched }
       return Some((final_match, i + 1))
     }

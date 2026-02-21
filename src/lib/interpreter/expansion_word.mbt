@@ -558,27 +558,152 @@ fn ExecContext::expand_word_parts_with_brace(
   self : ExecContext,
   parts : Array[@ast.WordPart]
 ) -> Array[String] {
-  let mut expanded : Array[String] = [""]
+  let mut has_quoted_part = false
+  let placeholders : Array[@ast.WordPart] = []
+  let template = StringBuilder::new()
   for part in parts {
-    let part_options : Array[String] = match part {
-      @ast.WordPart::Literal(s) => expand_brace_literal(s)
-      _ => [self.expand_word_part(part)]
-    }
-
-    let next_expanded : Array[String] = []
-    for prefix in expanded {
-      for option in part_options {
-        let combined = prefix + option
-        if combined.length() > self.limits.max_string_length {
-          self.fail_execution_limit("string length limit exceeded")
-          return [""]
-        }
-        next_expanded.push(combined)
+    match part {
+      @ast.WordPart::Literal(text) => template.write_string(text)
+      @ast.WordPart::SingleQuoted(_) | @ast.WordPart::DoubleQuoted(_) => {
+        has_quoted_part = true
+        let idx = placeholders.length()
+        placeholders.push(part)
+        template.write_string(brace_placeholder_token(idx))
+      }
+      _ => {
+        let idx = placeholders.length()
+        placeholders.push(part)
+        template.write_string(brace_placeholder_token(idx))
       }
     }
-    expanded = next_expanded
   }
-  expanded
+
+  let (brace_candidates, brace_syntax_error) = expand_brace_literal(template.to_string())
+  if brace_syntax_error {
+    self.exit_code = 2
+    self.should_exit = true
+    return [""]
+  }
+  let had_expandable_brace = find_first_expandable_brace_pair(template.to_string()) is Some(_)
+  let expanded_candidates : Array[String] = []
+  for candidate in brace_candidates {
+    let resolved = self.expand_brace_candidate_with_placeholders(
+      candidate,
+      placeholders,
+      had_expandable_brace,
+    )
+    if self.should_exit {
+      return [""]
+    }
+    let maybe_tilde = if had_expandable_brace {
+      self.expand_tilde_after_brace(resolved)
+    } else {
+      resolved
+    }
+    if maybe_tilde.length() > self.limits.max_string_length {
+      self.fail_execution_limit("string length limit exceeded")
+      return [""]
+    }
+    expanded_candidates.push(maybe_tilde)
+  }
+  if not(had_expandable_brace) {
+    return expanded_candidates
+  }
+  let normalized_candidates : Array[String] = []
+  for candidate in expanded_candidates {
+    if candidate.length() == 0 && not(has_quoted_part) {
+      continue
+    }
+    normalized_candidates.push(candidate)
+  }
+  if normalized_candidates.length() == 0 && has_quoted_part {
+    return [""]
+  }
+  if expanded_candidates.length() == 0 {
+    [""]
+  } else {
+    normalized_candidates
+  }
+}
+
+fn brace_placeholder_token(idx : Int) -> String {
+  "\u001d" + idx.to_string() + "\u001e"
+}
+
+fn parse_brace_placeholder_index(text : String) -> Int? {
+  if text.length() == 0 {
+    return None
+  }
+  let mut value = 0
+  for i = 0; i < text.length(); i = i + 1 {
+    let ch = text[i].to_int().unsafe_to_char()
+    if ch < '0' || ch > '9' {
+      return None
+    }
+    value = value * 10 + (ch.to_int() - '0'.to_int())
+  }
+  Some(value)
+}
+
+fn ExecContext::expand_brace_candidate_with_placeholders(
+  self : ExecContext,
+  candidate : String,
+  placeholders : Array[@ast.WordPart],
+  defer_tilde_expansion : Bool
+) -> String {
+  let out = StringBuilder::new()
+  let mut i = 0
+  while i < candidate.length() {
+    if candidate[i].to_int().unsafe_to_char() == '\u001d' {
+      let mut j = i + 1
+      while j < candidate.length() &&
+        candidate[j].to_int().unsafe_to_char() != '\u001e' {
+        j += 1
+      }
+      if j < candidate.length() {
+        let token = candidate.view(start_offset=i + 1, end_offset=j).to_string()
+        match parse_brace_placeholder_index(token) {
+          Some(idx) => {
+            if idx >= 0 && idx < placeholders.length() {
+              match placeholders[idx] {
+                @ast.WordPart::TildePrefix(user) => {
+                  if defer_tilde_expansion {
+                    out.write_char('~')
+                    out.write_string(user)
+                  } else {
+                    out.write_string(self.expand_word_part(placeholders[idx]))
+                  }
+                }
+                _ => out.write_string(self.expand_word_part(placeholders[idx]))
+              }
+              i = j + 1
+              continue
+            }
+          }
+          None => ()
+        }
+      }
+    }
+    out.write_char(candidate[i].to_int().unsafe_to_char())
+    i += 1
+  }
+  out.to_string()
+}
+
+fn ExecContext::expand_tilde_after_brace(self : ExecContext, value : String) -> String {
+  if value.length() == 0 || value[0].to_int().unsafe_to_char() != '~' {
+    return value
+  }
+  let mut slash_idx = value.length()
+  for i = 1; i < value.length(); i = i + 1 {
+    if value[i].to_int().unsafe_to_char() == '/' {
+      slash_idx = i
+      break
+    }
+  }
+  let user = value.view(start_offset=1, end_offset=slash_idx).to_string()
+  let rest = value.view(start_offset=slash_idx).to_string()
+  self.expand_tilde(user) + rest
 }
 
 /// Expand a Word to a single string (convenience method).
@@ -586,7 +711,15 @@ fn ExecContext::expand_word_to_string(
   self : ExecContext,
   word : @ast.Word
 ) -> String {
-  self.expand_word_parts(word.parts)
+  let marker_key = "__MOON_BASH_DISABLE_SPLIT_PROTECTION__"
+  let saved_marker = self.env.get(marker_key)
+  self.env[marker_key] = "1"
+  let out = self.expand_word_parts(word.parts)
+  match saved_marker {
+    Some(value) => self.env[marker_key] = value
+    None => self.env.remove(marker_key)
+  }
+  out
 }
 
 /// Expand a single WordPart into a string.
@@ -778,6 +911,102 @@ fn ExecContext::expand_array_index_expr(self : ExecContext, expr : String) -> St
   self.expand_word_to_string(@parser.parse_word_content(trimmed))
 }
 
+fn ExecContext::inside_double_quote_expansion(self : ExecContext) -> Bool {
+  self.env.get("__MOON_BASH_IN_DQUOTE_EXPANSION__").unwrap_or("") == "1"
+}
+
+fn ExecContext::split_protection_disabled(self : ExecContext) -> Bool {
+  self.env.get("__MOON_BASH_DISABLE_SPLIT_PROTECTION__").unwrap_or("") == "1"
+}
+
+fn ExecContext::expand_param_word_for_split_context(
+  self : ExecContext,
+  word : @ast.Word
+) -> String {
+  if self.inside_double_quote_expansion() || self.split_protection_disabled() {
+    return self.expand_word_to_string(word)
+  }
+  self.expand_word_with_split_protection(word)
+}
+
+fn ExecContext::expand_word_with_split_protection(
+  self : ExecContext,
+  word : @ast.Word
+) -> String {
+  let buf = StringBuilder::new()
+  for part in word.parts {
+    buf.write_string(self.expand_word_part_with_split_protection(part))
+  }
+  buf.to_string()
+}
+
+fn ExecContext::expand_word_part_with_split_protection(
+  self : ExecContext,
+  part : @ast.WordPart
+) -> String {
+  match part {
+    @ast.WordPart::Literal(s) => escape_split_protect_marker_only(s)
+    @ast.WordPart::SingleQuoted(s) => self.encode_word_split_protected_text(s)
+    @ast.WordPart::DoubleQuoted(inner_parts) =>
+      self.encode_word_split_protected_text(self.expand_double_quoted_parts(inner_parts))
+    _ => self.expand_word_part(part)
+  }
+}
+
+fn ExecContext::expand_double_quoted_parts(
+  self : ExecContext,
+  inner_parts : Array[@ast.WordPart]
+) -> String {
+  let marker_key = "__MOON_BASH_IN_DQUOTE_EXPANSION__"
+  let saved_marker = self.env.get(marker_key)
+  self.env[marker_key] = "1"
+  let buf = StringBuilder::new()
+  for p in inner_parts {
+    buf.write_string(self.expand_word_part(p))
+  }
+  match saved_marker {
+    Some(value) => self.env[marker_key] = value
+    None => self.env.remove(marker_key)
+  }
+  buf.to_string()
+}
+
+fn ExecContext::encode_word_split_protected_text(
+  self : ExecContext,
+  text : String
+) -> String {
+  if text.length() == 0 {
+    return text
+  }
+  let ifs = self.env.get("IFS").unwrap_or(" \t\n")
+  let marker = word_split_protect_marker()
+  let out = StringBuilder::new()
+  for i = 0; i < text.length(); i = i + 1 {
+    let ch = text[i].to_int().unsafe_to_char()
+    if ch == marker || is_ifs_char(ch, ifs) {
+      out.write_char(marker)
+    }
+    out.write_char(ch)
+  }
+  out.to_string()
+}
+
+fn escape_split_protect_marker_only(text : String) -> String {
+  if text.length() == 0 {
+    return text
+  }
+  let marker = word_split_protect_marker()
+  let out = StringBuilder::new()
+  for i = 0; i < text.length(); i = i + 1 {
+    let ch = text[i].to_int().unsafe_to_char()
+    if ch == marker {
+      out.write_char(marker)
+    }
+    out.write_char(ch)
+  }
+  out.to_string()
+}
+
 // ============================================================================
 // Parameter Expansion
 // ============================================================================
@@ -794,13 +1023,13 @@ fn ExecContext::expand_param(
       let is_null = self.parameter_is_null(name, value)
       if colon {
         if is_null {
-          self.expand_word_to_string(word)
+          self.expand_param_word_for_split_context(word)
         } else {
           value
         }
       } else {
         if not(is_set) {
-          self.expand_word_to_string(word)
+          self.expand_param_word_for_split_context(word)
         } else {
           value
         }
@@ -812,17 +1041,25 @@ fn ExecContext::expand_param(
       let is_null = self.parameter_is_null(name, value)
       if colon {
         if is_null {
-          let new_val = self.expand_word_to_string(word)
-          self.env[name] = new_val
-          new_val
+          let expanded = self.expand_param_word_for_split_context(word)
+          let plain = decode_word_split_protected_text(
+            expanded,
+            self.env.get("IFS").unwrap_or(" \t\n"),
+          )
+          self.env[name] = plain
+          expanded
         } else {
           value
         }
       } else {
         if not(is_set) {
-          let new_val = self.expand_word_to_string(word)
-          self.env[name] = new_val
-          new_val
+          let expanded = self.expand_param_word_for_split_context(word)
+          let plain = decode_word_split_protected_text(
+            expanded,
+            self.env.get("IFS").unwrap_or(" \t\n"),
+          )
+          self.env[name] = plain
+          expanded
         } else {
           value
         }
@@ -855,13 +1092,13 @@ fn ExecContext::expand_param(
       let is_null = self.parameter_is_null(name, value)
       if colon {
         if not(is_null) {
-          self.expand_word_to_string(word)
+          self.expand_param_word_for_split_context(word)
         } else {
           ""
         }
       } else {
         if is_set {
-          self.expand_word_to_string(word)
+          self.expand_param_word_for_split_context(word)
         } else {
           ""
         }
@@ -1332,13 +1569,19 @@ fn ExecContext::expand_command_sub(
 
   // Save current I/O state
   let saved_stdout = self.stdout_buf
+  let saved_stderr = self.stderr_buf
   let saved_stdin = self.stdin_buf
   let saved_env = clone_string_map(self.env)
   let saved_exported = clone_bool_map(self.exported)
   let saved_functions = clone_function_map(self.functions)
+  let pending_cmd_sub_stderr_spec = saved_env.get("__MOON_BASH_PENDING_CMD_SUB_STDERR__")
 
   // Execute in a sub-context
   self.stdout_buf = StringBuilder::new()
+  match pending_cmd_sub_stderr_spec {
+    Some(_) => self.stderr_buf = StringBuilder::new()
+    None => ()
+  }
   self.env = clone_string_map(saved_env)
   self.exported = clone_bool_map(saved_exported)
   self.functions = clone_function_map(saved_functions)
@@ -1349,6 +1592,7 @@ fn ExecContext::expand_command_sub(
     @ast.BashError(_msg) => {
       self.substitution_depth -= 1
       self.stdout_buf = saved_stdout
+      self.stderr_buf = saved_stderr
       self.stdin_buf = saved_stdin
       self.env = saved_env
       self.exported = saved_exported
@@ -1359,14 +1603,24 @@ fn ExecContext::expand_command_sub(
   self.execute_script(parsed)
 
   let output = self.stdout_buf.to_string()
+  let stderr_output = match pending_cmd_sub_stderr_spec {
+    Some(_) => self.stderr_buf.to_string()
+    None => ""
+  }
 
   // Restore I/O
   self.stdout_buf = saved_stdout
+  self.stderr_buf = saved_stderr
   self.stdin_buf = saved_stdin
   self.env = saved_env
   self.exported = saved_exported
   self.functions = saved_functions
   self.substitution_depth -= 1
+
+  match pending_cmd_sub_stderr_spec {
+    Some(spec) => self.stash_pending_cmd_sub_stderr(spec, stderr_output)
+    None => ()
+  }
 
   // Strip trailing newlines (bash behavior)
   let stripped = strip_trailing_newlines(output)
@@ -1377,6 +1631,38 @@ fn ExecContext::expand_command_sub(
   stripped
 }
 
+fn ExecContext::stash_pending_cmd_sub_stderr(
+  self : ExecContext,
+  spec : String,
+  output : String
+) -> Unit {
+  if output.length() == 0 || spec.length() < 3 || spec[1] != ':' {
+    return
+  }
+  let path = spec.view(start_offset=2).to_string()
+  let resolved = try {
+    @fs.resolve_path(self.cwd, path)
+  } catch {
+    _ => path
+  }
+  let pending_path_key = "__MOON_BASH_PENDING_CMD_SUB_STDERR_CAPTURE_PATH__"
+  let pending_data_key = "__MOON_BASH_PENDING_CMD_SUB_STDERR_CAPTURE_DATA__"
+  match self.env.get(pending_path_key) {
+    Some(existing_path) => {
+      if existing_path == resolved {
+        self.env[pending_data_key] = self.env.get(pending_data_key).unwrap_or("") + output
+      } else {
+        self.env[pending_path_key] = resolved
+        self.env[pending_data_key] = output
+      }
+    }
+    None => {
+      self.env[pending_path_key] = resolved
+      self.env[pending_data_key] = output
+    }
+  }
+}
+
 // ============================================================================
 // Tilde Expansion
 // ============================================================================
@@ -1384,6 +1670,8 @@ fn ExecContext::expand_command_sub(
 fn ExecContext::expand_tilde(self : ExecContext, user : String) -> String {
   if user.length() == 0 {
     self.env.get("HOME").unwrap_or("/home/user")
+  } else if user == "root" {
+    "/root"
   } else {
     "/home/" + user
   }

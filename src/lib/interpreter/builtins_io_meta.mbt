@@ -220,70 +220,23 @@ fn ExecContext::builtin_double_bracket(
   self : ExecContext,
   args : Array[String]
 ) -> Unit {
-  // Mirror [[ ... ]] minimal semantics through the same evaluator.
-  let test_args = if args.length() > 0 && args[args.length() - 1] == "]]" {
-    let a : Array[String] = []
-    for i = 0; i < args.length() - 1; i = i + 1 {
-      a.push(args[i])
-    }
-    a
-  } else {
-    args
-  }
-  if test_args.length() == 3 && test_is_numeric_compare_op(test_args[1]) {
-    match self.test_parse_numeric_operand(test_args[0], true) {
-      Some(left) => {
-        match self.test_parse_numeric_operand(test_args[2], true) {
-          Some(right) =>
-            self.exit_code = if test_eval_numeric_compare(test_args[1], left, right) { 0 } else { 1 }
-          None => self.exit_code = 1
-        }
-      }
-      None => self.exit_code = 1
-    }
+  if args.length() == 0 || args[args.length() - 1] != "]]" {
+    self.exit_code = 2
     return
   }
-  self.exit_code = if evaluate_test(test_args, self) { 0 } else { 1 }
-}
-
-fn test_is_numeric_compare_op(op : String) -> Bool {
-  op == "-eq" || op == "-ne" || op == "-lt" || op == "-le" || op == "-gt" || op == "-ge"
-}
-
-fn test_eval_numeric_compare(op : String, left : Int64, right : Int64) -> Bool {
-  match op {
-    "-eq" => left == right
-    "-ne" => left != right
-    "-lt" => left < right
-    "-le" => left <= right
-    "-gt" => left > right
-    "-ge" => left >= right
-    _ => false
+  let test_args : Array[String] = []
+  for i = 0; i < args.length() - 1; i = i + 1 {
+    test_args.push(args[i])
   }
-}
-
-fn ExecContext::test_parse_numeric_operand(
-  self : ExecContext,
-  text : String,
-  dynamic : Bool
-) -> Int64? {
-  let trimmed = arith_trim(text)
-  if dynamic {
-    let saved_exit_code = self.exit_code
-    let saved_should_exit = self.should_exit
-    self.env.remove("__MOON_BASH_ABORT_CURRENT_COMMAND__")
-    let value = self.eval_arith(@ast.ArithExpr::Raw(trimmed))
-    if self.env.contains("__MOON_BASH_ABORT_CURRENT_COMMAND__") {
-      self.env.remove("__MOON_BASH_ABORT_CURRENT_COMMAND__")
-      self.exit_code = saved_exit_code
-      self.should_exit = saved_should_exit
-      return None
+  let result = self.evaluate_test_with_status(test_args, TestEvalMode::DoubleBracketBuiltin)
+  if result.status == 0 {
+    self.exit_code = if result.value { 0 } else { 1 }
+  } else {
+    self.exit_code = result.status
+    if result.status == 2 {
+      self.should_exit = true
     }
-    self.exit_code = saved_exit_code
-    self.should_exit = saved_should_exit
-    return Some(value)
   }
-  arith_parse_number_literal(trimmed)
 }
 
 fn ExecContext::builtin_printf(

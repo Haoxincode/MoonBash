@@ -397,6 +397,7 @@ fn evaluate_test(args : Array[String], ctx : ExecContext) -> Bool {
 priv enum TestEvalMode {
   TestBuiltin
   BracketBuiltin
+  DoubleBracketBuiltin
 }
 
 priv struct TestEvalResult {
@@ -415,6 +416,38 @@ fn test_eval_ok(value : Bool) -> TestEvalResult {
 
 fn test_eval_syntax_error() -> TestEvalResult {
   { value: false, status: 2 }
+}
+
+let test_token_tilde_prefix : UInt16 = '\u0006'
+let test_token_dynamic_prefix : UInt16 = '\u0007'
+
+fn test_encode_tilde_token(raw : String) -> String {
+  "\u0006" + raw
+}
+
+fn test_encode_dynamic_token(raw : String) -> String {
+  "\u0007" + raw
+}
+
+fn test_token_has_meta(token : String) -> Bool {
+  token.length() > 0 &&
+  (token[0] == test_token_tilde_prefix || token[0] == test_token_dynamic_prefix)
+}
+
+fn test_token_is_tilde(token : String) -> Bool {
+  token.length() > 0 && token[0] == test_token_tilde_prefix
+}
+
+fn test_token_raw(token : String) -> String {
+  if test_token_has_meta(token) {
+    token.view(start_offset=1).to_string()
+  } else {
+    token
+  }
+}
+
+fn test_token_can_be_operator(token : String) -> Bool {
+  not(test_token_has_meta(token))
 }
 
 fn TestExprParser::peek(self : TestExprParser) -> String? {
@@ -454,6 +487,13 @@ fn test_is_binary_op(op : String) -> Bool {
   match op {
     "=" | "==" | "!=" | "<" | ">" | "=~" | "-eq" | "-ne" | "-lt" | "-le"
     | "-gt" | "-ge" | "-nt" | "-ot" | "-ef" => true
+    _ => false
+  }
+}
+
+fn test_mode_is_double_bracket(mode : TestEvalMode) -> Bool {
+  match mode {
+    TestEvalMode::DoubleBracketBuiltin => true
     _ => false
   }
 }
@@ -571,91 +611,93 @@ fn ExecContext::test_eval_unary_with_status(
   op : String,
   arg : String
 ) -> TestEvalResult {
-  match op {
-    "-z" => test_eval_ok(arg.length() == 0)
-    "-n" => test_eval_ok(arg.length() > 0)
-    "-a" | "-e" => test_eval_ok(self.test_lookup_entry(arg, true) is Some(_))
+  let op_text = test_token_raw(op)
+  let arg_text = test_token_raw(arg)
+  match op_text {
+    "-z" => test_eval_ok(arg_text.length() == 0)
+    "-n" => test_eval_ok(arg_text.length() > 0)
+    "-a" | "-e" => test_eval_ok(self.test_lookup_entry(arg_text, true) is Some(_))
     "-f" =>
       test_eval_ok(
-        match self.test_lookup_entry(arg, true) {
+        match self.test_lookup_entry(arg_text, true) {
           Some(@fs.FsEntry::File(_)) => true
           _ => false
         },
       )
     "-d" =>
       test_eval_ok(
-        match self.test_lookup_entry(arg, true) {
+        match self.test_lookup_entry(arg_text, true) {
           Some(@fs.FsEntry::Directory(_)) => true
           _ => false
         },
       )
     "-s" =>
       test_eval_ok(
-        match self.test_lookup_entry(arg, true) {
+        match self.test_lookup_entry(arg_text, true) {
           Some(@fs.FsEntry::File(data)) => data.content.length() > 0
           _ => false
         },
       )
     "-r" =>
       test_eval_ok(
-        match self.test_lookup_entry(arg, true) {
+        match self.test_lookup_entry(arg_text, true) {
           Some(entry) => test_entry_mode(entry).land(0o444) != 0
           None => false
         },
       )
     "-w" =>
       test_eval_ok(
-        match self.test_lookup_entry(arg, true) {
+        match self.test_lookup_entry(arg_text, true) {
           Some(entry) => test_entry_mode(entry).land(0o222) != 0
           None => false
         },
       )
     "-x" =>
       test_eval_ok(
-        match self.test_lookup_entry(arg, true) {
+        match self.test_lookup_entry(arg_text, true) {
           Some(entry) => test_entry_mode(entry).land(0o111) != 0
           None => false
         },
       )
     "-L" | "-h" =>
       test_eval_ok(
-        match self.test_lookup_entry(arg, false) {
+        match self.test_lookup_entry(arg_text, false) {
           Some(@fs.FsEntry::Symlink(_)) => true
           _ => false
         },
       )
     "-k" =>
       test_eval_ok(
-        match self.test_lookup_entry(arg, true) {
+        match self.test_lookup_entry(arg_text, true) {
           Some(entry) => test_entry_mode(entry).land(0o1000) != 0
           None => false
         },
       )
-    "-O" | "-G" => test_eval_ok(self.test_lookup_entry(arg, true) is Some(_))
+    "-O" | "-G" => test_eval_ok(self.test_lookup_entry(arg_text, true) is Some(_))
     "-u" =>
       test_eval_ok(
-        match self.test_lookup_entry(arg, true) {
+        match self.test_lookup_entry(arg_text, true) {
           Some(entry) => test_entry_mode(entry).land(0o4000) != 0
           None => false
         },
       )
     "-g" =>
       test_eval_ok(
-        match self.test_lookup_entry(arg, true) {
+        match self.test_lookup_entry(arg_text, true) {
           Some(entry) => test_entry_mode(entry).land(0o2000) != 0
           None => false
         },
       )
     "-b" | "-S" | "-p" => test_eval_ok(false)
-    "-c" => test_eval_ok(arg == "/dev/zero")
+    "-c" => test_eval_ok(arg_text == "/dev/zero")
     "-t" =>
-      match test_parse_fd_operand(arg) {
+      match test_parse_fd_operand(arg_text) {
         Some(_fd) => test_eval_ok(false)
         None => test_eval_syntax_error()
       }
-    "-v" => test_eval_ok(test_var_is_set(arg, self))
+    "-v" => test_eval_ok(test_var_is_set(arg_text, self))
     "-o" =>
-      match test_shell_option_enabled(self, arg) {
+      match test_shell_option_enabled(self, arg_text) {
         Some(enabled) => test_eval_ok(enabled)
         None => test_eval_ok(false)
       }
@@ -670,30 +712,60 @@ fn ExecContext::test_eval_binary_with_status(
   right : String,
   mode : TestEvalMode
 ) -> TestEvalResult {
+  let left_text = test_token_raw(left)
+  let op_text = test_token_raw(op)
+  let right_text = test_token_raw(right)
+  let left_value = test_unescape_glob_escapes(left_text)
+  let right_value = test_unescape_glob_escapes(right_text)
   let literal_compare = match mode {
     TestEvalMode::TestBuiltin => true
     TestEvalMode::BracketBuiltin => true
+    TestEvalMode::DoubleBracketBuiltin => false
   }
-  match op {
+  match op_text {
     "=" | "==" =>
       test_eval_ok(
         if literal_compare {
-          left == right
+          left_text == right_text
         } else {
-          test_string_compare(left, right)
+          test_string_compare(left_value, right_text)
         },
       )
-    "!=" => test_eval_ok(left != right)
-    "<" => test_eval_ok(left < right)
-    ">" => test_eval_ok(left > right)
-    "=~" => test_eval_ok(self.regex_cond_match(left, right))
-    "-eq" | "-ne" | "-lt" | "-le" | "-gt" | "-ge" =>
-      match test_parse_decimal_operand(left) {
-        Some(l) =>
-          match test_parse_decimal_operand(right) {
+    "!=" =>
+      test_eval_ok(
+        if literal_compare {
+          left_text != right_text
+        } else {
+          not(test_string_compare(left_value, right_text))
+        },
+      )
+    "<" => test_eval_ok(left_value < right_value)
+    ">" => test_eval_ok(left_value > right_value)
+    "=~" => {
+      let pattern = if test_token_is_tilde(right) {
+        test_escape_regex_literal(right_value)
+      } else {
+        right_value
+      }
+      self.test_eval_regex_with_status(left_value, pattern)
+    }
+    "-eq" | "-ne" | "-lt" | "-le" | "-gt" | "-ge" => {
+      let left_value = if test_mode_is_double_bracket(mode) {
+        self.test_parse_double_bracket_numeric_operand(left_text)
+      } else {
+        test_parse_decimal_operand(left_text)
+      }
+      match left_value {
+        Some(l) => {
+          let right_value = if test_mode_is_double_bracket(mode) {
+            self.test_parse_double_bracket_numeric_operand(right_text)
+          } else {
+            test_parse_decimal_operand(right_text)
+          }
+          match right_value {
             Some(r) =>
               test_eval_ok(
-                match op {
+                match op_text {
                   "-eq" => l == r
                   "-ne" => l != r
                   "-lt" => l < r
@@ -703,23 +775,25 @@ fn ExecContext::test_eval_binary_with_status(
                   _ => false
                 },
               )
-            None => test_eval_syntax_error()
+            None => if test_mode_is_double_bracket(mode) { test_eval_ok(false) } else { test_eval_syntax_error() }
           }
-        None => test_eval_syntax_error()
+        }
+        None => if test_mode_is_double_bracket(mode) { test_eval_ok(false) } else { test_eval_syntax_error() }
       }
+    }
     "-nt" =>
-      match self.test_lookup_entry(left, true) {
+      match self.test_lookup_entry(left_text, true) {
         Some(left_entry) =>
-          match self.test_lookup_entry(right, true) {
+          match self.test_lookup_entry(right_text, true) {
             Some(right_entry) => test_eval_ok(test_entry_mtime(left_entry) > test_entry_mtime(right_entry))
             None => test_eval_ok(false)
           }
         None => test_eval_ok(false)
       }
     "-ot" =>
-      match self.test_lookup_entry(left, true) {
+      match self.test_lookup_entry(left_text, true) {
         Some(left_entry) =>
-          match self.test_lookup_entry(right, true) {
+          match self.test_lookup_entry(right_text, true) {
             Some(right_entry) => test_eval_ok(test_entry_mtime(left_entry) < test_entry_mtime(right_entry))
             None => test_eval_ok(false)
           }
@@ -730,8 +804,66 @@ fn ExecContext::test_eval_binary_with_status(
   }
 }
 
+fn ExecContext::test_parse_double_bracket_numeric_operand(
+  self : ExecContext,
+  text : String
+) -> Int64? {
+  let trimmed = arith_trim(text)
+  if trimmed.length() == 0 {
+    return Some(0L)
+  }
+  let saved_exit_code = self.exit_code
+  let saved_should_exit = self.should_exit
+  self.env.remove("__MOON_BASH_ABORT_CURRENT_COMMAND__")
+  let value = self.eval_arith(@ast.ArithExpr::Raw(trimmed))
+  if self.env.contains("__MOON_BASH_ABORT_CURRENT_COMMAND__") {
+    self.env.remove("__MOON_BASH_ABORT_CURRENT_COMMAND__")
+    self.exit_code = saved_exit_code
+    self.should_exit = saved_should_exit
+    return Some(0L)
+  }
+  self.exit_code = saved_exit_code
+  self.should_exit = saved_should_exit
+  Some(value)
+}
+
+fn ExecContext::test_eval_regex_with_status(
+  self : ExecContext,
+  text : String,
+  pattern : String
+) -> TestEvalResult {
+  let matcher = try {
+    @regex.compile_grep_matcher(
+      pattern,
+      extended=true,
+      fixed=false,
+      ignore_case=false,
+    )
+  } catch {
+    _ => {
+      self.store_array_assignment("BASH_REMATCH", [])
+      return test_eval_syntax_error()
+    }
+  }
+  match matcher.find_first_with_groups(text) {
+    Some((start, end, groups)) => {
+      let values : Array[String] = []
+      values.push(text.view(start_offset=start, end_offset=end).to_string())
+      for group in groups {
+        values.push(group)
+      }
+      self.store_array_assignment("BASH_REMATCH", values)
+      test_eval_ok(true)
+    }
+    None => {
+      self.store_array_assignment("BASH_REMATCH", [])
+      test_eval_ok(false)
+    }
+  }
+}
+
 fn test_eval_string_operand(arg : String) -> Bool {
-  arg.length() > 0
+  test_token_raw(arg).length() > 0
 }
 
 fn test_eval_negated(result : TestEvalResult) -> TestEvalResult {
@@ -748,13 +880,48 @@ fn ExecContext::test_eval_small_arity(
   mode : TestEvalMode
 ) -> TestEvalResult {
   match args.length() {
-    0 => test_eval_ok(false)
-    1 => test_eval_ok(test_eval_string_operand(args[0]))
+    0 =>
+      match mode {
+        TestEvalMode::DoubleBracketBuiltin => test_eval_syntax_error()
+        _ => test_eval_ok(false)
+      }
+    1 => {
+      if test_mode_is_double_bracket(mode) {
+        let token = args[0]
+        let token_text = test_token_raw(token)
+        if test_token_can_be_operator(token) &&
+          (token_text == "!" ||
+          token_text == "(" ||
+          token_text == ")" ||
+          test_is_unary_op(token_text) ||
+          test_is_binary_op(token_text) ||
+          test_is_logical_and_op(token_text) ||
+          test_is_logical_or_op(token_text)) {
+          return test_eval_syntax_error()
+        }
+      }
+      test_eval_ok(test_eval_string_operand(args[0]))
+    }
     2 => {
-      if args[0] == "!" {
+      let op = args[0]
+      let arg = args[1]
+      let op_text = test_token_raw(op)
+      let arg_text = test_token_raw(arg)
+      if test_token_can_be_operator(op) && op_text == "!" {
         test_eval_ok(not(test_eval_string_operand(args[1])))
-      } else if test_is_unary_op(args[0]) {
-        self.test_eval_unary_with_status(args[0], args[1])
+      } else if test_token_can_be_operator(op) && test_is_unary_op(op_text) {
+        if test_mode_is_double_bracket(mode) &&
+          test_token_can_be_operator(arg) &&
+          (arg_text == "!" ||
+          arg_text == "(" ||
+          arg_text == ")" ||
+          test_is_logical_and_op(arg_text) ||
+          test_is_logical_or_op(arg_text) ||
+          test_is_binary_op(arg_text)) {
+          test_eval_syntax_error()
+        } else {
+          self.test_eval_unary_with_status(op, arg)
+        }
       } else {
         test_eval_syntax_error()
       }
@@ -763,24 +930,37 @@ fn ExecContext::test_eval_small_arity(
       let left = args[0]
       let op = args[1]
       let right = args[2]
-      if test_is_binary_op(op) {
+      let left_text = test_token_raw(left)
+      let op_text = test_token_raw(op)
+      let right_text = test_token_raw(right)
+      if test_token_can_be_operator(op) && test_is_binary_op(op_text) {
         self.test_eval_binary_with_status(left, op, right, mode)
-      } else if left == "!" {
+      } else if test_token_can_be_operator(left) && left_text == "!" {
         test_eval_negated(self.test_eval_small_arity(test_slice_args(args, 1, 3), mode))
-      } else if left == "(" && right == ")" {
+      } else if test_token_can_be_operator(left) &&
+        test_token_can_be_operator(right) &&
+        left_text == "(" &&
+        right_text == ")" {
         test_eval_ok(test_eval_string_operand(op))
-      } else if test_is_logical_and_op(op) {
+      } else if test_token_can_be_operator(op) &&
+        test_is_logical_and_op(op_text) &&
+        not(test_mode_is_double_bracket(mode)) {
         test_eval_ok(test_eval_string_operand(left) && test_eval_string_operand(right))
-      } else if test_is_logical_or_op(op) {
+      } else if test_token_can_be_operator(op) &&
+        test_is_logical_or_op(op_text) &&
+        not(test_mode_is_double_bracket(mode)) {
         test_eval_ok(test_eval_string_operand(left) || test_eval_string_operand(right))
       } else {
         test_eval_syntax_error()
       }
     }
     4 => {
-      if args[0] == "!" {
+      if test_token_can_be_operator(args[0]) && test_token_raw(args[0]) == "!" {
         test_eval_negated(self.test_eval_small_arity(test_slice_args(args, 1, 4), mode))
-      } else if args[0] == "(" && args[3] == ")" {
+      } else if test_token_can_be_operator(args[0]) &&
+        test_token_can_be_operator(args[3]) &&
+        test_token_raw(args[0]) == "(" &&
+        test_token_raw(args[3]) == ")" {
         self.test_eval_small_arity(test_slice_args(args, 1, 3), mode)
       } else {
         test_eval_syntax_error()
@@ -800,7 +980,8 @@ fn ExecContext::test_parse_or_expr(
     return left
   }
   while parser.pos < parser.tokens.length() &&
-    test_is_logical_or_op(parser.tokens[parser.pos]) {
+    test_token_can_be_operator(parser.tokens[parser.pos]) &&
+    test_is_logical_or_op(test_token_raw(parser.tokens[parser.pos])) {
     parser.pos += 1
     let right = self.test_parse_and_expr(parser, mode)
     if right.status != 0 {
@@ -821,7 +1002,8 @@ fn ExecContext::test_parse_and_expr(
     return left
   }
   while parser.pos < parser.tokens.length() &&
-    test_is_logical_and_op(parser.tokens[parser.pos]) {
+    test_token_can_be_operator(parser.tokens[parser.pos]) &&
+    test_is_logical_and_op(test_token_raw(parser.tokens[parser.pos])) {
     parser.pos += 1
     let right = self.test_parse_not_expr(parser, mode)
     if right.status != 0 {
@@ -839,7 +1021,7 @@ fn ExecContext::test_parse_not_expr(
 ) -> TestEvalResult {
   match parser.peek() {
     Some(tok) => {
-      if tok == "!" {
+      if test_token_can_be_operator(tok) && test_token_raw(tok) == "!" {
         parser.pos += 1
         let inner = self.test_parse_not_expr(parser, mode)
         if inner.status != 0 {
@@ -861,25 +1043,30 @@ fn ExecContext::test_parse_primary_expr(
   match parser.peek() {
     None => test_eval_syntax_error()
     Some(tok) => {
-      if tok == "(" {
+      let tok_text = test_token_raw(tok)
+      let tok_is_operator = test_token_can_be_operator(tok)
+      if tok_is_operator && tok_text == "(" {
         parser.pos += 1
         let inner = self.test_parse_or_expr(parser, mode)
         if inner.status != 0 {
           return inner
         }
-        if parser.pos >= parser.tokens.length() || parser.tokens[parser.pos] != ")" {
+        if parser.pos >= parser.tokens.length() ||
+          not(test_token_can_be_operator(parser.tokens[parser.pos])) ||
+          test_token_raw(parser.tokens[parser.pos]) != ")" {
           return test_eval_syntax_error()
         }
         parser.pos += 1
         return inner
       }
-      if tok == ")" ||
-        test_is_logical_and_op(tok) ||
-        test_is_logical_or_op(tok) ||
-        test_is_binary_op(tok) {
+      if tok_is_operator &&
+        (tok_text == ")" ||
+        test_is_logical_and_op(tok_text) ||
+        test_is_logical_or_op(tok_text) ||
+        test_is_binary_op(tok_text)) {
         return test_eval_syntax_error()
       }
-      if test_is_unary_op(tok) {
+      if tok_is_operator && test_is_unary_op(tok_text) {
         if parser.pos + 1 >= parser.tokens.length() {
           return test_eval_syntax_error()
         }
@@ -889,7 +1076,7 @@ fn ExecContext::test_parse_primary_expr(
       }
       if parser.pos + 2 < parser.tokens.length() {
         let op = parser.tokens[parser.pos + 1]
-        if test_is_binary_op(op) {
+        if test_token_can_be_operator(op) && test_is_binary_op(test_token_raw(op)) {
           let left = parser.tokens[parser.pos]
           let right = parser.tokens[parser.pos + 2]
           parser.pos += 3
@@ -1028,11 +1215,71 @@ fn contains_test_arith_operator(text : String) -> Bool {
 }
 
 fn test_string_compare(left : String, right : String) -> Bool {
-  if has_glob_meta(right) {
+  if has_glob_meta(right) || test_has_glob_escape(right) {
     simple_pattern_match(left, right)
   } else {
     left == right
   }
+}
+
+fn test_has_glob_escape(s : String) -> Bool {
+  let mut i = 0
+  while i + 1 < s.length() {
+    if s[i].to_int().unsafe_to_char() == '\\' {
+      let next = s[i + 1].to_int().unsafe_to_char()
+      if next == '*' || next == '?' || next == '[' || next == '\\' {
+        return true
+      }
+      i += 2
+      continue
+    }
+    i += 1
+  }
+  false
+}
+
+fn test_unescape_glob_escapes(s : String) -> String {
+  let out = StringBuilder::new()
+  let mut i = 0
+  while i < s.length() {
+    let ch = s[i].to_int().unsafe_to_char()
+    if ch == '\\' && i + 1 < s.length() {
+      let next = s[i + 1].to_int().unsafe_to_char()
+      if next == '*' || next == '?' || next == '[' || next == '\\' {
+        out.write_char(next)
+        i += 2
+        continue
+      }
+    }
+    out.write_char(ch)
+    i += 1
+  }
+  out.to_string()
+}
+
+fn test_escape_regex_literal(s : String) -> String {
+  let out = StringBuilder::new()
+  for i = 0; i < s.length(); i = i + 1 {
+    let ch = s[i].to_int().unsafe_to_char()
+    if ch == '\\' ||
+      ch == '.' ||
+      ch == '^' ||
+      ch == '$' ||
+      ch == '*' ||
+      ch == '+' ||
+      ch == '?' ||
+      ch == '(' ||
+      ch == ')' ||
+      ch == '[' ||
+      ch == ']' ||
+      ch == '{' ||
+      ch == '}' ||
+      ch == '|' {
+      out.write_char('\\')
+    }
+    out.write_char(ch)
+  }
+  out.to_string()
 }
 
 // ============================================================================

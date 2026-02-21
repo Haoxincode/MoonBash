@@ -63,6 +63,26 @@ fn ExecContext::arith_get_var_value(self : ExecContext, name : String) -> Int64 
   0L
 }
 
+fn ExecContext::arith_var_is_array(self : ExecContext, name : String) -> Bool {
+  if self.env.contains(test_array_count_storage_key(name)) {
+    return true
+  }
+  if self.env.contains(name + "[@]") || self.env.contains(name + "[*]") {
+    return true
+  }
+  self.env.contains(name + "[0]")
+}
+
+fn ExecContext::arith_target_is_bare_array(
+  self : ExecContext,
+  target : ArithTarget
+) -> Bool {
+  match target {
+    Var(name) => self.arith_var_is_array(name)
+    _ => false
+  }
+}
+
 fn arith_value_looks_like_expression(text : String) -> Bool {
   for i = 0; i < text.length(); i = i + 1 {
     let ch = text[i].to_int().unsafe_to_char()
@@ -445,7 +465,12 @@ fn ExecContext::arith_parse_eq(
         if op == "==" || op == "!=" {
           ignore(p.advance())
           let right = self.arith_parse_rel(p, execute)
-          let ok = if op == "==" {
+          let contains_bare_array =
+            self.arith_target_is_bare_array(left.target) ||
+            self.arith_target_is_bare_array(right.target)
+          let ok = if contains_bare_array {
+            false
+          } else if op == "==" {
             left.value == right.value
           } else {
             left.value != right.value
@@ -812,28 +837,63 @@ fn ExecContext::word_split(
   }
   let ifs = self.env.get("IFS").unwrap_or(" \t\n")
   if ifs.length() == 0 {
-    return [s]
+    return [decode_word_split_protected_text(s, ifs)]
   }
+
   let result : Array[String] = []
   let buf = StringBuilder::new()
-  for i = 0; i < s.length(); i = i + 1 {
+  let mut i = 0
+  while i < s.length() {
     let ch = s[i].to_int().unsafe_to_char()
-    if is_ifs_char(ch, ifs) {
-      let word = buf.to_string()
-      if word.length() > 0 {
-        result.push(word)
-        buf.reset()
+
+    if ch == word_split_protect_marker() {
+      if i + 1 < s.length() {
+        let next = s[i + 1].to_int().unsafe_to_char()
+        if next == word_split_protect_marker() || is_ifs_char(next, ifs) {
+          buf.write_char(next)
+          i += 2
+          continue
+        }
       }
+    }
+
+    if is_ifs_char(ch, ifs) {
+      if is_ifs_whitespace_char(ch) {
+        let word = buf.to_string()
+        if word.length() > 0 {
+          result.push(word)
+          buf.reset()
+        }
+        i += 1
+        continue
+      }
+
+      // Non-whitespace IFS delimiters produce empty fields.
+      result.push(buf.to_string())
+      buf.reset()
+      i += 1
+      // Adjacent IFS whitespace is part of the same delimiter run.
+      while i < s.length() {
+        let next = s[i].to_int().unsafe_to_char()
+        if next == word_split_protect_marker() {
+          break
+        }
+        if is_ifs_char(next, ifs) && is_ifs_whitespace_char(next) {
+          i += 1
+          continue
+        }
+        break
+      }
+      continue
     } else {
       buf.write_char(ch)
     }
+    i += 1
   }
+
   let remaining = buf.to_string()
   if remaining.length() > 0 {
     result.push(remaining)
-  }
-  if result.length() == 0 {
-    return []
   }
   result
 }
@@ -845,4 +905,34 @@ fn is_ifs_char(ch : Char, ifs : String) -> Bool {
     }
   }
   false
+}
+
+fn is_ifs_whitespace_char(ch : Char) -> Bool {
+  ch == ' ' || ch == '\t' || ch == '\n'
+}
+
+fn word_split_protect_marker() -> Char {
+  '\u001f'
+}
+
+fn decode_word_split_protected_text(s : String, ifs : String) -> String {
+  if s.length() == 0 {
+    return s
+  }
+  let out = StringBuilder::new()
+  let mut i = 0
+  while i < s.length() {
+    let ch = s[i].to_int().unsafe_to_char()
+    if ch == word_split_protect_marker() && i + 1 < s.length() {
+      let next = s[i + 1].to_int().unsafe_to_char()
+      if next == word_split_protect_marker() || is_ifs_char(next, ifs) {
+        out.write_char(next)
+        i += 2
+        continue
+      }
+    }
+    out.write_char(ch)
+    i += 1
+  }
+  out.to_string()
 }

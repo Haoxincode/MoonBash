@@ -110,8 +110,10 @@ fn ExecContext::builtin_od(
   args : Array[String]
 ) -> Unit {
   let mut char_mode = false
-  let mut hex_mode = false
+  let mut hex_byte_mode = false
+  let mut hex_word_mode = false
   let mut hex_address = false
+  let mut no_address = false
   let mut input_file : String? = None
   let mut i = 0
   while i < args.length() {
@@ -120,30 +122,44 @@ fn ExecContext::builtin_od(
       char_mode = true
       i += 1
     } else if arg == "-x" {
-      hex_mode = true
+      hex_word_mode = true
       i += 1
     } else if arg == "-t" && i + 1 < args.length() {
       let fmt = args[i + 1]
-      if fmt == "x2" {
-        hex_mode = true
+      if fmt == "c" {
+        char_mode = true
+      } else if fmt == "x1" {
+        hex_byte_mode = true
+      } else if fmt == "x2" {
+        hex_word_mode = true
       }
       i += 2
     } else if arg == "-A" && i + 1 < args.length() {
       let fmt = args[i + 1]
       if fmt == "x" {
         hex_address = true
+        no_address = false
+      } else if fmt == "n" {
+        no_address = true
       }
       i += 2
     } else if arg.has_prefix("-A") && arg.length() > 2 {
       let fmt = arg.view(start_offset=2).to_string()
       if fmt == "x" {
         hex_address = true
+        no_address = false
+      } else if fmt == "n" {
+        no_address = true
       }
       i += 1
     } else if arg.has_prefix("-t") && arg.length() > 2 {
       let fmt = arg.view(start_offset=2).to_string()
-      if fmt == "x2" {
-        hex_mode = true
+      if fmt == "c" {
+        char_mode = true
+      } else if fmt == "x1" {
+        hex_byte_mode = true
+      } else if fmt == "x2" {
+        hex_word_mode = true
       }
       i += 1
     } else {
@@ -178,25 +194,53 @@ fn ExecContext::builtin_od(
   }
 
   let total = bytes.length()
+  let emit_default_octal = not(char_mode) && not(hex_byte_mode) && not(hex_word_mode)
   let mut offset = 0
   while offset < total {
     let line_end = if offset + 16 <= total { offset + 16 } else { total }
-    // Print address
-    if hex_address {
-      self.stdout_buf.write_string(od_format_hex_addr(offset))
-    } else {
-      self.stdout_buf.write_string(od_format_octal_addr(offset))
-    }
-
     if char_mode {
-      // -c mode: named characters
+      if not(no_address) {
+        if hex_address {
+          self.stdout_buf.write_string(od_format_hex_addr(offset))
+        } else {
+          self.stdout_buf.write_string(od_format_octal_addr(offset))
+        }
+      }
+      // -c mode: named characters/escapes
       let mut j = offset
       while j < line_end {
         self.stdout_buf.write_string(od_format_char(bytes[j]))
         j += 1
       }
-    } else if hex_mode {
-      // -x mode: hex 2-byte words
+      self.stdout_buf.write_string("\n")
+    }
+
+    if hex_byte_mode {
+      if not(no_address) {
+        if hex_address {
+          self.stdout_buf.write_string(od_format_hex_addr(offset))
+        } else {
+          self.stdout_buf.write_string(od_format_octal_addr(offset))
+        }
+      }
+      let mut j = offset
+      while j < line_end {
+        self.stdout_buf.write_string("  ")
+        self.stdout_buf.write_string(od_format_hex2(bytes[j]))
+        j += 1
+      }
+      self.stdout_buf.write_string("\n")
+    }
+
+    if hex_word_mode {
+      if not(no_address) {
+        if hex_address {
+          self.stdout_buf.write_string(od_format_hex_addr(offset))
+        } else {
+          self.stdout_buf.write_string(od_format_octal_addr(offset))
+        }
+      }
+      // -x / -tx2 mode: hex 2-byte words (little-endian grouping)
       let mut j = offset
       while j < line_end {
         let lo = bytes[j]
@@ -206,7 +250,17 @@ fn ExecContext::builtin_od(
         self.stdout_buf.write_string(od_format_hex4(word))
         j += 2
       }
-    } else {
+      self.stdout_buf.write_string("\n")
+    }
+
+    if emit_default_octal {
+      if not(no_address) {
+        if hex_address {
+          self.stdout_buf.write_string(od_format_hex_addr(offset))
+        } else {
+          self.stdout_buf.write_string(od_format_octal_addr(offset))
+        }
+      }
       // Default: octal bytes
       let mut j = offset
       while j < line_end {
@@ -217,18 +271,20 @@ fn ExecContext::builtin_od(
         self.stdout_buf.write_string(od_format_octal6(word))
         j += 2
       }
+      self.stdout_buf.write_string("\n")
     }
-    self.stdout_buf.write_string("\n")
     offset = line_end
   }
 
   // Final offset line
-  if hex_address {
-    self.stdout_buf.write_string(od_format_hex_addr(total))
-  } else {
-    self.stdout_buf.write_string(od_format_octal_addr(total))
+  if not(no_address) {
+    if hex_address {
+      self.stdout_buf.write_string(od_format_hex_addr(total))
+    } else {
+      self.stdout_buf.write_string(od_format_octal_addr(total))
+    }
+    self.stdout_buf.write_string("\n")
   }
-  self.stdout_buf.write_string("\n")
   self.exit_code = 0
 }
 
@@ -296,6 +352,7 @@ fn od_format_char(b : Int) -> String {
     8 => "  \\b"
     9 => "  \\t"
     10 => "  \\n"
+    11 => "  \\v"
     12 => "  \\f"
     13 => "  \\r"
     _ =>
@@ -328,6 +385,16 @@ fn od_format_hex4(n : Int) -> String {
   buf.write_char(hex_chars[(n >> 4) & 0xF].to_int().unsafe_to_char())
   buf.write_char(hex_chars[n & 0xF].to_int().unsafe_to_char())
   buf.to_string()
+}
+
+fn od_format_hex2(n : Int) -> String {
+  let hex = "0123456789abcdef"
+  let hi = (n / 16) % 16
+  let lo = n % 16
+  let out = StringBuilder::new()
+  out.write_char(hex[hi].to_int().unsafe_to_char())
+  out.write_char(hex[lo].to_int().unsafe_to_char())
+  out.to_string()
 }
 
 // Format a 6-digit octal value

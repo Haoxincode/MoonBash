@@ -528,17 +528,34 @@ fn ExecContext::execute_simple(
 
   // Expand all words
   let expanded : Array[String] = []
+  let cmd_sub_stderr_capture_path_key = "__MOON_BASH_PENDING_CMD_SUB_STDERR_CAPTURE_PATH__"
+  let cmd_sub_stderr_capture_data_key = "__MOON_BASH_PENDING_CMD_SUB_STDERR_CAPTURE_DATA__"
+  self.env.remove(cmd_sub_stderr_capture_path_key)
+  self.env.remove(cmd_sub_stderr_capture_data_key)
+  let pending_cmd_sub_stderr_key = "__MOON_BASH_PENDING_CMD_SUB_STDERR__"
+  let saved_pending_cmd_sub_stderr = self.env.get(pending_cmd_sub_stderr_key)
+  match self.pending_cmd_sub_stderr_redirect_spec(cmd.redirections) {
+    Some(spec) => self.env[pending_cmd_sub_stderr_key] = spec
+    None => self.env.remove(pending_cmd_sub_stderr_key)
+  }
+  let syntactic_double_bracket = cmd.words.length() > 0 &&
+    word_is_single_literal(cmd.words[0], "[[") &&
+    cmd.assignments.length() == 0
   if cmd.words.length() > 0 {
     let first_parts = self.expand_word(cmd.words[0])
     for part in first_parts {
       expanded.push(part)
     }
     if self.should_exit {
+      match saved_pending_cmd_sub_stderr {
+        Some(value) => self.env[pending_cmd_sub_stderr_key] = value
+        None => self.env.remove(pending_cmd_sub_stderr_key)
+      }
       return
     }
     let cmd_name_for_expansion = if expanded.length() > 0 { expanded[0] } else { "" }
     let assignment_builtin = is_assignment_builtin_name(cmd_name_for_expansion)
-    let conditional_test = cmd_name_for_expansion == "[["
+    let conditional_test = syntactic_double_bracket
     let disable_glob_args = cmd_name_for_expansion == "find"
     let grep_like = is_grep_like_command(cmd_name_for_expansion)
     let mut grep_pattern_set = false
@@ -552,7 +569,7 @@ fn ExecContext::execute_simple(
           None => self.expand_word(cmd.words[i])
         }
       } else if conditional_test {
-        [self.expand_word_to_string(cmd.words[i])]
+        [self.expand_conditional_test_word(cmd.words[i])]
       } else if disable_glob_args {
         self.expand_word_no_glob(cmd.words[i])
       } else if grep_like {
@@ -605,9 +622,18 @@ fn ExecContext::execute_simple(
         expanded.push(part)
       }
       if self.should_exit {
+        match saved_pending_cmd_sub_stderr {
+          Some(value) => self.env[pending_cmd_sub_stderr_key] = value
+          None => self.env.remove(pending_cmd_sub_stderr_key)
+        }
         return
       }
     }
+  }
+
+  match saved_pending_cmd_sub_stderr {
+    Some(value) => self.env[pending_cmd_sub_stderr_key] = value
+    None => self.env.remove(pending_cmd_sub_stderr_key)
   }
 
   if self.should_exit {
@@ -632,12 +658,17 @@ fn ExecContext::execute_simple(
   let alias_has_multiline_literal_arg = alias_call_has_multiline_literal_arg(cmd.words)
 
   let cmd_name = expanded[0]
+  let run_cmd_name = if cmd_name == "[[" && not(syntactic_double_bracket) {
+    "__MOON_BASH_RUNTIME_DBRACKET__"
+  } else {
+    cmd_name
+  }
   let args : Array[String] = []
   for i = 1; i < expanded.length(); i = i + 1 {
     args.push(expanded[i])
   }
   let should_restore_prefix_assignments = track_prefix_assignment_restore &&
-    not(command_keeps_prefix_assignments(cmd_name))
+    not(command_keeps_prefix_assignments(run_cmd_name))
   let originally_exported_prefix_assignments : Map[String, Bool] = {}
   if has_words {
     for name in prefix_assignment_restore_names {
@@ -661,7 +692,7 @@ fn ExecContext::execute_simple(
   let mut stdout_to_stderr = false
   let mut stderr_to_stdout = false
   let mut input_from_file = false
-  let exec_builtin = cmd_name == "exec"
+  let exec_builtin = run_cmd_name == "exec"
 
   for redir in cmd.redirections {
     match redir.op {
@@ -849,7 +880,7 @@ fn ExecContext::execute_simple(
       alias_has_multiline_literal_arg,
     )
   ) {
-    self.run_command(cmd_name, args)
+    self.run_command(run_cmd_name, args)
   }
   if should_restore_prefix_assignments {
     restore_assignment_env_entries(
@@ -898,11 +929,20 @@ fn ExecContext::execute_simple(
 
   match redirected_stderr_file {
     Some(path) => {
-      let output = self.stderr_buf.to_string()
       let resolved = try {
         @fs.resolve_path(self.cwd, path)
       } catch {
         _ => path
+      }
+      let mut output = self.stderr_buf.to_string()
+      match self.env.get(cmd_sub_stderr_capture_path_key) {
+        Some(captured_path) => {
+          if captured_path == resolved {
+            let captured = self.env.get(cmd_sub_stderr_capture_data_key).unwrap_or("")
+            output = captured + output
+          }
+        }
+        None => ()
       }
       try {
         if redirect_stderr_append {
@@ -914,6 +954,8 @@ fn ExecContext::execute_simple(
         @fs.FsError(msg) =>
           saved_stderr.write_string("moon_bash: \{msg}\n")
       }
+      self.env.remove(cmd_sub_stderr_capture_path_key)
+      self.env.remove(cmd_sub_stderr_capture_data_key)
       self.stderr_buf = saved_stderr
     }
     None => {
@@ -924,6 +966,8 @@ fn ExecContext::execute_simple(
       } else if null_stderr {
         self.stderr_buf = saved_stderr
       }
+      self.env.remove(cmd_sub_stderr_capture_path_key)
+      self.env.remove(cmd_sub_stderr_capture_data_key)
     }
   }
 
@@ -940,6 +984,42 @@ fn is_assignment_builtin_name(cmd_name : String) -> Bool {
   cmd_name == "readonly"
 }
 
+fn ExecContext::pending_cmd_sub_stderr_redirect_spec(
+  self : ExecContext,
+  redirections : Array[@ast.Redirection]
+) -> String? {
+  let mut spec : String? = None
+  for redir in redirections {
+    let source_fd = match redir.fd {
+      Some(fd) => fd
+      None => 1
+    }
+    if source_fd != 2 {
+      continue
+    }
+    match redir.op {
+      @ast.RedirectOp::Output => {
+        let target = self.expand_word_to_string(redir.target)
+        if target == "/dev/null" || target == "/dev/stdout" || target == "1" {
+          spec = None
+        } else {
+          spec = Some("w:" + target)
+        }
+      }
+      @ast.RedirectOp::Append => {
+        let target = self.expand_word_to_string(redir.target)
+        if target == "/dev/null" || target == "/dev/stdout" || target == "1" {
+          spec = None
+        } else {
+          spec = Some("a:" + target)
+        }
+      }
+      _ => ()
+    }
+  }
+  spec
+}
+
 fn word_starts_with_literal_paren(word : @ast.Word) -> Bool {
   if word.parts.length() == 0 {
     return false
@@ -949,6 +1029,87 @@ fn word_starts_with_literal_paren(word : @ast.Word) -> Bool {
       text.length() > 0 && text[0].to_int().unsafe_to_char() == '('
     _ => false
   }
+}
+
+fn word_is_single_literal(word : @ast.Word, expected : String) -> Bool {
+  if word.parts.length() != 1 {
+    return false
+  }
+  match word.parts[0] {
+    @ast.WordPart::Literal(text) => text == expected
+    _ => false
+  }
+}
+
+fn word_is_plain_literal(word : @ast.Word) -> Bool {
+  if word.parts.length() == 0 {
+    return false
+  }
+  for part in word.parts {
+    match part {
+      @ast.WordPart::Literal(_) => ()
+      _ => return false
+    }
+  }
+  true
+}
+
+fn word_is_single_tilde(word : @ast.Word) -> Bool {
+  if word.parts.length() != 1 {
+    return false
+  }
+  match word.parts[0] {
+    @ast.WordPart::TildePrefix(_) => true
+    _ => false
+  }
+}
+
+fn escape_conditional_glob_meta(text : String) -> String {
+  let out = StringBuilder::new()
+  for i = 0; i < text.length(); i = i + 1 {
+    let ch = text[i].to_int().unsafe_to_char()
+    if ch == '*' || ch == '?' || ch == '[' || ch == '\\' {
+      out.write_char('\\')
+    }
+    out.write_char(ch)
+  }
+  out.to_string()
+}
+
+fn ExecContext::expand_conditional_part_text(
+  self : ExecContext,
+  part : @ast.WordPart
+) -> String {
+  match part {
+    @ast.WordPart::Literal(text) => text
+    @ast.WordPart::SingleQuoted(text) => escape_conditional_glob_meta(text)
+    @ast.WordPart::DoubleQuoted(inner_parts) => {
+      let out = StringBuilder::new()
+      for inner in inner_parts {
+        out.write_string(self.expand_word_part(inner))
+      }
+      escape_conditional_glob_meta(out.to_string())
+    }
+    _ => self.expand_word_part(part)
+  }
+}
+
+fn ExecContext::expand_conditional_test_word(
+  self : ExecContext,
+  word : @ast.Word
+) -> String {
+  let out = StringBuilder::new()
+  for part in word.parts {
+    out.write_string(self.expand_conditional_part_text(part))
+  }
+  let expanded = out.to_string()
+  if word_is_single_tilde(word) {
+    return test_encode_tilde_token(expanded)
+  }
+  if not(word_is_plain_literal(word)) {
+    return test_encode_dynamic_token(expanded)
+  }
+  expanded
 }
 
 fn assignment_word_is_empty_literal(word : @ast.Word) -> Bool {
@@ -986,11 +1147,46 @@ fn ExecContext::append_scalar_array_assignment(
   true
 }
 
+fn encode_assignment_quoted_marker(text : String) -> String {
+  if text.length() == 0 {
+    return "\u0001\u0000"
+  }
+  let out = StringBuilder::new()
+  for i = 0; i < text.length(); i = i + 1 {
+    out.write_char('\u0001')
+    out.write_char(text[i].to_int().unsafe_to_char())
+  }
+  out.to_string()
+}
+
+fn ExecContext::expand_compound_assignment_word_preserving_quotes(
+  self : ExecContext,
+  word : @ast.Word
+) -> String {
+  let out = StringBuilder::new()
+  for part in word.parts {
+    out.write_string(self.expand_compound_assignment_part_preserving_quotes(part))
+  }
+  out.to_string()
+}
+
+fn ExecContext::expand_compound_assignment_part_preserving_quotes(
+  self : ExecContext,
+  part : @ast.WordPart
+) -> String {
+  match part {
+    @ast.WordPart::SingleQuoted(text) => encode_assignment_quoted_marker(text)
+    @ast.WordPart::DoubleQuoted(inner_parts) =>
+      encode_assignment_quoted_marker(self.expand_double_quoted_parts(inner_parts))
+    _ => self.expand_word_part(part)
+  }
+}
+
 fn ExecContext::expand_compound_assignment_argument(
   self : ExecContext,
   word : @ast.Word
 ) -> String? {
-  let raw = self.expand_word_to_string(word)
+  let raw = self.expand_compound_assignment_word_preserving_quotes(word)
   if self.should_exit {
     return None
   }

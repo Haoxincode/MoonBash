@@ -928,7 +928,11 @@ fn Lexer::scan_word(self : Lexer) -> Unit raise @ast.BashError {
     match ch {
       '\'' => {
         had_quoted = true
-        self.scan_single_quote(buf)
+        if buf_has_trailing_dollar(buf) {
+          self.scan_ansi_c_quote(buf)
+        } else {
+          self.scan_single_quote(buf)
+        }
       }
       '"' => {
         had_quoted = true
@@ -937,7 +941,10 @@ fn Lexer::scan_word(self : Lexer) -> Unit raise @ast.BashError {
       '\\' => {
         self.pos += 1
         if not(self.at_end()) {
-          buf.write_char(self.advance())
+          let next = self.advance()
+          if next != '\n' {
+            buf.write_char(next)
+          }
         }
       }
       _ => {
@@ -988,16 +995,54 @@ fn Lexer::scan_word(self : Lexer) -> Unit raise @ast.BashError {
 
 fn Lexer::scan_single_quote(self : Lexer, buf : StringBuilder) -> Unit raise @ast.BashError {
   self.pos += 1 // skip opening quote
+  let mut has_content = false
   while not(self.at_end()) {
     let ch = self.advance()
     if ch == '\'' {
+      if not(has_content) {
+        // Preserve explicit empty single-quoted literal ('').
+        buf.write_char('\u0001')
+        buf.write_char('\u0000')
+      }
       return
     }
     // Mark characters coming from single quotes as "always literal".
     buf.write_char('\u0001')
     buf.write_char(ch)
+    has_content = true
   }
   raise @ast.BashError("unterminated single quote")
+}
+
+fn Lexer::scan_ansi_c_quote(self : Lexer, buf : StringBuilder) -> Unit raise @ast.BashError {
+  self.pos += 1 // skip opening quote
+  let mut escaped = false
+  let mut has_content = false
+  while not(self.at_end()) {
+    let ch = self.advance()
+    if ch == '\'' && not(escaped) {
+      if not(has_content) {
+        buf.write_char('\u0001')
+        buf.write_char('\u0000')
+      }
+      return
+    }
+    // Preserve raw content for later decode_ansi_c_escapes().
+    buf.write_char('\u0001')
+    buf.write_char(ch)
+    has_content = true
+    if ch == '\\' && not(escaped) {
+      escaped = true
+    } else {
+      escaped = false
+    }
+  }
+  raise @ast.BashError("unterminated ansi-c quote")
+}
+
+fn buf_has_trailing_dollar(buf : StringBuilder) -> Bool {
+  let text = buf.to_string()
+  text.length() > 0 && char_at(text, text.length() - 1) == '$'
 }
 
 fn Lexer::scan_double_quote(self : Lexer, buf : StringBuilder) -> Unit raise @ast.BashError {

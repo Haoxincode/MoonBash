@@ -9,6 +9,13 @@ fn wchar_at(s : String, i : Int) -> Char {
 
 /// Parse a word content string into an array of WordParts.
 pub fn parse_word_parts(s : String) -> Array[@ast.WordPart] {
+  parse_word_parts_with_context(s, in_double_quote=false)
+}
+
+fn parse_word_parts_with_context(
+  s : String,
+  in_double_quote~ : Bool = false
+) -> Array[@ast.WordPart] {
   let parts : Array[@ast.WordPart] = []
   let buf = StringBuilder::new()
   let mut i = 0
@@ -20,8 +27,16 @@ pub fn parse_word_parts(s : String) -> Array[@ast.WordPart] {
     if ch == '\u0002' {
       // Marker emitted by lexer for double-quoted content.
       let lit = buf.to_string()
+      let locale_quote = lit.length() > 0 && wchar_at(lit, lit.length() - 1) == '$'
       if lit.length() > 0 {
-        parts.push(@ast.WordPart::Literal(lit))
+        if locale_quote {
+          let prefix = wsubstr(lit, 0, lit.length() - 1)
+          if prefix.length() > 0 {
+            parts.push(@ast.WordPart::Literal(prefix))
+          }
+        } else {
+          parts.push(@ast.WordPart::Literal(lit))
+        }
         buf.reset()
       }
 
@@ -31,7 +46,10 @@ pub fn parse_word_parts(s : String) -> Array[@ast.WordPart] {
         quoted.write_char(wchar_at(s, i))
         i += 1
       }
-      let inner_parts = parse_word_parts(quoted.to_string())
+      let inner_parts = parse_word_parts_with_context(
+        quoted.to_string(),
+        in_double_quote=true,
+      )
       parts.push(@ast.WordPart::DoubleQuoted(inner_parts))
       if i < len && wchar_at(s, i) == '\u0003' {
         i += 1
@@ -58,22 +76,65 @@ pub fn parse_word_parts(s : String) -> Array[@ast.WordPart] {
         quoted.write_char(wchar_at(s, i + 1))
         i += 2
       }
-      let quoted_text = quoted.to_string()
-      let normalized_quoted_text = if quoted_text.length() == 1 &&
-        wchar_at(quoted_text, 0) == '\u0000' {
-          ""
-        } else {
-          quoted_text
-        }
+      let normalized_quoted_text = strip_single_quote_empty_markers(quoted.to_string())
       if ansi_c_quote {
         parts.push(@ast.WordPart::Literal(decode_ansi_c_escapes(normalized_quoted_text)))
       } else {
         parts.push(@ast.WordPart::SingleQuoted(normalized_quoted_text))
       }
       continue
+    } else if ch == '\'' && not(in_double_quote) {
+      let lit = buf.to_string()
+      let ansi_c_quote = lit.length() > 0 && wchar_at(lit, lit.length() - 1) == '$'
+      if lit.length() > 0 {
+        if ansi_c_quote {
+          let prefix = wsubstr(lit, 0, lit.length() - 1)
+          if prefix.length() > 0 {
+            parts.push(@ast.WordPart::Literal(prefix))
+          }
+        } else {
+          parts.push(@ast.WordPart::Literal(lit))
+        }
+        buf.reset()
+      }
+      let (quoted_text, next_pos) = parse_raw_single_quoted_segment(s, i + 1, ansi_c_quote)
+      let normalized_quoted_text = strip_single_quote_empty_markers(quoted_text)
+      if ansi_c_quote {
+        parts.push(@ast.WordPart::Literal(decode_ansi_c_escapes(normalized_quoted_text)))
+      } else {
+        parts.push(@ast.WordPart::SingleQuoted(normalized_quoted_text))
+      }
+      i = next_pos
+      continue
+    } else if ch == '"' && not(in_double_quote) {
+      let lit = buf.to_string()
+      let locale_quote = lit.length() > 0 && wchar_at(lit, lit.length() - 1) == '$'
+      if lit.length() > 0 {
+        if locale_quote {
+          let prefix = wsubstr(lit, 0, lit.length() - 1)
+          if prefix.length() > 0 {
+            parts.push(@ast.WordPart::Literal(prefix))
+          }
+        } else {
+          parts.push(@ast.WordPart::Literal(lit))
+        }
+        buf.reset()
+      }
+      let (quoted_text, next_pos) = parse_raw_double_quoted_segment(s, i + 1)
+      let inner_parts = parse_word_parts_with_context(
+        quoted_text,
+        in_double_quote=true,
+      )
+      parts.push(@ast.WordPart::DoubleQuoted(inner_parts))
+      i = next_pos
+      continue
     } else if ch == '\\' {
       if i + 1 < len {
         let next = wchar_at(s, i + 1)
+        if next == '\n' {
+          i += 2
+          continue
+        }
         if next == '`' ||
           next == '$' ||
           next == '\\' ||
@@ -98,7 +159,7 @@ pub fn parse_word_parts(s : String) -> Array[@ast.WordPart] {
       let next = wchar_at(s, i + 1)
       if next == '{' {
         // ${...} parameter expansion
-        let result = parse_brace_expansion(s, i + 2)
+        let result = parse_brace_expansion(s, i + 2, in_double_quote=in_double_quote)
         parts.push(result.0)
         i = result.1
         continue
@@ -197,6 +258,61 @@ fn has_closing_backtick(s : String, start : Int) -> Bool {
   false
 }
 
+fn parse_raw_single_quoted_segment(
+  s : String,
+  start : Int,
+  ansi_c_quote : Bool
+) -> (String, Int) {
+  let quoted = StringBuilder::new()
+  let mut i = start
+  let mut escaped = false
+  while i < s.length() {
+    let ch = wchar_at(s, i)
+    if ch == '\'' {
+      if not(ansi_c_quote) || not(escaped) {
+        return (quoted.to_string(), i + 1)
+      }
+    }
+    quoted.write_char(ch)
+    if ansi_c_quote && ch == '\\' && not(escaped) {
+      escaped = true
+    } else {
+      escaped = false
+    }
+    i += 1
+  }
+  (quoted.to_string(), i)
+}
+
+fn parse_raw_double_quoted_segment(s : String, start : Int) -> (String, Int) {
+  let quoted = StringBuilder::new()
+  let mut i = start
+  while i < s.length() {
+    let ch = wchar_at(s, i)
+    if ch == '"' {
+      return (quoted.to_string(), i + 1)
+    }
+    if ch == '\\' && i + 1 < s.length() {
+      let next = wchar_at(s, i + 1)
+      if next == '$' || next == '`' || next == '"' || next == '\\' {
+        quoted.write_char(next)
+        i += 2
+        continue
+      }
+      if next == '\n' {
+        i += 2
+        continue
+      }
+      quoted.write_char('\\')
+      i += 1
+      continue
+    }
+    quoted.write_char(ch)
+    i += 1
+  }
+  (quoted.to_string(), i)
+}
+
 // ============================================================================
 // Character Classification
 // ============================================================================
@@ -237,12 +353,123 @@ fn decode_ansi_c_escapes(s : String) -> String {
       'b' => out.write_char('\u0008')
       'f' => out.write_char('\u000c')
       'v' => out.write_char('\u000b')
+      'e' | 'E' => out.write_char('\u001b')
+      '?' => out.write_char('?')
       '\\' => out.write_char('\\')
       '\'' => out.write_char('\'')
       '"' => out.write_char('"')
-      _ => out.write_char(next)
+      'c' => {
+        if i + 2 < s.length() {
+          let ctrl = (wchar_at(s, i + 2).to_int() & 0x1f).unsafe_to_char()
+          out.write_char(ctrl)
+          i += 1
+        } else {
+          out.write_char('\\')
+          out.write_char('c')
+        }
+      }
+      'x' => {
+        let (value, consumed) = parse_hex_escape_digits(s, i + 2, 2)
+        if consumed > 0 {
+          out.write_char(value.unsafe_to_char())
+          i += consumed
+        } else {
+          out.write_char('\\')
+          out.write_char('x')
+        }
+      }
+      'u' => {
+        let (value, consumed) = parse_hex_escape_digits(s, i + 2, 4)
+        if consumed == 4 {
+          out.write_char(value.unsafe_to_char())
+          i += consumed
+        } else {
+          out.write_char('\\')
+          out.write_char('u')
+        }
+      }
+      'U' => {
+        let (value, consumed) = parse_hex_escape_digits(s, i + 2, 8)
+        if consumed == 8 {
+          out.write_char(value.unsafe_to_char())
+          i += consumed
+        } else {
+          out.write_char('\\')
+          out.write_char('U')
+        }
+      }
+      _ => {
+        if next >= '0' && next <= '7' {
+          let (value, consumed) = parse_octal_escape_digits(s, i + 1, 3)
+          out.write_char(value.unsafe_to_char())
+          i += consumed - 1
+        } else {
+          out.write_char('\\')
+          out.write_char(next)
+        }
+      }
     }
     i += 2
+  }
+  out.to_string()
+}
+
+fn parse_hex_escape_digits(s : String, start : Int, max_digits : Int) -> (Int, Int) {
+  let mut i = start
+  let mut value = 0
+  let mut consumed = 0
+  while i < s.length() && consumed < max_digits {
+    let ch = wchar_at(s, i)
+    let digit = match hex_digit_value(ch) {
+      Some(d) => d
+      None => break
+    }
+    value = value * 16 + digit
+    i += 1
+    consumed += 1
+  }
+  (value, consumed)
+}
+
+fn parse_octal_escape_digits(s : String, start : Int, max_digits : Int) -> (Int, Int) {
+  let mut i = start
+  let mut value = 0
+  let mut consumed = 0
+  while i < s.length() && consumed < max_digits {
+    let ch = wchar_at(s, i)
+    if ch < '0' || ch > '7' {
+      break
+    }
+    value = value * 8 + (ch.to_int() - '0'.to_int())
+    i += 1
+    consumed += 1
+  }
+  (value, consumed)
+}
+
+fn hex_digit_value(ch : Char) -> Int? {
+  if ch >= '0' && ch <= '9' {
+    return Some(ch.to_int() - '0'.to_int())
+  }
+  if ch >= 'a' && ch <= 'f' {
+    return Some(ch.to_int() - 'a'.to_int() + 10)
+  }
+  if ch >= 'A' && ch <= 'F' {
+    return Some(ch.to_int() - 'A'.to_int() + 10)
+  }
+  None
+}
+
+fn strip_single_quote_empty_markers(s : String) -> String {
+  if s.length() == 0 {
+    return s
+  }
+  let out = StringBuilder::new()
+  for i = 0; i < s.length(); i = i + 1 {
+    let ch = wchar_at(s, i)
+    if ch != '\u0000' {
+      out.write_char(ch)
+    }
   }
   out.to_string()
 }
@@ -310,12 +537,74 @@ fn parse_simple_variable(s : String, start : Int) -> (@ast.WordPart, Int) {
 
 /// Parse ${...} starting after the opening brace.
 /// Returns (WordPart, next_pos after closing brace).
-fn parse_brace_expansion(s : String, start : Int) -> (@ast.WordPart, Int) {
+fn parse_brace_expansion(
+  s : String,
+  start : Int,
+  in_double_quote~ : Bool = false
+) -> (@ast.WordPart, Int) {
   // Find matching closing brace (simplified: no nested braces)
   let mut depth = 1
   let mut i = start
+  let mut in_single = false
+  let mut in_double = false
+  let mut escaped = false
   while i < s.length() && depth > 0 {
     let ch = wchar_at(s, i)
+
+    if escaped {
+      escaped = false
+      if depth > 0 {
+        i += 1
+      }
+      continue
+    }
+
+    if in_single {
+      if ch == '\'' {
+        in_single = false
+      }
+      if depth > 0 {
+        i += 1
+      }
+      continue
+    }
+
+    if in_double {
+      if ch == '"' {
+        in_double = false
+      } else if ch == '\\' {
+        escaped = true
+      }
+      if depth > 0 {
+        i += 1
+      }
+      continue
+    }
+
+    if ch == '\\' {
+      escaped = true
+      if depth > 0 {
+        i += 1
+      }
+      continue
+    }
+
+    if ch == '\'' {
+      in_single = true
+      if depth > 0 {
+        i += 1
+      }
+      continue
+    }
+
+    if ch == '"' {
+      in_double = true
+      if depth > 0 {
+        i += 1
+      }
+      continue
+    }
+
     if ch == '{' {
       depth += 1
     } else if ch == '}' {
@@ -331,12 +620,15 @@ fn parse_brace_expansion(s : String, start : Int) -> (@ast.WordPart, Int) {
   i += 1 // skip closing brace
 
   // Parse the content to determine expansion type
-  let part = parse_param_expansion_content(content)
+  let part = parse_param_expansion_content(content, in_double_quote=in_double_quote)
   (part, i)
 }
 
 /// Parse the content inside ${...} to determine expansion type.
-fn parse_param_expansion_content(content : String) -> @ast.WordPart {
+fn parse_param_expansion_content(
+  content : String,
+  in_double_quote~ : Bool = false
+) -> @ast.WordPart {
   let len = content.length()
   if len == 0 {
     return @ast.WordPart::Literal("")
@@ -388,7 +680,7 @@ fn parse_param_expansion_content(content : String) -> @ast.WordPart {
       }
       let op2 = wchar_at(content, rest_start)
       let word_str = wsubstr(content, rest_start + 1, len)
-      let word = parse_word_content(word_str)
+      let word = parse_param_operator_word(word_str, in_double_quote=in_double_quote)
       match op2 {
         '-' => @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Default(name, word, true))
         '=' => @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Assign(name, word, true))
@@ -406,36 +698,36 @@ fn parse_param_expansion_content(content : String) -> @ast.WordPart {
     }
     '-' => {
       let word_str = wsubstr(content, rest_start, len)
-      let word = parse_word_content(word_str)
+      let word = parse_param_operator_word(word_str, in_double_quote=in_double_quote)
       @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Default(name, word, false))
     }
     '=' => {
       let word_str = wsubstr(content, rest_start, len)
-      let word = parse_word_content(word_str)
+      let word = parse_param_operator_word(word_str, in_double_quote=in_double_quote)
       @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Assign(name, word, false))
     }
     '?' => {
       let word_str = wsubstr(content, rest_start, len)
-      let word = parse_word_content(word_str)
+      let word = parse_param_operator_word(word_str, in_double_quote=in_double_quote)
       @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Error(name, Some(word), false))
     }
     '+' => {
       let word_str = wsubstr(content, rest_start, len)
-      let word = parse_word_content(word_str)
+      let word = parse_param_operator_word(word_str, in_double_quote=in_double_quote)
       @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Alternative(name, word, false))
     }
     '#' => {
       let greedy = rest_start < len && wchar_at(content, rest_start) == '#'
       let pat_start = if greedy { rest_start + 1 } else { rest_start }
       let pat_str = wsubstr(content, pat_start, len)
-      let pat : @ast.Word = { parts: [@ast.WordPart::Literal(pat_str)] }
+      let pat = parse_word_content(pat_str)
       @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::PrefixRemove(name, pat, greedy))
     }
     '%' => {
       let greedy = rest_start < len && wchar_at(content, rest_start) == '%'
       let pat_start = if greedy { rest_start + 1 } else { rest_start }
       let pat_str = wsubstr(content, pat_start, len)
-      let pat : @ast.Word = { parts: [@ast.WordPart::Literal(pat_str)] }
+      let pat = parse_word_content(pat_str)
       @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::SuffixRemove(name, pat, greedy))
     }
     '/' => {
@@ -461,10 +753,10 @@ fn parse_param_expansion_content(content : String) -> @ast.WordPart {
         sep_pos += 1
       }
       let pat_str = wsubstr(content, pat_start, sep_pos)
-      let pat : @ast.Word = { parts: [@ast.WordPart::Literal(pat_str)] }
+      let pat = parse_word_content(pat_str)
       let repl : @ast.Word? = if sep_pos < len {
         let repl_str = wsubstr(content, sep_pos + 1, len)
-        Some({ parts: [@ast.WordPart::Literal(repl_str)] })
+        Some(parse_word_content(repl_str))
       } else {
         None
       }
@@ -506,6 +798,48 @@ fn parse_param_expansion_content(content : String) -> @ast.WordPart {
       @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::Simple(name))
     }
   }
+}
+
+fn parse_param_operator_word(
+  word_str : String,
+  in_double_quote~ : Bool = false
+) -> @ast.Word {
+  if not(in_double_quote) {
+    return parse_word_content(word_str)
+  }
+  let preprocessed = preprocess_param_word_in_double_quote(word_str)
+  parse_word_content(preprocessed)
+}
+
+/// In ${...:-word} parsed within outer double quotes, single quotes are literal
+/// characters (LexState::DQ behavior). We preserve that by escaping them before
+/// feeding the generic word parser.
+fn preprocess_param_word_in_double_quote(word_str : String) -> String {
+  let out = StringBuilder::new()
+  let mut i = 0
+  while i < word_str.length() {
+    let ch = wchar_at(word_str, i)
+    if ch == '\\' && i + 1 < word_str.length() {
+      let next = wchar_at(word_str, i + 1)
+      if next == '}' {
+        out.write_char('}')
+      } else {
+        out.write_char('\\')
+        out.write_char(next)
+      }
+      i += 2
+      continue
+    }
+    if ch == '\'' {
+      out.write_char('\\')
+      out.write_char('\'')
+      i += 1
+      continue
+    }
+    out.write_char(ch)
+    i += 1
+  }
+  out.to_string()
 }
 
 fn parse_substring_spec(spec : String) -> (@ast.ArithExpr, @ast.ArithExpr?) {
@@ -876,7 +1210,7 @@ fn parse_tilde(s : String, start : Int) -> (@ast.WordPart, Int) {
   let buf = StringBuilder::new()
   while i < s.length() {
     let ch = wchar_at(s, i)
-    if ch == '/' || ch == ':' {
+    if ch == '/' || ch == ':' || ch == '{' {
       break
     }
     buf.write_char(ch)
