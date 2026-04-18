@@ -1,5 +1,5 @@
 {
-  "name": "moon_bash",
+  "name": "Haoxincode/moonbash",
   "version": "0.1.0",
   "deps": {
     "moonbitlang/regexp": "0.3.5",
@@ -20,9 +20,19 @@
     "tonyfettes/url": "0.3.1",
     "moonbitlang/x": "0.4.43"
   },
-  "readme": "../README.md",
-  "repository": "",
+  "readme": "README.md",
+  "repository": "https://github.com/Haoxincode/MoonBash",
   "license": "Apache-2.0",
   "keywords": ["bash", "shell", "sandbox"],
-  "description": "Zero-dependency pure-memory POSIX Shell sandbox"
+  "description": "Zero-dependency pure-memory POSIX Shell sandbox",
+  "exclude": [
+    "website",
+    "wrapper",
+    "**/pkg.generated.mbti",
+    "**/*_test.mbt",
+    "**/*_wbtest.mbt",
+    "**/*.mbt.md"
+  ],
+  "preferred-target": "js",
+  "supported-targets": "js"
 }

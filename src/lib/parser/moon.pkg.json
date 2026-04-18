@@ -1,6 +1,6 @@
 {
   "import": [
-    "moon_bash/lib/ast",
-    "moon_bash/lib/lexer"
+    "Haoxincode/moonbash/lib/ast",
+    "Haoxincode/moonbash/lib/lexer"
   ]
 }

@@ -9,6 +9,7 @@ examples/website/dist/
 # MoonBit
 target/
 .mooncakes/
+**/pkg.generated.mbti
 
 # Editor
 *.swp

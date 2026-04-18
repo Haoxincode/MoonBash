@@ -1,7 +1,7 @@
 {
   "import": [
-    "moon_bash/lib/ast",
-    "moon_bash/lib/fs",
+    "Haoxincode/moonbash/lib/ast",
+    "Haoxincode/moonbash/lib/fs",
     "bobzhang/moonjq",
     "moonbitlang/core/json",
     "gmlewis/md5",
@@ -9,8 +9,8 @@
     "gmlewis/io",
     "shu-kitamura/sha256",
     "moonbit-community/yaml",
-    "moon_bash/lib/nyacsv",
-    "moon_bash/lib/ffi",
+    "Haoxincode/moonbash/lib/nyacsv",
+    "Haoxincode/moonbash/lib/ffi",
     "moonbitlang/core/math",
     "gmlewis/base64",
     "moonbit-community/piediff",
