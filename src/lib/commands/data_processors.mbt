@@ -125,36 +125,10 @@ fn yq_format_output(y : @yaml.Yaml, raw : Bool) -> String {
 
 /// yq: YAML processor command
 fn cmd_yq(ctx : CommandContext) -> @ast.ExecResult {
-  let mut raw = false
-  let mut filter = "."
-  let mut file_path : String? = None
-  let mut i = 0
-
-  // Parse arguments
-  while i < ctx.args.length() {
-    let arg = ctx.args[i]
-    if arg == "-r" {
-      raw = true
-      i += 1
-    } else if arg == "-j" {
-      // JSON output is default, just consume the flag
-      i += 1
-    } else if arg.has_prefix("-") && arg.length() > 1 {
-      // Unknown flag, skip
-      i += 1
-    } else if (filter == "." && arg.has_prefix(".")) || arg == "." {
-      // First non-flag argument starting with . is the filter
-      filter = arg
-      i += 1
-    } else {
-      // File path
-      file_path = Some(arg)
-      i += 1
-    }
-  }
+  let config = yq_parse_args(ctx.args)
 
   // Read input
-  let content = match file_path {
+  let content = match config.file_path {
     Some(p) => {
       let resolved = try {
         @fs.resolve_path(ctx.cwd, p)
@@ -186,23 +160,23 @@ fn cmd_yq(ctx : CommandContext) -> @ast.ExecResult {
   }
 
   let doc = docs[0]
-  let (result, iterate) = yq_apply_filter(doc, filter)
+  let (result, iterate) = yq_apply_filter(doc, config.filter)
   let out = StringBuilder::new()
 
   if iterate {
     match result {
       @yaml.Yaml::Array(arr) =>
         for item in arr {
-          out.write_string(yq_format_output(item, raw))
+          out.write_string(yq_format_output(item, config.raw))
           out.write_char('\n')
         }
       _ => {
-        out.write_string(yq_format_output(result, raw))
+        out.write_string(yq_format_output(result, config.raw))
         out.write_char('\n')
       }
     }
   } else {
-    out.write_string(yq_format_output(result, raw))
+    out.write_string(yq_format_output(result, config.raw))
     out.write_char('\n')
   }
 
@@ -249,24 +223,25 @@ fn cmd_xan(ctx : CommandContext) -> @ast.ExecResult {
 
 /// csvlook: pretty-print CSV as a table (xan view-compatible).
 fn cmd_csvlook(ctx : CommandContext) -> @ast.ExecResult {
-  let content = if ctx.args.length() > 0 {
-    let path = ctx.args[0]
-    if path == "-" {
-      ctx.stdin_content
-    } else {
-      let resolved = try {
-        @fs.resolve_path(ctx.cwd, path)
-      } catch {
-        @fs.FsError(msg) => return @ast.ExecResult::err("csvlook: \{msg}\n")
-      }
-      try {
-        ctx.fs.read_file(resolved)
-      } catch {
-        @fs.FsError(msg) => return @ast.ExecResult::err("csvlook: \{msg}\n")
+  let config = csvlook_parse_args(ctx.args)
+  let content = match config.file_path {
+    Some(path) => {
+      if path == "-" {
+        ctx.stdin_content
+      } else {
+        let resolved = try {
+          @fs.resolve_path(ctx.cwd, path)
+        } catch {
+          @fs.FsError(msg) => return @ast.ExecResult::err("csvlook: \{msg}\n")
+        }
+        try {
+          ctx.fs.read_file(resolved)
+        } catch {
+          @fs.FsError(msg) => return @ast.ExecResult::err("csvlook: \{msg}\n")
+        }
       }
     }
-  } else {
-    ctx.stdin_content
+    None => ctx.stdin_content
   }
 
   if content.length() == 0 {

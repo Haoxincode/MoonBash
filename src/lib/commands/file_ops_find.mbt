@@ -178,40 +178,13 @@ fn cmd_mv(ctx : CommandContext) -> @ast.ExecResult {
 
 /// touch: create empty files or update timestamps
 fn cmd_touch_parse_date_value(spec : String) -> Int64? {
-  let parts : Array[Int] = []
-  let mut current = 0
-  let mut has_digit = false
-  for i = 0; i < spec.length(); i = i + 1 {
-    let ch = spec[i].to_int().unsafe_to_char()
-    if ch >= '0' && ch <= '9' {
-      current = current * 10 + (ch.to_int() - '0'.to_int())
-      has_digit = true
-      continue
-    }
-    if ch == '/' || ch == '-' {
-      if !(has_digit) {
-        return None
-      }
-      parts.push(current)
-      current = 0
-      has_digit = false
-      continue
-    }
-    return None
+  let normalized = spec.replace(old="/", new="-")
+  let parsed = @time.PlainDate::from_string(normalized) catch {
+    _ => return None
   }
-  if !(has_digit) {
-    return None
-  }
-  parts.push(current)
-  if parts.length() != 3 {
-    return None
-  }
-  let year = parts[0]
-  let month = parts[1]
-  let day = parts[2]
-  if month < 1 || month > 12 || day < 1 || day > 31 {
-    return None
-  }
+  let year = parsed.year()
+  let month = parsed.month()
+  let day = parsed.day()
   let packed = year * 10000 + month * 100 + day
   // Keep explicit dates older than default mtime=0 writes.
   Some((packed - 99_999_999).to_int64())

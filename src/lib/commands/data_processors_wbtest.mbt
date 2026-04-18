@@ -55,3 +55,24 @@ test "xan slice reads from file" {
   assert_eq(result.stderr, "")
   assert_eq(result.stdout, "name,score\nalice,10\nbob,20\n")
 }
+
+///|
+test "yq parses flags filter and file path" {
+  let config = yq_parse_args(["-r", ".foo", "sample.yml"])
+  assert_true(config.raw)
+  assert_eq(config.filter, ".foo")
+  assert_eq(config.file_path, Some("sample.yml"))
+}
+
+///|
+test "yq skips unsupported flags while keeping positional args" {
+  let config = yq_parse_args(["-x", ".bar", "sample.yml"])
+  assert_eq(config.filter, ".bar")
+  assert_eq(config.file_path, Some("sample.yml"))
+}
+
+///|
+test "csvlook parses file path" {
+  let config = csvlook_parse_args(["scores.csv"])
+  assert_eq(config.file_path, Some("scores.csv"))
+}

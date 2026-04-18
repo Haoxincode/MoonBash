@@ -17,7 +17,8 @@
     "tiye/dom-ffi": "0.2.3",
     "moonbitlang/async": "0.18.0",
     "peter-jerry-ye/parse_args": "0.1.1",
-    "tonyfettes/url": "0.3.1"
+    "tonyfettes/url": "0.3.1",
+    "moonbitlang/x": "0.4.43"
   },
   "readme": "../README.md",
   "repository": "",

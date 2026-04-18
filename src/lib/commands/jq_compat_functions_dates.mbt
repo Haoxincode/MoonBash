@@ -216,107 +216,50 @@ fn jq_compat_functions_dates(trimmed : String, input : Json) -> Array[Json]? {
 
   if trimmed == "strftime(\"%Y-%m-%dT%H:%M:%SZ\")" {
     match input {
-      Json::Array(parts) => {
-        if parts.length() >= 3 {
-          let y = match parts[0] {
-            Json::Number(n, ..) => n.to_int()
-            _ => return None
-          }
-          let mon = match parts[1] {
-            Json::Number(n, ..) => n.to_int()
-            _ => return None
-          }
-          let day = match parts[2] {
-            Json::Number(n, ..) => n.to_int()
-            _ => return None
-          }
-          let hh = if parts.length() > 3 {
-            match parts[3] {
-              Json::Number(n, ..) => n.to_int()
-              _ => return None
-            }
-          } else {
-            0
-          }
-          let mm = if parts.length() > 4 {
-            match parts[4] {
-              Json::Number(n, ..) => n.to_int()
-              _ => return None
-            }
-          } else {
-            0
-          }
-          let ss = if parts.length() > 5 {
-            match parts[5] {
-              Json::Number(n, ..) => n.to_int()
-              _ => return None
-            }
-          } else {
-            0
-          }
-          let mon_text = if mon + 1 < 10 { "0\{mon + 1}" } else { (mon + 1).to_string() }
-          let day_text = if day < 10 { "0\{day}" } else { day.to_string() }
-          let hh_text = if hh < 10 { "0\{hh}" } else { hh.to_string() }
-          let mm_text = if mm < 10 { "0\{mm}" } else { mm.to_string() }
-          let ss_text = if ss < 10 { "0\{ss}" } else { ss.to_string() }
-          return Some([Json::string("\{y}-\{mon_text}-\{day_text}T\{hh_text}:\{mm_text}:\{ss_text}Z")])
+      Json::Array(parts) =>
+        match jq_time_plain_datetime_from_parts(parts) {
+          Some(dt) => return Some([Json::string(jq_time_iso_utc_from_datetime(dt))])
+          None => return None
         }
-        return None
-      }
-      Json::Number(n, ..) => {
-        if n.to_int() == 1435677542 {
-          return Some([Json::string("2015-06-30T14:39:02Z")])
+      Json::Number(n, ..) =>
+        match jq_time_plain_datetime_from_unix(n.to_int().to_int64()) {
+          Some(dt) => return Some([Json::string(jq_time_iso_utc_from_datetime(dt))])
+          None => return None
         }
-        return None
-      }
       _ => return None
     }
   }
 
   if trimmed == "strftime(\"%A, %B %d, %Y\")" {
     match input {
-      Json::Number(n, ..) => {
-        if n.to_int() == 1435677542 {
-          return Some([Json::string("Tuesday, June 30, 2015")])
+      Json::Number(n, ..) =>
+        match jq_time_plain_datetime_from_unix(n.to_int().to_int64()) {
+          Some(dt) => return Some([Json::string(jq_time_long_date_from_datetime(dt))])
+          None => return None
         }
-        return None
-      }
       _ => return None
     }
   }
 
   if trimmed == "mktime" {
     match input {
-      Json::Array(parts) if parts.length() >= 3 => {
-        let y = match parts[0] {
-          Json::Number(n, ..) => n.to_int()
-          _ => return None
+      Json::Array(parts) =>
+        match jq_time_plain_datetime_from_parts(parts) {
+          Some(dt) =>
+            return Some([Json::number(jq_time_unix_from_plain_datetime(dt).to_double())])
+          None => return None
         }
-        let mon = match parts[1] {
-          Json::Number(n, ..) => n.to_int()
-          _ => return None
-        }
-        let day = match parts[2] {
-          Json::Number(n, ..) => n.to_int()
-          _ => return None
-        }
-        if y == 2024 && mon == 8 && day == 21 {
-          return Some([jq_json_from_int(1726876800)])
-        }
-        return None
-      }
       _ => return None
     }
   }
 
   if trimmed == "gmtime" {
     match input {
-      Json::Number(n, ..) => {
-        if n.to_int() == 1425599507 {
-          return Some([jq_json_from_literal("[2015,2,5,23,51,47,4,63]")])
+      Json::Number(n, ..) =>
+        match jq_time_plain_datetime_from_unix(n.to_int().to_int64()) {
+          Some(dt) => return Some([Json::array(jq_time_datetime_parts(dt))])
+          None => return None
         }
-        return None
-      }
       _ => return None
     }
   }
@@ -371,30 +314,50 @@ fn jq_compat_functions_dates(trimmed : String, input : Json) -> Array[Json]? {
 
   if trimmed == "[strptime(\"%Y-%m-%dT%H:%M:%SZ\")|(.,mktime)]" {
     match input {
-      Json::String(s) if s == "2015-03-05T23:51:47Z" =>
-        return Some([jq_json_from_literal("[[2015,2,5,23,51,47,4,63],1425599507]")])
+      Json::String(s) =>
+        match jq_time_plain_datetime_from_iso_utc(s) {
+          Some(dt) =>
+            return Some([Json::array([
+              Json::array(jq_time_datetime_parts(dt)),
+              Json::number(jq_time_unix_from_plain_datetime(dt).to_double()),
+            ])])
+          None => return None
+        }
       _ => return None
     }
   }
 
   if trimmed == "fromdate" {
     match input {
-      Json::String(s) if s == "2015-03-05T23:51:47Z" => return Some([jq_json_from_int(1425599507)])
+      Json::String(s) =>
+        match jq_time_plain_datetime_from_iso_utc(s) {
+          Some(dt) =>
+            return Some([Json::number(jq_time_unix_from_plain_datetime(dt).to_double())])
+          None => return None
+        }
       _ => return None
     }
   }
 
   if trimmed == "strptime(\"%Y-%m-%dT%H:%M:%SZ\")" {
     match input {
-      Json::String(s) if s == "2015-03-05T23:51:47Z" =>
-        return Some([jq_json_from_literal("[2015,2,5,23,51,47,4,63]")])
+      Json::String(s) =>
+        match jq_time_plain_datetime_from_iso_utc(s) {
+          Some(dt) => return Some([Json::array(jq_time_datetime_parts(dt))])
+          None => return None
+        }
       _ => return None
     }
   }
 
   if trimmed == "strptime(\"%Y-%m-%dT%H:%M:%SZ\")|mktime" {
     match input {
-      Json::String(s) if s == "2015-03-05T23:51:47Z" => return Some([jq_json_from_int(1425599507)])
+      Json::String(s) =>
+        match jq_time_plain_datetime_from_iso_utc(s) {
+          Some(dt) =>
+            return Some([Json::number(jq_time_unix_from_plain_datetime(dt).to_double())])
+          None => return None
+        }
       _ => return None
     }
   }

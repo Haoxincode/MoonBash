@@ -8,6 +8,18 @@ priv struct XanSliceConfig {
 }
 
 ///|
+priv struct YqConfig {
+  raw : Bool
+  filter : String
+  file_path : String?
+}
+
+///|
+priv struct CsvlookConfig {
+  file_path : String?
+}
+
+///|
 fn xan_slice_normalize_args(args : Array[String]) -> Array[String] {
   let normalized : Array[String] = []
   let mut i = 1
@@ -54,6 +66,57 @@ fn xan_slice_parse_args(args : Array[String]) -> XanSliceConfig {
     },
     file_path: if parsed.positional.length() > 0 {
       Some(parsed.positional[parsed.positional.length() - 1])
+    } else {
+      None
+    },
+  }
+}
+
+///|
+fn yq_parse_args(args : Array[String]) -> YqConfig {
+  let normalized : Array[String] = []
+  for arg in args {
+    if arg == "-r" || arg == "-j" || !(arg.has_prefix("-")) {
+      normalized.push(arg)
+    }
+  }
+  let aliases : Map[String, String] = { "r": "raw", "j": "json" }
+  let parsed = @parse_args.parse(
+    normalized,
+    flags=["raw", "json"],
+    aliases~,
+    double_dash=false,
+  ) catch {
+    _ => {
+      return { raw: false, filter: ".", file_path: None }
+    }
+  }
+
+  let mut filter = "."
+  let mut file_path : String? = None
+  for arg in parsed.positional {
+    if (filter == "." && arg.has_prefix(".")) || arg == "." {
+      filter = arg
+    } else {
+      file_path = Some(arg)
+    }
+  }
+
+  {
+    raw: parsed.flags.get("raw").unwrap_or(false),
+    filter,
+    file_path,
+  }
+}
+
+///|
+fn csvlook_parse_args(args : Array[String]) -> CsvlookConfig {
+  let parsed = @parse_args.parse(args, double_dash=false) catch {
+    _ => return { file_path: None }
+  }
+  {
+    file_path: if parsed.positional.length() > 0 {
+      Some(parsed.positional[0])
     } else {
       None
     },

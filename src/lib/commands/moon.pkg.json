@@ -17,6 +17,7 @@
     "gmlewis/gzip",
     "gmlewis/flate",
     "peter-jerry-ye/parse_args",
-    "tonyfettes/url"
+    "tonyfettes/url",
+    "moonbitlang/x/time"
   ]
 }
