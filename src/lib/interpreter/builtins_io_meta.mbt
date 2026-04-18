@@ -297,11 +297,19 @@ fn ExecContext::builtin_eval(
   self : ExecContext,
   args : Array[String]
 ) -> Unit {
-  if args.length() == 0 {
+  let mut start = 0
+  if args.length() > 0 && args[0] == "--" {
+    start = 1
+  }
+  if start >= args.length() {
     self.exit_code = 0
     return
   }
-  let script = args.iter().fold(
+  let eval_args : Array[String] = []
+  for i = start; i < args.length(); i = i + 1 {
+    eval_args.push(args[i])
+  }
+  let script = eval_args.iter().fold(
     init="",
     fn(acc, a) { if acc.length() == 0 { a } else { acc + " " + a } },
   )

@@ -2,9 +2,21 @@
 // Split from builtins_core.mbt for maintainability.
 
 fn ExecContext::builtin_export(self : ExecContext, args : Array[String]) -> Unit {
-  if args.length() == 0 {
+  if args.length() > 1 && args[0] == "-p" {
+    self.exit_code = 0
+    return
+  }
+  if args.length() == 0 || (args.length() > 0 && args[0] == "-p") {
     // List exported vars
+    let names : Array[String] = []
     for k, _v in self.exported {
+      if is_internal_declare_storage_name(k) {
+        continue
+      }
+      names.push(k)
+    }
+    names.sort_by(fn(a, b) { compare_text(a, b) })
+    for k in names {
       let value = self.env.get(k).unwrap_or("")
       self.stdout_buf.write_string("declare -x \{k}=\"\{value}\"\n")
     }
@@ -47,14 +59,17 @@ fn ExecContext::builtin_export(self : ExecContext, args : Array[String]) -> Unit
 
 fn ExecContext::builtin_unset(self : ExecContext, args : Array[String]) -> Unit {
   let mut unset_functions = false
+  let mut explicit_mode = false
   let mut failed = false
   for arg in args {
     if arg == "-f" {
       unset_functions = true
+      explicit_mode = true
       continue
     }
     if arg == "-v" {
       unset_functions = false
+      explicit_mode = true
       continue
     }
     if unset_functions {
@@ -107,6 +122,9 @@ fn ExecContext::builtin_unset(self : ExecContext, args : Array[String]) -> Unit 
     self.env.remove(lower_attr_storage_key(arg))
     self.env.remove(upper_attr_storage_key(arg))
     self.exported.remove(arg)
+    if not(explicit_mode) {
+      self.functions.remove(arg)
+    }
   }
   self.exit_code = if failed { 1 } else { 0 }
 }
@@ -397,25 +415,94 @@ fn ExecContext::builtin_local(
 ) -> Unit {
   let mut indexed_array_mode = false
   let mut assoc_array_mode = false
+  let mut print_mode = false
   let mut has_other_flags = false
   for arg in args {
-    if arg.length() > 0 && arg[0] == '-' {
-      if declare_flag_contains(arg, 'a') {
-        indexed_array_mode = true
+    match parse_declare_option_token(arg) {
+      Some((_enable, flags)) => {
+        for flag in flags {
+          match flag {
+            'a' => indexed_array_mode = true
+            'A' => assoc_array_mode = true
+            'p' => print_mode = true
+            _ => has_other_flags = true
+          }
+        }
       }
-      if declare_flag_contains(arg, 'A') {
-        assoc_array_mode = true
-      }
-      if not(declare_flag_contains(arg, 'a')) && not(declare_flag_contains(arg, 'A')) {
-        has_other_flags = true
+      None => ()
+    }
+  }
+
+  if args.length() == 0 {
+    if self.call_depth <= 0 {
+      self.exit_code = 0
+      return
+    }
+    let locals = split_local_scope_names(
+      self.env.get(local_scope_names_key(self.call_depth)).unwrap_or(""),
+    )
+    let seen : Map[String, Bool] = {}
+    let names : Array[String] = []
+    for name in locals {
+      if not(seen.contains(name)) {
+        seen[name] = true
+        names.push(name)
       }
     }
+    names.sort_by(fn(a, b) { compare_text(a, b) })
+    for name in names {
+      match self.env.get(name) {
+        Some(value) => self.stdout_buf.write_string("\{name}=\{value}\n")
+        None => ()
+      }
+    }
+    self.exit_code = 0
+    return
+  }
+
+  if print_mode {
+    if self.call_depth <= 0 {
+      self.exit_code = 0
+      return
+    }
+    let local_names = split_local_scope_names(
+      self.env.get(local_scope_names_key(self.call_depth)).unwrap_or(""),
+    )
+    let local_seen : Map[String, Bool] = {}
+    for name in local_names {
+      local_seen[name] = true
+    }
+    let requested : Array[String] = []
+    for arg in args {
+      if is_declare_option_token(arg) {
+        continue
+      }
+      requested.push(arg)
+    }
+    let names : Array[String] = []
+    if requested.length() == 0 {
+      for name, _value in local_seen {
+        names.push(name)
+      }
+      names.sort_by(fn(a, b) { compare_text(a, b) })
+    } else {
+      self.exit_code = 0
+      return
+    }
+    for name in names {
+      match self.env.get(name) {
+        Some(value) => self.stdout_buf.write_string("\{name}=\{value}\n")
+        None => ()
+      }
+    }
+    self.exit_code = 0
+    return
   }
 
   if indexed_array_mode || assoc_array_mode {
     let mut failed = false
     for arg in args {
-      if arg.length() > 0 && arg[0] == '-' {
+      if is_declare_option_token(arg) {
         continue
       }
       match parse_name_value_spec(arg) {
@@ -463,7 +550,7 @@ fn ExecContext::builtin_local(
   }
 
   for arg in args {
-    if arg.length() > 0 && arg[0] == '-' {
+    if is_declare_option_token(arg) {
       self.builtin_declare(args)
       return
     }
@@ -644,47 +731,68 @@ fn ExecContext::builtin_declare(
   let mut nameref = false
   let mut print_mode = false
   let mut function_mode = false
+  let mut function_name_mode = false
   let mut readonly_mode = false
+  let mut clear_readonly_mode = false
   let mut integer_mode = false
   let mut lowercase_mode = false
   let mut uppercase_mode = false
   let mut export_mode = false
+  let mut clear_export_mode = false
+  let mut global_mode = false
   let mut indexed_array_mode = false
   let mut assoc_array_mode = false
   let filtered : Array[String] = []
   for arg in args {
-    if arg.length() > 0 && arg[0] == '-' {
-      if declare_flag_contains(arg, 'n') {
-        nameref = true
+    match parse_declare_option_token(arg) {
+      Some((enable, flags)) => {
+        for flag in flags {
+          match flag {
+            'n' => nameref = enable
+            'p' => print_mode = true
+            'f' => {
+              if enable {
+                function_mode = true
+                print_mode = true
+              }
+            }
+            'F' => {
+              if enable {
+                function_mode = true
+                function_name_mode = true
+                print_mode = true
+              }
+            }
+            'r' => {
+              if enable {
+                readonly_mode = true
+              } else {
+                clear_readonly_mode = true
+              }
+            }
+            'i' => integer_mode = enable
+            'l' => lowercase_mode = enable
+            'u' => uppercase_mode = enable
+            'x' => {
+              if enable {
+                export_mode = true
+              } else {
+                clear_export_mode = true
+              }
+            }
+            'a' => indexed_array_mode = enable
+            'A' => assoc_array_mode = enable
+            'g' => {
+              if enable {
+                global_mode = true
+              }
+            }
+            _ => ()
+          }
+        }
+        continue
       }
-      if declare_flag_contains(arg, 'p') {
-        print_mode = true
-      }
-      if declare_flag_contains(arg, 'f') {
-        function_mode = true
-      }
-      if declare_flag_contains(arg, 'r') {
-        readonly_mode = true
-      }
-      if declare_flag_contains(arg, 'i') {
-        integer_mode = true
-      }
-      if declare_flag_contains(arg, 'l') {
-        lowercase_mode = true
-      }
-      if declare_flag_contains(arg, 'u') {
-        uppercase_mode = true
-      }
-      if declare_flag_contains(arg, 'x') {
-        export_mode = true
-      }
-      if declare_flag_contains(arg, 'a') {
-        indexed_array_mode = true
-      }
-      if declare_flag_contains(arg, 'A') {
-        assoc_array_mode = true
-      }
-      continue
+      None => ()
     }
     filtered.push(arg)
   }
@@ -692,14 +800,29 @@ fn ExecContext::builtin_declare(
   if print_mode {
     let mut failed = false
     if function_mode {
+      let function_names : Array[String] = []
+      for name, _def in self.functions {
+        if is_visible_declare_function_name(name) {
+          function_names.push(name)
+        }
+      }
+      function_names.sort_by(fn(a, b) { compare_text(a, b) })
       if filtered.length() == 0 {
-        for name, _f in self.functions {
-          self.stdout_buf.write_string("\{name} ()\n")
+        for name in function_names {
+          if function_name_mode {
+            self.stdout_buf.write_string("declare -f \{name}\n")
+          } else {
+            self.stdout_buf.write_string("\{name} ()\n")
+          }
         }
       } else {
         for name in filtered {
-          if self.functions.contains(name) {
-            self.stdout_buf.write_string("\{name} ()\n")
+          if self.functions.contains(name) && is_visible_declare_function_name(name) {
+            if function_name_mode {
+              self.stdout_buf.write_string(name + "\n")
+            } else {
+              self.stdout_buf.write_string("\{name} ()\n")
+            }
           } else {
             self.stderr_buf.write_string("moon_bash: declare: \{name}: not found\n")
             failed = true
@@ -707,15 +830,28 @@ fn ExecContext::builtin_declare(
         }
       }
     } else {
-      if filtered.length() == 0 {
-        for name, value in self.env {
-          self.stdout_buf.write_string("declare -- \{name}=\"\{value}\"\n")
-        }
+      let names = if filtered.length() == 0 {
+        self.collect_declare_print_names()
       } else {
-        for name in filtered {
-          match self.format_declare_print_entry(name) {
-            Some(rendered) => self.stdout_buf.write_string(rendered + "\n")
-            None => {
+        filtered
+      }
+      for name in names {
+        if not(
+          self.declare_entry_matches_filters(
+            name,
+            nameref,
+            readonly_mode,
+            export_mode,
+            indexed_array_mode,
+            assoc_array_mode,
+          )
+        ) {
+          continue
+        }
+        match self.format_declare_print_entry(name) {
+          Some(rendered) => self.stdout_buf.write_string(rendered + "\n")
+          None => {
+            if filtered.length() > 0 && self.call_depth <= 0 {
               self.stderr_buf.write_string("moon_bash: declare: \{name}: not found\n")
               failed = true
             }
@@ -731,12 +867,16 @@ fn ExecContext::builtin_declare(
     for spec in filtered {
       match parse_name_value_spec(spec) {
         Some((name, Some(target), _append)) => {
-          self.capture_local_binding(name)
+          if not(global_mode) {
+            self.capture_local_binding(name)
+          }
           self.env[name] = target
           self.env["__MOON_BASH_NAMEREF__" + name] = target
         }
         Some((name, None, _append)) => {
-          self.capture_local_binding(name)
+          if not(global_mode) {
+            self.capture_local_binding(name)
+          }
           if not(self.env.contains(name)) {
             self.env[name] = ""
           }
@@ -748,7 +888,51 @@ fn ExecContext::builtin_declare(
     return
   }
 
+  if filtered.length() == 0 &&
+    not(
+      readonly_mode ||
+      clear_readonly_mode ||
+      integer_mode ||
+      lowercase_mode ||
+      uppercase_mode ||
+      export_mode ||
+      clear_export_mode ||
+      global_mode ||
+      indexed_array_mode ||
+      assoc_array_mode
+    ) {
+      let names = self.collect_declare_print_names()
+      for name in names {
+        match self.env.get(name) {
+          Some(value) => self.stdout_buf.write_string("\{name}=\{value}\n")
+          None => ()
+        }
+      }
+      self.exit_code = 0
+      return
+    }
+
   if filtered.length() == 0 {
+    if readonly_mode || export_mode || nameref {
+      let names = self.collect_declare_print_names()
+      for name in names {
+        if self.declare_entry_matches_filters(
+          name,
+          nameref,
+          readonly_mode,
+          export_mode,
+          indexed_array_mode,
+          assoc_array_mode,
+        ) {
+          match self.format_declare_print_entry(name) {
+            Some(rendered) => self.stdout_buf.write_string(rendered + "\n")
+            None => ()
+          }
+        }
+      }
+      self.exit_code = 0
+      return
+    }
     if indexed_array_mode || assoc_array_mode {
       let names : Array[String] = []
       let kind_prefix = test_array_kind_storage_key("")
@@ -773,7 +957,16 @@ fn ExecContext::builtin_declare(
   }
 
   if (indexed_array_mode || assoc_array_mode) &&
-    not(readonly_mode || integer_mode || lowercase_mode || uppercase_mode || export_mode) {
+    not(
+      readonly_mode ||
+      clear_readonly_mode ||
+      integer_mode ||
+      lowercase_mode ||
+      uppercase_mode ||
+      export_mode ||
+      clear_export_mode ||
+      global_mode
+    ) {
       let mut failed = false
       for spec in filtered {
         match parse_name_value_spec(spec) {
@@ -784,7 +977,9 @@ fn ExecContext::builtin_declare(
               failed = true
               continue
             }
-            self.capture_local_binding(name)
+            if not(global_mode) {
+              self.capture_local_binding(name)
+            }
             self.env[test_array_kind_storage_key(name)] = target_kind
             match assigned_value {
               Some(raw_value) => {
@@ -828,7 +1023,14 @@ fn ExecContext::builtin_declare(
     }
 
   if not(
-    readonly_mode || integer_mode || lowercase_mode || uppercase_mode || export_mode
+    readonly_mode ||
+    clear_readonly_mode ||
+    integer_mode ||
+    lowercase_mode ||
+    uppercase_mode ||
+    export_mode ||
+    clear_export_mode ||
+    global_mode
   ) {
     self.builtin_local(filtered)
     return
@@ -838,9 +1040,14 @@ fn ExecContext::builtin_declare(
   for spec in filtered {
     match parse_name_value_spec(spec) {
       Some((name, assigned_value, append)) => {
-        self.capture_local_binding(name)
+        if not(global_mode) {
+          self.capture_local_binding(name)
+        }
         if readonly_mode {
           self.set_readonly_variable(name, true)
+        }
+        if clear_readonly_mode {
+          self.set_readonly_variable(name, false)
         }
         if integer_mode {
           self.set_integer_attribute(name, true)
@@ -856,6 +1063,9 @@ fn ExecContext::builtin_declare(
         }
         if export_mode {
           self.exported[name] = true
+        }
+        if clear_export_mode {
+          self.exported.remove(name)
         }
         match assigned_value {
           Some(raw_value) => {
@@ -892,6 +1102,9 @@ fn ExecContext::builtin_declare(
                   failed = true
                   break
                 }
+                if clear_export_mode {
+                  self.exported.remove(name)
+                }
               }
             }
           }
@@ -901,6 +1114,9 @@ fn ExecContext::builtin_declare(
                 failed = true
                 break
               }
+            }
+            if clear_export_mode {
+              self.exported.remove(name)
             }
           }
         }
@@ -915,6 +1131,11 @@ fn ExecContext::format_declare_print_entry(
   self : ExecContext,
   name : String
 ) -> String? {
+  if is_internal_declare_storage_name(name) {
+    return None
+  }
+
+  let attr_flags = self.declare_attribute_flags(name)
   let array_kind = self.env.get(test_array_kind_storage_key(name)).unwrap_or("")
   let has_array_kind = array_kind == "assoc" || array_kind == "indexed"
   let has_array_count = self.env.contains(test_array_count_storage_key(name))
@@ -939,6 +1160,11 @@ fn ExecContext::format_declare_print_entry(
 
     let out = StringBuilder::new()
     out.write_string("declare ")
+    if attr_flags.length() > 0 {
+      out.write_char('-')
+      out.write_string(attr_flags)
+      out.write_char(' ')
+    }
     if array_kind == "assoc" {
       out.write_string("-A ")
     } else {
@@ -968,9 +1194,114 @@ fn ExecContext::format_declare_print_entry(
   }
 
   match self.env.get(name) {
-    Some(value) => Some("declare -- \{name}=\"\{escape_declare_value(value)}\"")
+    Some(value) => {
+      if attr_flags.length() > 0 {
+        Some("declare -\{attr_flags} \{name}=\"\{escape_declare_value(value)}\"")
+      } else {
+        Some("declare -- \{name}=\"\{escape_declare_value(value)}\"")
+      }
+    }
     None => None
   }
+}
+
+fn ExecContext::declare_attribute_flags(self : ExecContext, name : String) -> String {
+  let flags = StringBuilder::new()
+  if self.env.get(integer_attr_storage_key(name)).unwrap_or("") == "1" {
+    flags.write_char('i')
+  }
+  if self.env.get(lower_attr_storage_key(name)).unwrap_or("") == "1" {
+    flags.write_char('l')
+  }
+  if self.env.contains("__MOON_BASH_NAMEREF__" + name) {
+    flags.write_char('n')
+  }
+  if self.is_readonly_variable(name) {
+    flags.write_char('r')
+  }
+  if self.env.get(upper_attr_storage_key(name)).unwrap_or("") == "1" {
+    flags.write_char('u')
+  }
+  if self.exported.contains(name) {
+    flags.write_char('x')
+  }
+  flags.to_string()
+}
+
+fn ExecContext::declare_entry_matches_filters(
+  self : ExecContext,
+  name : String,
+  nameref_mode : Bool,
+  readonly_mode : Bool,
+  export_mode : Bool,
+  indexed_array_mode : Bool,
+  assoc_array_mode : Bool
+) -> Bool {
+  if nameref_mode && not(self.env.contains("__MOON_BASH_NAMEREF__" + name)) {
+    return false
+  }
+  if readonly_mode && not(self.is_readonly_variable(name)) {
+    return false
+  }
+  if export_mode && not(self.exported.contains(name)) {
+    return false
+  }
+  let array_kind = self.env.get(test_array_kind_storage_key(name)).unwrap_or("")
+  if indexed_array_mode && array_kind != "indexed" {
+    return false
+  }
+  if assoc_array_mode && array_kind != "assoc" {
+    return false
+  }
+  true
+}
+
+fn ExecContext::collect_declare_print_names(self : ExecContext) -> Array[String] {
+  let names : Array[String] = []
+  let seen : Map[String, Bool] = {}
+  for key, _value in self.env {
+    if is_internal_declare_storage_name(key) {
+      continue
+    }
+    match parse_array_element_assignment_name(key) {
+      Some((base, _index)) => {
+        if not(seen.contains(base)) {
+          seen[base] = true
+          names.push(base)
+        }
+      }
+      None => {
+        if not(seen.contains(key)) {
+          seen[key] = true
+          names.push(key)
+        }
+      }
+    }
+  }
+  for key, _value in self.exported {
+    if is_internal_declare_storage_name(key) {
+      continue
+    }
+    if not(seen.contains(key)) {
+      seen[key] = true
+      names.push(key)
+    }
+  }
+  names.sort_by(fn(a, b) { compare_text(a, b) })
+  names
+}
+
+fn is_internal_declare_storage_name(name : String) -> Bool {
+  name.has_prefix("__MOON_BASH_")
+}
+
+fn is_visible_declare_function_name(name : String) -> Bool {
+  for i = 0; i < name.length(); i = i + 1 {
+    if name[i].to_int().unsafe_to_char() == '.' {
+      return false
+    }
+  }
+  true
 }
 
 fn escape_declare_value(value : String) -> String {
@@ -1000,6 +1331,34 @@ fn quote_assoc_declare_key(key : String) -> String {
   out.to_string()
 }
 
+fn is_declare_option_token(flag : String) -> Bool {
+  parse_declare_option_token(flag) is Some(_)
+}
+
+fn parse_declare_option_token(flag : String) -> (Bool, Array[Char])? {
+  if flag == "--" {
+    return Some((true, []))
+  }
+  if flag.length() <= 1 {
+    return None
+  }
+  let first = flag[0].to_int().unsafe_to_char()
+  if first != '-' && first != '+' {
+    return None
+  }
+  let enable = first == '-'
+  let flags : Array[Char] = []
+  for i = 1; i < flag.length(); i = i + 1 {
+    let ch = flag[i].to_int().unsafe_to_char()
+    match ch {
+      'n' | 'p' | 'f' | 'F' | 'r' | 'i' | 'l' | 'u' | 'x' | 'a' | 'A' | 'g' =>
+        flags.push(ch)
+      _ => return None
+    }
+  }
+  Some((enable, flags))
+}
+
 fn declare_flag_contains(flag : String, needle : Char) -> Bool {
   if flag.length() <= 1 {
     return false
@@ -1016,6 +1375,10 @@ fn ExecContext::builtin_readonly(
   self : ExecContext,
   args : Array[String]
 ) -> Unit {
+  if args.length() > 1 && args[0] == "-p" {
+    self.exit_code = 0
+    return
+  }
   let declare_args : Array[String] = ["-r"]
   for arg in args {
     declare_args.push(arg)

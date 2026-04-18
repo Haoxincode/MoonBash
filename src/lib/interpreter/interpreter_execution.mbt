@@ -554,7 +554,7 @@ fn ExecContext::execute_simple(
       return
     }
     let cmd_name_for_expansion = if expanded.length() > 0 { expanded[0] } else { "" }
-    let assignment_builtin = is_assignment_builtin_name(cmd_name_for_expansion)
+    let first_word_static = word_is_static_command_name_candidate(cmd.words[0])
     let conditional_test = syntactic_double_bracket
     let disable_glob_args = cmd_name_for_expansion == "find"
     let grep_like = is_grep_like_command(cmd_name_for_expansion)
@@ -563,7 +563,11 @@ fn ExecContext::execute_simple(
     let mut grep_expect_e_pattern = false
 
     for i = 1; i < cmd.words.length(); i = i + 1 {
-      let parts = if assignment_builtin {
+      let assignment_builtin_active = assignment_builtin_active_for_expanded_words(
+        expanded,
+        first_word_static,
+      )
+      let parts = if assignment_builtin_active {
         match self.expand_compound_assignment_argument(cmd.words[i]) {
           Some(raw) => [raw]
           None => self.expand_word(cmd.words[i])
@@ -980,8 +984,81 @@ fn ExecContext::execute_simple(
 fn is_assignment_builtin_name(cmd_name : String) -> Bool {
   cmd_name == "declare" ||
   cmd_name == "typeset" ||
+  cmd_name == "export" ||
   cmd_name == "local" ||
   cmd_name == "readonly"
+}
+
+fn assignment_builtin_active_for_expanded_words(
+  expanded : Array[String],
+  first_word_static : Bool
+) -> Bool {
+  if expanded.length() == 0 {
+    return false
+  }
+
+  let cmd_name = expanded[0]
+  if is_assignment_builtin_name(cmd_name) {
+    return first_word_static
+  }
+
+  if cmd_name == "builtin" {
+    let mut idx = 1
+    if idx < expanded.length() && expanded[idx] == "--" {
+      idx += 1
+    }
+    if idx >= expanded.length() {
+      return false
+    }
+    return is_assignment_builtin_name(expanded[idx])
+  }
+
+  if cmd_name == "command" {
+    let mut mode = 0
+    let mut idx = 1
+    while idx < expanded.length() {
+      let token = expanded[idx]
+      if token == "--" {
+        idx += 1
+        break
+      }
+      match parse_command_builtin_mode_token(token) {
+        Some(token_mode) => {
+          if token_mode != 0 {
+            mode = token_mode
+          }
+          idx += 1
+        }
+        None => break
+      }
+    }
+
+    if idx >= expanded.length() || mode != 0 {
+      return false
+    }
+
+    return is_assignment_builtin_name(expanded[idx])
+  }
+
+  false
+}
+
+fn parse_command_builtin_mode_token(token : String) -> Int? {
+  if token.length() < 2 || token[0].to_int().unsafe_to_char() != '-' {
+    return None
+  }
+
+  let mut mode = 0
+  for i = 1; i < token.length(); i = i + 1 {
+    let flag = token[i].to_int().unsafe_to_char()
+    match flag {
+      'v' => mode = 1
+      'V' => mode = 2
+      'p' => ()
+      _ => return None
+    }
+  }
+  Some(mode)
 }
 
 fn ExecContext::pending_cmd_sub_stderr_redirect_spec(
@@ -1052,6 +1129,34 @@ fn word_is_plain_literal(word : @ast.Word) -> Bool {
     }
   }
   true
+}
+
+fn word_is_static_command_name_candidate(word : @ast.Word) -> Bool {
+  if word.parts.length() == 0 {
+    return false
+  }
+  for part in word.parts {
+    if word_part_has_runtime_expansion(part) {
+      return false
+    }
+  }
+  true
+}
+
+fn word_part_has_runtime_expansion(part : @ast.WordPart) -> Bool {
+  match part {
+    @ast.WordPart::Literal(_) => false
+    @ast.WordPart::SingleQuoted(_) => false
+    @ast.WordPart::DoubleQuoted(inner_parts) => {
+      for inner in inner_parts {
+        if word_part_has_runtime_expansion(inner) {
+          return true
+        }
+      }
+      false
+    }
+    _ => true
+  }
 }
 
 fn word_is_single_tilde(word : @ast.Word) -> Bool {
@@ -1192,13 +1297,7 @@ fn ExecContext::expand_compound_assignment_argument(
   }
 
   match parse_name_value_spec(raw) {
-    Some((_name, Some(raw_value), _append)) => {
-      let parsed = @parser.parse_word_content(raw_value)
-      match split_array_assignment_items(parsed.parts) {
-        Some(_) => Some(raw)
-        None => None
-      }
-    }
+    Some((_name, Some(_raw_value), _append)) => Some(raw)
     _ => None
   }
 }

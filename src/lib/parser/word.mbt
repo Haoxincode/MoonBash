@@ -9,12 +9,17 @@ fn wchar_at(s : String, i : Int) -> Char {
 
 /// Parse a word content string into an array of WordParts.
 pub fn parse_word_parts(s : String) -> Array[@ast.WordPart] {
-  parse_word_parts_with_context(s, in_double_quote=false)
+  parse_word_parts_with_context(
+    s,
+    in_double_quote=false,
+    parse_raw_quotes=false,
+  )
 }
 
 fn parse_word_parts_with_context(
   s : String,
-  in_double_quote~ : Bool = false
+  in_double_quote~ : Bool = false,
+  parse_raw_quotes~ : Bool = false
 ) -> Array[@ast.WordPart] {
   let parts : Array[@ast.WordPart] = []
   let buf = StringBuilder::new()
@@ -49,6 +54,7 @@ fn parse_word_parts_with_context(
       let inner_parts = parse_word_parts_with_context(
         quoted.to_string(),
         in_double_quote=true,
+        parse_raw_quotes=parse_raw_quotes,
       )
       parts.push(@ast.WordPart::DoubleQuoted(inner_parts))
       if i < len && wchar_at(s, i) == '\u0003' {
@@ -83,7 +89,10 @@ fn parse_word_parts_with_context(
         parts.push(@ast.WordPart::SingleQuoted(normalized_quoted_text))
       }
       continue
-    } else if ch == '\'' && not(in_double_quote) {
+    } else if parse_raw_quotes &&
+      ch == '\'' &&
+      not(in_double_quote) &&
+      has_closing_raw_single_quote(s, i + 1) {
       let lit = buf.to_string()
       let ansi_c_quote = lit.length() > 0 && wchar_at(lit, lit.length() - 1) == '$'
       if lit.length() > 0 {
@@ -106,7 +115,10 @@ fn parse_word_parts_with_context(
       }
       i = next_pos
       continue
-    } else if ch == '"' && not(in_double_quote) {
+    } else if parse_raw_quotes &&
+      ch == '"' &&
+      not(in_double_quote) &&
+      has_closing_raw_double_quote(s, i + 1) {
       let lit = buf.to_string()
       let locale_quote = lit.length() > 0 && wchar_at(lit, lit.length() - 1) == '$'
       if lit.length() > 0 {
@@ -124,6 +136,7 @@ fn parse_word_parts_with_context(
       let inner_parts = parse_word_parts_with_context(
         quoted_text,
         in_double_quote=true,
+        parse_raw_quotes=parse_raw_quotes,
       )
       parts.push(@ast.WordPart::DoubleQuoted(inner_parts))
       i = next_pos
@@ -247,6 +260,38 @@ fn has_closing_backtick(s : String, start : Int) -> Bool {
   while i < s.length() {
     let ch = wchar_at(s, i)
     if ch == '`' {
+      return true
+    }
+    if ch == '\\' && i + 1 < s.length() {
+      i += 2
+    } else {
+      i += 1
+    }
+  }
+  false
+}
+
+fn has_closing_raw_single_quote(s : String, start : Int) -> Bool {
+  let mut i = start
+  while i < s.length() {
+    let ch = wchar_at(s, i)
+    if ch == '\'' {
+      return true
+    }
+    if ch == '\\' && i + 1 < s.length() {
+      i += 2
+    } else {
+      i += 1
+    }
+  }
+  false
+}
+
+fn has_closing_raw_double_quote(s : String, start : Int) -> Bool {
+  let mut i = start
+  while i < s.length() {
+    let ch = wchar_at(s, i)
+    if ch == '"' {
       return true
     }
     if ch == '\\' && i + 1 < s.length() {
@@ -720,14 +765,14 @@ fn parse_param_expansion_content(
       let greedy = rest_start < len && wchar_at(content, rest_start) == '#'
       let pat_start = if greedy { rest_start + 1 } else { rest_start }
       let pat_str = wsubstr(content, pat_start, len)
-      let pat = parse_word_content(pat_str)
+      let pat = parse_word_content_with_raw_quotes(pat_str)
       @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::PrefixRemove(name, pat, greedy))
     }
     '%' => {
       let greedy = rest_start < len && wchar_at(content, rest_start) == '%'
       let pat_start = if greedy { rest_start + 1 } else { rest_start }
       let pat_str = wsubstr(content, pat_start, len)
-      let pat = parse_word_content(pat_str)
+      let pat = parse_word_content_with_raw_quotes(pat_str)
       @ast.WordPart::ParameterExpansion(@ast.ParamExpansion::SuffixRemove(name, pat, greedy))
     }
     '/' => {
@@ -753,10 +798,10 @@ fn parse_param_expansion_content(
         sep_pos += 1
       }
       let pat_str = wsubstr(content, pat_start, sep_pos)
-      let pat = parse_word_content(pat_str)
+      let pat = parse_word_content_with_raw_quotes(pat_str)
       let repl : @ast.Word? = if sep_pos < len {
         let repl_str = wsubstr(content, sep_pos + 1, len)
-        Some(parse_word_content(repl_str))
+        Some(parse_word_content_with_raw_quotes(repl_str))
       } else {
         None
       }
@@ -805,10 +850,21 @@ fn parse_param_operator_word(
   in_double_quote~ : Bool = false
 ) -> @ast.Word {
   if not(in_double_quote) {
-    return parse_word_content(word_str)
+    return parse_word_content_with_raw_quotes(word_str)
   }
   let preprocessed = preprocess_param_word_in_double_quote(word_str)
-  parse_word_content(preprocessed)
+  parse_word_content_with_raw_quotes(preprocessed)
+}
+
+fn parse_word_content_with_raw_quotes(s : String) -> @ast.Word {
+  {
+    parts:
+      parse_word_parts_with_context(
+        s,
+        in_double_quote=false,
+        parse_raw_quotes=true,
+      ),
+  }
 }
 
 /// In ${...:-word} parsed within outer double quotes, single quotes are literal
