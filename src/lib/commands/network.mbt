@@ -1,6 +1,7 @@
 // moon_bash Commands - Network
 // curl, html-to-markdown
 
+///|
 priv struct NetFetchResponse {
   ok : Bool
   status : Int
@@ -10,6 +11,7 @@ priv struct NetFetchResponse {
   headers : Array[(String, String)]
 }
 
+///|
 fn net_hex_digit(n : Int) -> Char {
   if n < 10 {
     (n + 48).unsafe_to_char()
@@ -18,6 +20,7 @@ fn net_hex_digit(n : Int) -> Char {
   }
 }
 
+///|
 fn net_json_escape_string(s : String) -> String {
   let out = StringBuilder::new()
   out.write_char('"')
@@ -45,6 +48,7 @@ fn net_json_escape_string(s : String) -> String {
   out.to_string()
 }
 
+///|
 fn net_headers_to_json(headers : Array[(String, String)]) -> String {
   let out = StringBuilder::new()
   out.write_char('{')
@@ -61,11 +65,12 @@ fn net_headers_to_json(headers : Array[(String, String)]) -> String {
   out.to_string()
 }
 
+///|
 fn net_build_fetch_request_json(
   url : String,
   http_method : String,
   headers : Array[(String, String)],
-  body : String?
+  body : String?,
 ) -> String {
   let out = StringBuilder::new()
   out.write_char('{')
@@ -86,10 +91,11 @@ fn net_build_fetch_request_json(
   out.to_string()
 }
 
+///|
 fn net_json_get_string(
   obj : Map[String, Json],
   key : String,
-  default_value : String
+  default_value : String,
 ) -> String {
   match obj.get(key) {
     Some(Json::String(s)) => s
@@ -101,10 +107,11 @@ fn net_json_get_string(
   }
 }
 
+///|
 fn net_json_get_int(
   obj : Map[String, Json],
   key : String,
-  default_value : Int
+  default_value : Int,
 ) -> Int {
   match obj.get(key) {
     Some(Json::Number(n, ..)) => n.to_int()
@@ -113,10 +120,11 @@ fn net_json_get_int(
   }
 }
 
+///|
 fn net_json_get_bool(
   obj : Map[String, Json],
   key : String,
-  default_value : Bool
+  default_value : Bool,
 ) -> Bool {
   match obj.get(key) {
     Some(Json::True) => true
@@ -127,6 +135,7 @@ fn net_json_get_bool(
   }
 }
 
+///|
 fn net_json_get_headers(obj : Map[String, Json]) -> Array[(String, String)] {
   match obj.get("headers") {
     Some(Json::Object(headers_obj)) => {
@@ -157,10 +166,11 @@ fn net_json_get_headers(obj : Map[String, Json]) -> Array[(String, String)] {
   }
 }
 
-fn net_parse_fetch_response(json_str : String) -> Result[NetFetchResponse, String] {
-  let parsed = try {
-    @json.parse(json_str[:])
-  } catch {
+///|
+fn net_parse_fetch_response(
+  json_str : String,
+) -> Result[NetFetchResponse, String] {
+  let parsed = @json.parse(json_str[:]) catch {
     _ => return Err("fetch bridge returned invalid JSON")
   }
   match parsed {
@@ -183,19 +193,22 @@ fn net_parse_fetch_response(json_str : String) -> Result[NetFetchResponse, Strin
   }
 }
 
+///|
 fn net_fetch_url(
   url : String,
   http_method : String,
   headers : Array[(String, String)],
-  body : String?
+  body : String?,
 ) -> Result[NetFetchResponse, String] {
-  let request_json = net_build_fetch_request_json(url, http_method, headers, body)
+  let request_json = net_build_fetch_request_json(
+    url, http_method, headers, body,
+  )
   let raw = @ffi.fetch_sync(request_json)
   let response = match net_parse_fetch_response(raw) {
     Err(msg) => return Err(msg)
     Ok(r) => r
   }
-  if !(response.ok) && response.status == 0 && response.error.length() == 0 {
+  if !response.ok && response.status == 0 && response.error.length() == 0 {
     return Err("network request failed")
   }
   if response.error.length() > 0 {
@@ -204,25 +217,23 @@ fn net_fetch_url(
   Ok(response)
 }
 
+///|
 fn net_write_output_file(
   ctx : CommandContext,
   cmd_name : String,
   raw_path : String,
-  content : String
+  content : String,
 ) -> String? {
-  let path = try {
-    @fs.resolve_path(ctx.cwd, raw_path)
-  } catch {
+  let path = @fs.resolve_path(ctx.cwd, raw_path) catch {
     @fs.FsError(msg) => return Some("\{cmd_name}: \{msg}\n")
   }
-  try {
-    ctx.fs.write_file(path, content)
-  } catch {
+  ctx.fs.write_file(path, content) catch {
     @fs.FsError(msg) => return Some("\{cmd_name}: \{msg}\n")
   }
   None
 }
 
+///|
 fn net_ascii_upper(s : String) -> String {
   let out = StringBuilder::new()
   for i = 0; i < s.length(); i = i + 1 {
@@ -236,6 +247,7 @@ fn net_ascii_upper(s : String) -> String {
   out.to_string()
 }
 
+///|
 fn net_ascii_lower(s : String) -> String {
   let out = StringBuilder::new()
   for i = 0; i < s.length(); i = i + 1 {
@@ -249,10 +261,12 @@ fn net_ascii_lower(s : String) -> String {
   out.to_string()
 }
 
+///|
 fn net_is_whitespace(ch : Char) -> Bool {
   ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r'
 }
 
+///|
 fn net_trim(s : String) -> String {
   let mut start = 0
   let mut end_ = s.length()
@@ -275,6 +289,7 @@ fn net_trim(s : String) -> String {
   cmd_substr_slice(s, start, end_)
 }
 
+///|
 fn net_index_of_from(s : String, needle : String, start : Int) -> Int {
   if needle.length() == 0 {
     return start
@@ -303,6 +318,7 @@ fn net_index_of_from(s : String, needle : String, start : Int) -> Int {
   -1
 }
 
+///|
 fn net_index_of_char(s : String, target : Char, start : Int) -> Int {
   let mut i = start
   while i < s.length() {
@@ -314,6 +330,7 @@ fn net_index_of_char(s : String, target : Char, start : Int) -> Int {
   -1
 }
 
+///|
 fn net_replace_all(s : String, old : String, new_ : String) -> String {
   if old.length() == 0 {
     return s
@@ -333,6 +350,7 @@ fn net_replace_all(s : String, old : String, new_ : String) -> String {
   out.to_string()
 }
 
+///|
 fn net_remove_block_tag(s : String, tag : String) -> String {
   let open_pat = "<" + tag
   let close_pat = "</" + tag + ">"
@@ -365,6 +383,7 @@ fn net_remove_block_tag(s : String, tag : String) -> String {
   current
 }
 
+///|
 fn net_strip_html_tags(s : String) -> String {
   let out = StringBuilder::new()
   let mut in_tag = false
@@ -385,6 +404,7 @@ fn net_strip_html_tags(s : String) -> String {
   out.to_string()
 }
 
+///|
 fn net_extract_href(open_tag : String) -> String {
   let lower = net_ascii_lower(open_tag)
   let href_pos = net_index_of_from(lower, "href=", 0)
@@ -414,6 +434,7 @@ fn net_extract_href(open_tag : String) -> String {
   cmd_substr_slice(open_tag, value_start, end)
 }
 
+///|
 fn net_convert_links(s : String) -> String {
   let out = StringBuilder::new()
   let mut cursor = 0
@@ -437,7 +458,9 @@ fn net_convert_links(s : String) -> String {
     let open_tag = cmd_substr_slice(s, start, open_end + 1)
     let href = net_extract_href(open_tag)
     let label_html = cmd_substr_slice(s, open_end + 1, close)
-    let label_text = net_trim(net_decode_html_entities(net_strip_html_tags(label_html)))
+    let label_text = net_trim(
+      net_decode_html_entities(net_strip_html_tags(label_html)),
+    )
     if href.length() > 0 {
       out.write_char('[')
       if label_text.length() > 0 {
@@ -456,6 +479,7 @@ fn net_convert_links(s : String) -> String {
   out.to_string()
 }
 
+///|
 fn net_decode_html_entities(s : String) -> String {
   let mut out = s
   out = net_replace_all(out, "&amp;", "&")
@@ -467,6 +491,7 @@ fn net_decode_html_entities(s : String) -> String {
   out
 }
 
+///|
 fn net_normalize_markdown(s : String) -> String {
   let trimmed = net_trim(s)
   if trimmed.length() == 0 {
@@ -493,13 +518,15 @@ fn net_normalize_markdown(s : String) -> String {
   let normalized = out.to_string()
   if normalized.length() == 0 {
     ""
-  } else if normalized[normalized.length() - 1].to_int().unsafe_to_char() == '\n' {
+  } else if normalized[normalized.length() - 1].to_int().unsafe_to_char() ==
+    '\n' {
     normalized
   } else {
     normalized + "\n"
   }
 }
 
+///|
 fn net_html_to_markdown(html : String) -> String {
   let mut s = html.replace(old="\r\n", new="\n").replace(old="\r", new="\n")
   s = net_remove_block_tag(s, "script")
@@ -554,6 +581,7 @@ fn net_html_to_markdown(html : String) -> String {
   net_normalize_markdown(s)
 }
 
+///|
 fn net_format_status_line(resp : NetFetchResponse) -> String {
   if resp.status_text.length() > 0 {
     "HTTP/1.1 \{resp.status} \{resp.status_text}\n"
@@ -562,6 +590,7 @@ fn net_format_status_line(resp : NetFetchResponse) -> String {
   }
 }
 
+///|
 fn net_format_headers(resp : NetFetchResponse) -> String {
   let out = StringBuilder::new()
   out.write_string(net_format_status_line(resp))
@@ -576,6 +605,7 @@ fn net_format_headers(resp : NetFetchResponse) -> String {
   out.to_string()
 }
 
+///|
 fn net_parse_header(raw : String) -> (String, String)? {
   let idx = net_index_of_char(raw, ':', 0)
   if idx <= 0 {
@@ -590,7 +620,12 @@ fn net_parse_header(raw : String) -> (String, String)? {
   }
 }
 
-fn net_curl_error(code : Int, message : String, silent : Bool) -> @ast.ExecResult {
+///|
+fn net_curl_error(
+  code : Int,
+  message : String,
+  silent : Bool,
+) -> @ast.ExecResult {
   if silent {
     @ast.ExecResult::new(exit_code=code)
   } else {
@@ -598,126 +633,39 @@ fn net_curl_error(code : Int, message : String, silent : Bool) -> @ast.ExecResul
   }
 }
 
+///|
 fn cmd_curl(ctx : CommandContext) -> @ast.ExecResult {
-  let mut http_method = "GET"
-  let mut include_headers = false
-  let mut silent = false
-  let mut output_path : String? = None
-  let mut body : String? = None
-  let mut url : String? = None
-  let headers : Array[(String, String)] = []
-
-  let mut i = 0
-  while i < ctx.args.length() {
-    let arg = ctx.args[i]
-    if arg == "--" {
-      if i + 1 < ctx.args.length() && url is None {
-        url = Some(ctx.args[i + 1])
-      }
-      break
-    } else if arg == "-s" || arg == "--silent" {
-      silent = true
-      i += 1
-    } else if arg == "-i" || arg == "--include" {
-      include_headers = true
-      i += 1
-    } else if arg == "-L" || arg == "--location" {
-      i += 1
-    } else if arg == "-X" {
-      if i + 1 >= ctx.args.length() {
-        return @ast.ExecResult::new(stderr="curl: option -X requires an argument\n", exit_code=2)
-      }
-      http_method = net_ascii_upper(ctx.args[i + 1])
-      i += 2
-    } else if arg.has_prefix("-X") && arg.length() > 2 {
-      http_method = net_ascii_upper(cmd_substr_from(arg, 2))
-      i += 1
-    } else if arg == "-H" || arg == "--header" {
-      if i + 1 >= ctx.args.length() {
-        return @ast.ExecResult::new(stderr="curl: option -H requires an argument\n", exit_code=2)
-      }
-      match net_parse_header(ctx.args[i + 1]) {
-        Some(h) => headers.push(h)
-        None => return @ast.ExecResult::new(stderr="curl: invalid header format\n", exit_code=2)
-      }
-      i += 2
-    } else if arg.has_prefix("-H") && arg.length() > 2 {
-      match net_parse_header(cmd_substr_from(arg, 2)) {
-        Some(h) => headers.push(h)
-        None => return @ast.ExecResult::new(stderr="curl: invalid header format\n", exit_code=2)
-      }
-      i += 1
-    } else if arg == "-d" || arg == "--data" {
-      if i + 1 >= ctx.args.length() {
-        return @ast.ExecResult::new(stderr="curl: option -d requires an argument\n", exit_code=2)
-      }
-      body = Some(ctx.args[i + 1])
-      if http_method == "GET" {
-        http_method = "POST"
-      }
-      i += 2
-    } else if arg.has_prefix("--data=") {
-      body = Some(cmd_substr_from(arg, 7))
-      if http_method == "GET" {
-        http_method = "POST"
-      }
-      i += 1
-    } else if arg == "-o" || arg == "--output" {
-      if i + 1 >= ctx.args.length() {
-        return @ast.ExecResult::new(stderr="curl: option -o requires an argument\n", exit_code=2)
-      }
-      output_path = Some(ctx.args[i + 1])
-      i += 2
-    } else if arg.has_prefix("-o") && arg.length() > 2 {
-      output_path = Some(cmd_substr_from(arg, 2))
-      i += 1
-    } else if arg.length() > 1 && arg[0] == '-' {
-      let mut valid_bundle = true
-      for j = 1; j < arg.length(); j = j + 1 {
-        let flag = arg[j].to_int().unsafe_to_char()
-        if flag == 's' {
-          silent = true
-        } else if flag == 'i' {
-          include_headers = true
-        } else if flag == 'L' {
-          ()
-        } else {
-          valid_bundle = false
-          break
-        }
-      }
-      if !(valid_bundle) {
-        return @ast.ExecResult::new(
-          stderr="curl: unsupported option -- '\{arg}'\n",
-          exit_code=2,
-        )
-      }
-      i += 1
-    } else {
-      if url is None {
-        url = Some(arg)
-      }
-      i += 1
-    }
+  let config = match net_parse_curl_args(ctx.args) {
+    Ok(config) => config
+    Err(result) => return result
   }
 
-  let request_url = match url {
+  let request_url = match config.url {
     Some(u) => u
-    None => return @ast.ExecResult::new(stderr="curl: no URL specified\n", exit_code=2)
+    None =>
+      return @ast.ExecResult::new(
+        stderr="curl: no URL specified\n",
+        exit_code=2,
+      )
+  }
+  let request_url = match net_normalize_request_url(request_url) {
+    Ok(url) => url
+    Err(msg) => return net_curl_error(7, msg, config.silent)
   }
 
-  let response = match net_fetch_url(request_url, http_method, headers, body) {
+  let response = match
+    net_fetch_url(request_url, config.http_method, config.headers, config.body) {
     Ok(resp) => resp
-    Err(msg) => return net_curl_error(7, msg, silent)
+    Err(msg) => return net_curl_error(7, msg, config.silent)
   }
 
-  let payload = if include_headers {
+  let payload = if config.include_headers {
     net_format_headers(response) + response.body
   } else {
     response.body
   }
 
-  match output_path {
+  match config.output_path {
     Some(path) =>
       match net_write_output_file(ctx, "curl", path, payload) {
         Some(err) => @ast.ExecResult::new(stderr=err, exit_code=1)
@@ -727,44 +675,25 @@ fn cmd_curl(ctx : CommandContext) -> @ast.ExecResult {
   }
 }
 
+///|
 fn cmd_html_to_markdown(ctx : CommandContext) -> @ast.ExecResult {
-  let mut output_path : String? = None
-  let mut source_url : String? = None
-
-  let mut i = 0
-  while i < ctx.args.length() {
-    let arg = ctx.args[i]
-    if arg == "-o" || arg == "--output" {
-      if i + 1 >= ctx.args.length() {
-        return @ast.ExecResult::err("html-to-markdown: option -o requires an argument\n")
-      }
-      output_path = Some(ctx.args[i + 1])
-      i += 2
-    } else if arg == "-u" || arg == "--url" {
-      if i + 1 >= ctx.args.length() {
-        return @ast.ExecResult::err("html-to-markdown: option --url requires an argument\n")
-      }
-      source_url = Some(ctx.args[i + 1])
-      i += 2
-    } else if arg.has_prefix("--url=") {
-      source_url = Some(cmd_substr_from(arg, 6))
-      i += 1
-    } else if arg.length() > 1 && arg[0] == '-' {
-      return @ast.ExecResult::err("html-to-markdown: unsupported option -- '\{arg}'\n")
-    } else {
-      if source_url is None {
-        source_url = Some(arg)
-      }
-      i += 1
-    }
+  let config = match net_parse_html_to_markdown_args(ctx.args) {
+    Ok(config) => config
+    Err(result) => return result
   }
 
-  let html_input = match source_url {
-    Some(url) =>
-      match net_fetch_url(url, "GET", [("accept", "text/html")], None) {
+  let html_input = match config.source_url {
+    Some(url) => {
+      let normalized_url = match net_normalize_request_url(url) {
+        Ok(url) => url
+        Err(msg) => return @ast.ExecResult::err("html-to-markdown: \{msg}\n")
+      }
+      match
+        net_fetch_url(normalized_url, "GET", [("accept", "text/html")], None) {
         Ok(resp) => resp.body
         Err(msg) => return @ast.ExecResult::err("html-to-markdown: \{msg}\n")
       }
+    }
     None => ctx.stdin_content
   }
 
@@ -773,7 +702,7 @@ fn cmd_html_to_markdown(ctx : CommandContext) -> @ast.ExecResult {
   }
 
   let markdown = net_html_to_markdown(html_input)
-  match output_path {
+  match config.output_path {
     Some(path) =>
       match net_write_output_file(ctx, "html-to-markdown", path, markdown) {
         Some(err) => @ast.ExecResult::new(stderr=err, exit_code=1)

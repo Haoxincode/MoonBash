@@ -15,6 +15,8 @@
     "gmlewis/base64",
     "moonbit-community/piediff",
     "gmlewis/gzip",
-    "gmlewis/flate"
+    "gmlewis/flate",
+    "peter-jerry-ye/parse_args",
+    "tonyfettes/url"
   ]
 }
