@@ -23,6 +23,10 @@ extern "js" fn mount_demo_impl() -> Unit =
   #|     aboutText = "",
   #|     installText = "",
   #|     githubText = "",
+  #|     verificationTitle = "Real Browser Verification",
+  #|     verificationPlan = [],
+  #|     verificationAutoStart = false,
+  #|     verificationInitialDelayMs = 900,
   #|     files = {},
   #|     env = {},
   #|     cwd = "/home/user",
@@ -31,6 +35,8 @@ extern "js" fn mount_demo_impl() -> Unit =
   #|   const historyKey = "moonbash-website-history";
   #|   const historyLimit = 100;
   #|   const homeDir = typeof env.HOME === "string" && env.HOME.length > 0 ? env.HOME : "/home/user";
+  #|   const availabilityTotal = verificationPlan.filter((step) => step.kind === "availability").length;
+  #|   const smokeTotal = verificationPlan.filter((step) => step.kind === "smoke").length;
   #|
   #|   const readStoredHistory = () => {
   #|     try {
@@ -84,6 +90,18 @@ extern "js" fn mount_demo_impl() -> Unit =
   #|     return link;
   #|   };
   #|
+  #|   const createButton = (label, kind = "default") => {
+  #|     const button = document.createElement("button");
+  #|     button.type = "button";
+  #|     button.className = `moonbash-demo-button moonbash-demo-button-${kind}`;
+  #|     button.textContent = label;
+  #|     return button;
+  #|   };
+  #|
+  #|   const wait = (durationMs) => new Promise((resolve) => {
+  #|     window.setTimeout(resolve, durationMs);
+  #|   });
+  #|
   #|   root.innerHTML = "";
   #|
   #|   const shell = document.createElement("main");
@@ -123,6 +141,57 @@ extern "js" fn mount_demo_impl() -> Unit =
   #|   headerMeta.append(status, links);
   #|   header.append(titleWrap, headerMeta);
   #|
+  #|   const demoPanel = document.createElement("section");
+  #|   demoPanel.className = "moonbash-demo";
+  #|
+  #|   const demoPanelInfo = document.createElement("div");
+  #|   demoPanelInfo.className = "moonbash-demo-info";
+  #|
+  #|   const demoPanelTitleRow = document.createElement("div");
+  #|   demoPanelTitleRow.className = "moonbash-demo-title-row";
+  #|
+  #|   const demoPanelTitle = document.createElement("h2");
+  #|   demoPanelTitle.className = "moonbash-demo-title";
+  #|   demoPanelTitle.textContent = verificationTitle;
+  #|
+  #|   const demoPanelState = document.createElement("span");
+  #|   demoPanelState.className = "moonbash-demo-state";
+  #|
+  #|   demoPanelTitleRow.append(demoPanelTitle, demoPanelState);
+  #|
+  #|   const demoPanelSummary = document.createElement("p");
+  #|   demoPanelSummary.className = "moonbash-demo-summary";
+  #|
+  #|   const demoPanelMeta = document.createElement("div");
+  #|   demoPanelMeta.className = "moonbash-demo-meta";
+  #|
+  #|   const demoPanelProgress = document.createElement("span");
+  #|   demoPanelProgress.className = "moonbash-demo-progress";
+  #|
+  #|   const demoPanelLast = document.createElement("span");
+  #|   demoPanelLast.className = "moonbash-demo-last";
+  #|
+  #|   demoPanelMeta.append(demoPanelProgress, demoPanelLast);
+  #|   demoPanelInfo.append(demoPanelTitleRow, demoPanelSummary, demoPanelMeta);
+  #|
+  #|   const demoPanelActions = document.createElement("div");
+  #|   demoPanelActions.className = "moonbash-demo-actions";
+  #|
+  #|   const demoRunButton = createButton("Run", "primary");
+  #|   const demoReplayButton = createButton("Replay", "ghost");
+  #|   const demoStopButton = createButton("Stop", "ghost");
+  #|
+  #|   demoPanelActions.append(demoRunButton, demoReplayButton, demoStopButton);
+  #|
+  #|   const demoPanelBar = document.createElement("div");
+  #|   demoPanelBar.className = "moonbash-demo-bar";
+  #|
+  #|   const demoPanelBarFill = document.createElement("div");
+  #|   demoPanelBarFill.className = "moonbash-demo-bar-fill";
+  #|
+  #|   demoPanelBar.append(demoPanelBarFill);
+  #|   demoPanel.append(demoPanelInfo, demoPanelActions, demoPanelBar);
+  #|
   #|   const viewport = document.createElement("section");
   #|   viewport.className = "moonbash-viewport";
   #|
@@ -153,7 +222,7 @@ extern "js" fn mount_demo_impl() -> Unit =
   #|
   #|   form.append(location, prompt, input);
   #|   viewport.append(output, form);
-  #|   shell.append(header, viewport);
+  #|   shell.append(header, demoPanel, viewport);
   #|   root.append(shell);
   #|
   #|   const aboutCommand = defineCommand("about", async () => ({
@@ -172,32 +241,52 @@ extern "js" fn mount_demo_impl() -> Unit =
   #|     exitCode: 0,
   #|   }));
   #|
-  #|   const bash = new Bash({
+  #|   const createBash = () => new Bash({
   #|     cwd,
   #|     env,
   #|     files,
   #|     customCommands: [aboutCommand, installCommand, githubCommand],
   #|   });
   #|
+  #|   const makeShellState = () => ({
+  #|     cwd,
+  #|     env: { ...env },
+  #|   });
+  #|
+  #|   let bash = createBash();
+  #|   let shellState = makeShellState();
   #|   const completionCommands = Array.from(new Set([
   #|     ...commandNames,
   #|     "about",
   #|     "install",
   #|     "github",
   #|     "clear",
+  #|     "demo",
+  #|     "verify",
   #|   ])).sort();
   #|
-  #|   let shellState = {
-  #|     cwd,
-  #|     env: { ...env },
-  #|   };
   #|   let history = readStoredHistory();
   #|   let historyIndex = history.length;
   #|   let draftCommand = "";
-  #|   let running = false;
+  #|   let commandRunning = false;
+  #|   let verificationRunning = false;
+  #|   let verificationRunId = 0;
+  #|   let verificationCompleted = 0;
+  #|   let verificationPassed = 0;
+  #|   let verificationFailed = 0;
+  #|   let verificationStatus = verificationPlan.length > 0 ? "idle" : "disabled";
+  #|   let verificationLastMessage = verificationPlan.length > 0
+  #|     ? `${availabilityTotal} registry checks + ${smokeTotal} smoke tests ready.`
+  #|     : "No verification plan configured.";
   #|
   #|   const scrollToBottom = () => {
   #|     viewport.scrollTop = viewport.scrollHeight;
+  #|   };
+  #|
+  #|   const syncBusyState = () => {
+  #|     const busy = commandRunning || verificationRunning;
+  #|     form.classList.toggle("is-busy", busy);
+  #|     input.disabled = busy;
   #|   };
   #|
   #|   const appendBlock = (text, tone = "stdout") => {
@@ -233,9 +322,51 @@ extern "js" fn mount_demo_impl() -> Unit =
   #|     scrollToBottom();
   #|   };
   #|
+  #|   const updateVerificationUi = () => {
+  #|     const total = verificationPlan.length;
+  #|     const progressRatio = total === 0 ? 0 : verificationCompleted / total;
+  #|     let stateLabel = "Idle";
+  #|     if (verificationStatus === "running") {
+  #|       stateLabel = "Running";
+  #|     } else if (verificationStatus === "passed") {
+  #|       stateLabel = "Passed";
+  #|     } else if (verificationStatus === "failed") {
+  #|       stateLabel = "Failed";
+  #|     } else if (verificationStatus === "stopped") {
+  #|       stateLabel = "Stopped";
+  #|     } else if (verificationStatus === "disabled") {
+  #|       stateLabel = "Disabled";
+  #|     }
+  #|
+  #|     demoPanel.dataset.state = verificationStatus;
+  #|     demoPanelState.textContent = stateLabel;
+  #|     demoPanelSummary.textContent = total === 0
+  #|       ? "No verification plan is configured for this demo."
+  #|       : `${availabilityTotal} registry checks + ${smokeTotal} smoke tests. Every step is executed through real MoonBash calls in this browser.`;
+  #|     demoPanelProgress.textContent = total === 0
+  #|       ? "0 checks"
+  #|       : `${verificationCompleted}/${total} checks • ${verificationPassed} passed • ${verificationFailed} failed`;
+  #|     demoPanelLast.textContent = verificationLastMessage;
+  #|     demoPanelBarFill.style.transform = `scaleX(${progressRatio})`;
+  #|     demoRunButton.disabled = verificationRunning || total === 0;
+  #|     demoReplayButton.disabled = verificationRunning || total === 0;
+  #|     demoStopButton.disabled = !verificationRunning;
+  #|   };
+  #|
   #|   const updatePrompt = () => {
   #|     location.textContent = collapseHome(shellState.cwd);
-  #|     form.classList.toggle("is-busy", running);
+  #|     syncBusyState();
+  #|     updateVerificationUi();
+  #|   };
+  #|
+  #|   const appendVerificationHint = () => {
+  #|     if (verificationPlan.length === 0) {
+  #|       return;
+  #|     }
+  #|     appendBlock(
+  #|       `${verificationTitle}\n${availabilityTotal} registry checks + ${smokeTotal} smoke tests are ready. Use the panel above or type demo to run them.`,
+  #|       "hint",
+  #|     );
   #|   };
   #|
   #|   const resetTerminal = () => {
@@ -243,6 +374,13 @@ extern "js" fn mount_demo_impl() -> Unit =
   #|     if (welcomeText) {
   #|       appendBlock(welcomeText, "intro");
   #|     }
+  #|   };
+  #|
+  #|   const resetShellRuntime = () => {
+  #|     bash = createBash();
+  #|     shellState = makeShellState();
+  #|     historyIndex = history.length;
+  #|     draftCommand = "";
   #|   };
   #|
   #|   const listCurrentDirectory = () => {
@@ -304,61 +442,233 @@ extern "js" fn mount_demo_impl() -> Unit =
   #|     appendBlock(matches.join("    "), "hint");
   #|   };
   #|
-  #|   const runCommand = async (command) => {
+  #|   const executeShellCommand = async (command, options = {}) => {
   #|     const trimmed = command.trim();
-  #|     if (!trimmed || running) {
-  #|       return;
+  #|     if (!trimmed || commandRunning) {
+  #|       return null;
   #|     }
+  #|
+  #|     const {
+  #|       recordHistory = false,
+  #|       focusInput = true,
+  #|     } = options;
   #|
   #|     appendCommand(trimmed);
   #|
-  #|     history.push(trimmed);
-  #|     history = history.slice(-historyLimit);
-  #|     historyIndex = history.length;
-  #|     persistHistory(history);
+  #|     if (recordHistory) {
+  #|       history.push(trimmed);
+  #|       history = history.slice(-historyLimit);
+  #|       historyIndex = history.length;
+  #|       persistHistory(history);
+  #|     }
   #|
   #|     if (trimmed === "clear") {
   #|       resetTerminal();
+  #|       appendVerificationHint();
   #|       updatePrompt();
   #|       scrollToBottom();
-  #|       return;
+  #|       return {
+  #|         stdout: "",
+  #|         stderr: "",
+  #|         exitCode: 0,
+  #|       };
   #|     }
   #|
-  #|     running = true;
+  #|     commandRunning = true;
   #|     updatePrompt();
-  #|     input.disabled = true;
   #|
   #|     try {
   #|       const result = await bash.exec(trimmed, {
   #|         cwd: shellState.cwd,
   #|         env: shellState.env,
   #|       });
+  #|
+  #|       const normalizedResult = {
+  #|         stdout: stripAnsi(result.stdout || ""),
+  #|         stderr: stripAnsi(result.stderr || ""),
+  #|         exitCode: Number.isFinite(result.exitCode) ? result.exitCode : 1,
+  #|       };
+  #|
   #|       if (result.env && typeof result.env === "object") {
   #|         shellState.env = { ...result.env };
   #|         if (typeof shellState.env.PWD === "string" && shellState.env.PWD.length > 0) {
   #|           shellState.cwd = shellState.env.PWD;
   #|         }
   #|       }
-  #|       if (result.stdout) {
-  #|         appendBlock(result.stdout, "stdout");
+  #|
+  #|       if (normalizedResult.stdout) {
+  #|         appendBlock(normalizedResult.stdout, "stdout");
   #|       }
-  #|       if (result.stderr) {
-  #|         appendBlock(result.stderr, "stderr");
+  #|       if (normalizedResult.stderr) {
+  #|         appendBlock(normalizedResult.stderr, "stderr");
   #|       }
-  #|       if (!result.stdout && !result.stderr && result.exitCode !== 0) {
-  #|         appendBlock(`[exit ${result.exitCode}]`, "hint");
+  #|       if (!normalizedResult.stdout && !normalizedResult.stderr && normalizedResult.exitCode !== 0) {
+  #|         appendBlock(`[exit ${normalizedResult.exitCode}]`, "hint");
   #|       }
+  #|
+  #|       return normalizedResult;
   #|     } catch (error) {
   #|       const message = error && error.message ? error.message : String(error);
   #|       appendBlock(message, "stderr");
+  #|       return {
+  #|         stdout: "",
+  #|         stderr: message,
+  #|         exitCode: 1,
+  #|       };
   #|     } finally {
-  #|       running = false;
-  #|       input.disabled = false;
-  #|       input.value = "";
-  #|       input.focus();
+  #|       commandRunning = false;
   #|       updatePrompt();
+  #|       if (!verificationRunning && focusInput) {
+  #|         input.focus();
+  #|       }
   #|       scrollToBottom();
   #|     }
+  #|   };
+  #|
+  #|   const evaluateVerificationStep = (step, result) => {
+  #|     const diagnostics = [];
+  #|     const stdout = result?.stdout ?? "";
+  #|     const stderr = result?.stderr ?? "";
+  #|
+  #|     if (typeof step.expectExitCode === "number" && result?.exitCode !== step.expectExitCode) {
+  #|       diagnostics.push(`expected exit ${step.expectExitCode}, got ${result?.exitCode ?? "?"}`);
+  #|     }
+  #|     for (const needle of step.expectStdoutIncludes ?? []) {
+  #|       if (!stdout.includes(needle)) {
+  #|         diagnostics.push(`stdout missing ${JSON.stringify(needle)}`);
+  #|       }
+  #|     }
+  #|     for (const needle of step.expectStderrIncludes ?? []) {
+  #|       if (!stderr.includes(needle)) {
+  #|         diagnostics.push(`stderr missing ${JSON.stringify(needle)}`);
+  #|       }
+  #|     }
+  #|
+  #|     const ok = diagnostics.length === 0;
+  #|     const statusVerb = step.kind === "availability" ? "registered" : "passed";
+  #|
+  #|     return {
+  #|       ok,
+  #|       message: ok
+  #|         ? `✓ [${step.group || "Check"}] ${step.label} ${statusVerb}`
+  #|         : `✗ [${step.group || "Check"}] ${step.label} — ${diagnostics.join("; ")}`,
+  #|     };
+  #|   };
+  #|
+  #|   const stopVerification = (reason = "Verification stopped.") => {
+  #|     if (!verificationRunning) {
+  #|       return;
+  #|     }
+  #|     verificationRunId += 1;
+  #|     verificationRunning = false;
+  #|     verificationStatus = "stopped";
+  #|     verificationLastMessage = reason;
+  #|     appendBlock(reason, "hint");
+  #|     updatePrompt();
+  #|     input.focus();
+  #|   };
+  #|
+  #|   const startVerification = async () => {
+  #|     if (verificationRunning || verificationPlan.length === 0) {
+  #|       return;
+  #|     }
+  #|
+  #|     verificationRunId += 1;
+  #|     const runId = verificationRunId;
+  #|     verificationRunning = true;
+  #|     verificationStatus = "running";
+  #|     verificationCompleted = 0;
+  #|     verificationPassed = 0;
+  #|     verificationFailed = 0;
+  #|     verificationLastMessage = `Starting ${verificationPlan.length} real checks...`;
+  #|
+  #|     resetShellRuntime();
+  #|     resetTerminal();
+  #|     appendBlock(
+  #|       `${verificationTitle}\n${availabilityTotal} registry checks + ${smokeTotal} smoke tests.\nEverything below is executed through real MoonBash calls in this browser.`,
+  #|       "hint",
+  #|     );
+  #|     input.value = "";
+  #|     updatePrompt();
+  #|     scrollToBottom();
+  #|
+  #|     for (let index = 0; index < verificationPlan.length; index += 1) {
+  #|       if (runId !== verificationRunId) {
+  #|         return;
+  #|       }
+  #|
+  #|       const step = verificationPlan[index];
+  #|       const delayMs = Number.isFinite(step.delayMs) ? Math.max(0, step.delayMs) : 70;
+  #|       if (delayMs > 0) {
+  #|         await wait(delayMs);
+  #|       }
+  #|
+  #|       if (runId !== verificationRunId) {
+  #|         return;
+  #|       }
+  #|
+  #|       const result = await executeShellCommand(step.command, {
+  #|         recordHistory: false,
+  #|         focusInput: false,
+  #|       });
+  #|
+  #|       if (runId !== verificationRunId) {
+  #|         return;
+  #|       }
+  #|
+  #|       const evaluation = evaluateVerificationStep(step, result);
+  #|       verificationCompleted = index + 1;
+  #|       if (evaluation.ok) {
+  #|         verificationPassed += 1;
+  #|       } else {
+  #|         verificationFailed += 1;
+  #|       }
+  #|       verificationLastMessage = evaluation.message;
+  #|       appendBlock(evaluation.message, evaluation.ok ? "success" : "stderr");
+  #|       updatePrompt();
+  #|     }
+  #|
+  #|     if (runId !== verificationRunId) {
+  #|       return;
+  #|     }
+  #|
+  #|     verificationRunning = false;
+  #|     verificationStatus = verificationFailed > 0 ? "failed" : "passed";
+  #|     verificationLastMessage = verificationFailed > 0
+  #|       ? `Completed with ${verificationFailed} failures out of ${verificationPlan.length} checks.`
+  #|       : `Completed ${verificationPlan.length} real checks with no failures.`;
+  #|     appendBlock(verificationLastMessage, verificationFailed > 0 ? "stderr" : "success");
+  #|     updatePrompt();
+  #|     input.focus();
+  #|   };
+  #|
+  #|   const runCommand = async (command) => {
+  #|     const trimmed = command.trim();
+  #|     if (!trimmed || commandRunning || verificationRunning) {
+  #|       return;
+  #|     }
+  #|
+  #|     if (trimmed === "demo" || trimmed === "verify") {
+  #|       void startVerification();
+  #|       input.value = "";
+  #|       return;
+  #|     }
+  #|
+  #|     if (trimmed === "demo stop" || trimmed === "verify stop") {
+  #|       stopVerification("Verification stopped from terminal command.");
+  #|       input.value = "";
+  #|       return;
+  #|     }
+  #|
+  #|     await executeShellCommand(trimmed, {
+  #|       recordHistory: true,
+  #|       focusInput: true,
+  #|     });
+  #|
+  #|     input.value = "";
+  #|     draftCommand = "";
+  #|     historyIndex = history.length;
+  #|     updatePrompt();
   #|   };
   #|
   #|   form.addEventListener("submit", (event) => {
@@ -402,6 +712,7 @@ extern "js" fn mount_demo_impl() -> Unit =
   #|     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "l") {
   #|       event.preventDefault();
   #|       resetTerminal();
+  #|       appendVerificationHint();
   #|       updatePrompt();
   #|       return;
   #|     }
@@ -414,21 +725,50 @@ extern "js" fn mount_demo_impl() -> Unit =
   #|     }
   #|   });
   #|
+  #|   demoRunButton.addEventListener("click", () => {
+  #|     void startVerification();
+  #|   });
+  #|
+  #|   demoReplayButton.addEventListener("click", () => {
+  #|     void startVerification();
+  #|   });
+  #|
+  #|   demoStopButton.addEventListener("click", () => {
+  #|     stopVerification("Verification stopped from controls.");
+  #|   });
+  #|
   #|   shell.addEventListener("pointerdown", () => {
-  #|     if (!running) {
+  #|     if (!commandRunning && !verificationRunning) {
   #|       input.focus();
   #|     }
   #|   });
   #|
+  #|   const params = new URLSearchParams(window.location.search);
+  #|   const shouldAutoStart = verificationAutoStart &&
+  #|     verificationPlan.length > 0 &&
+  #|     params.get("autodemo") !== "0";
+  #|
   #|   resetTerminal();
-  #|   input.value = initialCommand;
+  #|   if (!shouldAutoStart) {
+  #|     appendVerificationHint();
+  #|     input.value = initialCommand;
+  #|   } else {
+  #|     input.value = "";
+  #|   }
   #|   updatePrompt();
+  #|
   #|   requestAnimationFrame(() => {
   #|     input.focus();
   #|     const cursor = input.value.length;
   #|     input.setSelectionRange(cursor, cursor);
   #|     scrollToBottom();
   #|   });
+  #|
+  #|   if (shouldAutoStart) {
+  #|     window.setTimeout(() => {
+  #|       void startVerification();
+  #|     }, verificationInitialDelayMs);
+  #|   }
   #| }
 
 ///|

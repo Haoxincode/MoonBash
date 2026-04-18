@@ -10,6 +10,25 @@ import { mount_demo } from "../../src/_build/js/debug/build/website/website.js";
 
 const GITHUB_URL = "https://github.com/Haoxincode/MoonBash";
 const DOCS_URL = `${GITHUB_URL}/tree/main/docs`;
+const WEBSITE_COMMANDS = ["about", "install", "github"];
+
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+function createAvailabilityStep(name, group = "MoonBash") {
+  return {
+    kind: "availability",
+    group,
+    label: name,
+    command:
+      `command -v ${shellQuote(name)} >/dev/null && ` +
+      `printf 'verified %s\\n' ${shellQuote(name)}`,
+    expectExitCode: 0,
+    expectStdoutIncludes: [`verified ${name}`],
+    delayMs: 35,
+  };
+}
 
 const ABOUT_TEXT = `MoonBash v${packageInfo.version}
 
@@ -93,8 +112,98 @@ A browser terminal inspired by justbash.dev, rebuilt for MoonBash.
 Runs entirely in memory with docs from this repository preloaded.
 
 Commands: about, install, github, help
-Try: ls, tree, cat wtf-is-this.md, grep -n browser ROADMAP.md
+Auto-demo: real command verification runs on load
+Try later: ls, tree, cat wtf-is-this.md, grep -n browser ROADMAP.md
 `;
+
+const VERIFICATION_PLAN = [
+  ...getCommandNames().map((name) => createAvailabilityStep(name)),
+  ...WEBSITE_COMMANDS.map((name) => createAvailabilityStep(name, "Website")),
+  {
+    kind: "smoke",
+    group: "Smoke",
+    label: "filesystem seed",
+    command:
+      "mkdir -p /tmp/moonbash-demo/docs && " +
+      "printf 'alpha\\nbeta\\nalpha\\n' > /tmp/moonbash-demo/docs/data.txt && " +
+      "ls /tmp/moonbash-demo/docs",
+    expectExitCode: 0,
+    expectStdoutIncludes: ["data.txt"],
+    delayMs: 140,
+  },
+  {
+    kind: "smoke",
+    group: "Smoke",
+    label: "grep finds beta",
+    command: "grep -n beta /tmp/moonbash-demo/docs/data.txt",
+    expectExitCode: 0,
+    expectStdoutIncludes: ["2:beta"],
+    delayMs: 140,
+  },
+  {
+    kind: "smoke",
+    group: "Smoke",
+    label: "sed prints second line",
+    command: "sed -n '2p' /tmp/moonbash-demo/docs/data.txt",
+    expectExitCode: 0,
+    expectStdoutIncludes: ["beta"],
+    delayMs: 140,
+  },
+  {
+    kind: "smoke",
+    group: "Smoke",
+    label: "awk counts lines",
+    command: "awk 'END { print NR }' /tmp/moonbash-demo/docs/data.txt",
+    expectExitCode: 0,
+    expectStdoutIncludes: ["3"],
+    delayMs: 140,
+  },
+  {
+    kind: "smoke",
+    group: "Smoke",
+    label: "sort and uniq collapse values",
+    command: "sort /tmp/moonbash-demo/docs/data.txt | uniq | paste -sd ',' -",
+    expectExitCode: 0,
+    expectStdoutIncludes: ["alpha,beta"],
+    delayMs: 140,
+  },
+  {
+    kind: "smoke",
+    group: "Smoke",
+    label: "find locates demo file",
+    command: "find /tmp/moonbash-demo -type f | wc -l",
+    expectExitCode: 0,
+    expectStdoutIncludes: ["1"],
+    delayMs: 140,
+  },
+  {
+    kind: "smoke",
+    group: "Smoke",
+    label: "jq reads package version",
+    command: "cat /home/user/package.json | jq -r '.version'",
+    expectExitCode: 0,
+    expectStdoutIncludes: [packageInfo.version],
+    delayMs: 140,
+  },
+  {
+    kind: "smoke",
+    group: "Smoke",
+    label: "head reads README",
+    command: "head -1 /home/user/README.md",
+    expectExitCode: 0,
+    expectStdoutIncludes: ["# MoonBash"],
+    delayMs: 140,
+  },
+  {
+    kind: "smoke",
+    group: "Smoke",
+    label: "text transform pipeline",
+    command: "printf 'moonbash\\n' | tr a-z A-Z | cut -c1-8",
+    expectExitCode: 0,
+    expectStdoutIncludes: ["MOONBASH"],
+    delayMs: 140,
+  },
+];
 
 globalThis.__moonbash_demo_runtime = {
   Bash,
@@ -107,6 +216,10 @@ globalThis.__moonbash_demo_runtime = {
   aboutText: ABOUT_TEXT,
   installText: INSTALL_TEXT,
   githubText: `${GITHUB_URL}\n`,
+  verificationTitle: "Real Browser Verification",
+  verificationAutoStart: true,
+  verificationInitialDelayMs: 900,
+  verificationPlan: VERIFICATION_PLAN,
   cwd: "/home/user",
   env: {
     HOME: "/home/user",

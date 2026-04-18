@@ -9,6 +9,7 @@ This demo recreates the `justbash.dev` terminal experience with MoonBash running
 - preloaded repository docs like `README.md`, `ARCHITECTURE.md`, `API.md`, `ROADMAP.md`, and `AGENTS.md`
 - custom commands: `about`, `install`, `github`
 - command history and tab completion in the browser UI
+- automatic real verification on load: command-by-command registry checks plus smoke tests
 
 ## Architecture
 
@@ -47,3 +48,4 @@ This demo is meant to prove usability, not just compilation:
 - MoonBash can be embedded as a real browser terminal
 - the browser runtime can explore a preloaded virtual filesystem interactively
 - MoonBit can own part of the frontend integration layer, not only the shell core
+- the website can autoplay a real verification pass and surface concrete pass/fail results in the UI
