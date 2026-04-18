@@ -46,6 +46,23 @@ pnpm serve:website
 
 Then open <http://localhost:4173>.
 
+## Deploy To Vercel
+
+This repository can be deployed to Vercel as a static site.
+
+Included config:
+
+- `vercel.json` sets the build command and output directory
+- `scripts/vercel-build.sh` installs MoonBit in the build environment if needed, then runs `pnpm build:website`
+
+Expected Vercel behavior:
+
+1. dependencies are installed from the repo lockfile
+2. MoonBit is installed during the build step if it is not already available
+3. the static output is published from `examples/website/dist`
+
+If you import the repository into Vercel, keep the project root at the repository root.
+
 ## Goal
 
 This demo is meant to prove usability, not just compilation:
