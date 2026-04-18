@@ -439,7 +439,7 @@ fn ExecContext::execute_simple(
           } else {
             value
           }
-          if not(self.store_scalar_assignment(target_name, next_value)) {
+          if !(self.store_scalar_assignment(target_name, next_value)) {
             return
           }
         }
@@ -488,15 +488,15 @@ fn ExecContext::execute_simple(
           } else {
             ""
           }
-          if not(self.store_scalar_assignment(target_name, next_value)) {
+          if !(self.store_scalar_assignment(target_name, next_value)) {
             return
           }
         }
       }
     }
     // If no words follow, we're done (assignment-only command)
-    if not(has_words) {
-      if not(self.should_exit) && not(keep_expansion_status) && self.exit_code == 0 {
+    if !(has_words) {
+      if !(self.should_exit) && !(keep_expansion_status) && self.exit_code == 0 {
         self.exit_code = 0
       }
       return
@@ -585,7 +585,7 @@ fn ExecContext::execute_simple(
             grep_expect_e_pattern = false
             grep_pattern_set = true
             no_glob = true
-          } else if not(grep_stop_options) {
+          } else if !(grep_stop_options) {
             if token == "--" {
               grep_stop_options = true
               no_glob = true
@@ -602,8 +602,8 @@ fn ExecContext::execute_simple(
               no_glob = true
             }
           }
-          if not(no_glob) {
-            if not(grep_pattern_set) {
+          if !(no_glob) {
+            if !(grep_pattern_set) {
               grep_pattern_set = true
               no_glob = true
             }
@@ -662,7 +662,7 @@ fn ExecContext::execute_simple(
   let alias_has_multiline_literal_arg = alias_call_has_multiline_literal_arg(cmd.words)
 
   let cmd_name = expanded[0]
-  let run_cmd_name = if cmd_name == "[[" && not(syntactic_double_bracket) {
+  let run_cmd_name = if cmd_name == "[[" && !(syntactic_double_bracket) {
     "__MOON_BASH_RUNTIME_DBRACKET__"
   } else {
     cmd_name
@@ -672,7 +672,7 @@ fn ExecContext::execute_simple(
     args.push(expanded[i])
   }
   let should_restore_prefix_assignments = track_prefix_assignment_restore &&
-    not(command_keeps_prefix_assignments(run_cmd_name))
+    !(command_keeps_prefix_assignments(run_cmd_name))
   let originally_exported_prefix_assignments : Map[String, Bool] = {}
   if has_words {
     for name in prefix_assignment_restore_names {
@@ -877,7 +877,7 @@ fn ExecContext::execute_simple(
   }
 
   // Execute command
-  if not(
+  if !(
     self.try_execute_alias_command(
       alias_candidate,
       args,
@@ -893,7 +893,7 @@ fn ExecContext::execute_simple(
       prefix_assignment_snapshot,
     )
     for name in prefix_assignment_restore_names {
-      if not(originally_exported_prefix_assignments.contains(name)) {
+      if !(originally_exported_prefix_assignments.contains(name)) {
         self.exported.remove(name)
       }
     }
@@ -1211,7 +1211,7 @@ fn ExecContext::expand_conditional_test_word(
   if word_is_single_tilde(word) {
     return test_encode_tilde_token(expanded)
   }
-  if not(word_is_plain_literal(word)) {
+  if !(word_is_plain_literal(word)) {
     return test_encode_dynamic_token(expanded)
   }
   expanded
@@ -1235,7 +1235,7 @@ fn ExecContext::append_scalar_array_assignment(
   name : String,
   suffix : String
 ) -> Bool {
-  if not(self.env.contains(test_array_count_storage_key(name))) {
+  if !(self.env.contains(test_array_count_storage_key(name))) {
     return false
   }
 

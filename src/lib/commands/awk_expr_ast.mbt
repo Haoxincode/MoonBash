@@ -10,7 +10,7 @@ priv enum AwkExprAst {
   Assign(String, AwkExprAst)
   In(AwkExprAst, String)
   Binary(String, AwkExprAst, AwkExprAst)
-} derive(Show)
+} derive(Debug)
 
 priv struct AwkExprEvalState {
   mut out : StringBuilder?
@@ -557,7 +557,7 @@ fn awk_eval_expr_ast(
     }
     UnaryNot(inner) =>
       awk_bool_to_string(
-        not(awk_value_truthy(awk_eval_expr_ast(inner, line, fields, nr, nf, vars, array_vars))),
+        !(awk_value_truthy(awk_eval_expr_ast(inner, line, fields, nr, nf, vars, array_vars))),
       )
     Concat(parts) => {
       let out = StringBuilder::new()
@@ -604,7 +604,7 @@ fn awk_eval_expr_ast(
 
       if op == "&&" {
         let left_value = awk_eval_expr_ast(left, line, fields, nr, nf, vars, array_vars)
-        if not(awk_value_truthy(left_value)) {
+        if !(awk_value_truthy(left_value)) {
           return "0"
         }
         let right_value = awk_eval_expr_ast(right, line, fields, nr, nf, vars, array_vars)

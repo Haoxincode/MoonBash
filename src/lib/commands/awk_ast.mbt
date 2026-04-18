@@ -6,12 +6,12 @@ priv enum AwkGetlineTarget {
   Field(AwkExprAst)
   ArrayElem(String, AwkExprAst)
   Invalid(String)
-} derive(Show)
+} derive(Debug)
 
 priv enum AwkAssignTarget {
   Var(String)
   ArrayElem(String, AwkExprAst)
-} derive(Show)
+} derive(Debug)
 
 fn awk_parse_getline_target(target : String) -> AwkGetlineTarget {
   let t = aj_trim(target)
@@ -48,7 +48,7 @@ priv enum AwkStmt {
   AssignStmt(AwkAssignTarget, AwkExprAst)
   CompoundAssignStmt(AwkAssignTarget, String, AwkExprAst)
   ExprStmt(AwkExprAst)
-} derive(Show)
+} derive(Debug)
 
 fn awk_is_zero_literal_expr_for_getline(expr_ast : AwkExprAst) -> Bool {
   match expr_ast {
@@ -91,7 +91,7 @@ fn awk_stringify_simple_expr_for_getline(expr_ast : AwkExprAst) -> String? {
 fn awk_getline_target_from_condition_expr_ast(cond_ast : AwkExprAst) -> AwkGetlineTarget? {
   match cond_ast {
     Binary(op, left, right) => {
-      if op != ">" || not(awk_is_zero_literal_expr_for_getline(right)) {
+      if op != ">" || !(awk_is_zero_literal_expr_for_getline(right)) {
         return None
       }
       match awk_stringify_simple_expr_for_getline(left) {
@@ -216,7 +216,7 @@ fn awk_parse_field_assign_stmt(text : String) -> (AwkExprAst, AwkExprAst)? {
     return None
   }
   let lhs = aj_trim(aj_substr(text, 0, eq_idx))
-  if not(aj_starts_with(lhs, "$")) {
+  if !(aj_starts_with(lhs, "$")) {
     return None
   }
   let idx_expr = aj_trim(aj_substr(lhs, 1, lhs.length()))
@@ -321,7 +321,7 @@ fn awk_parse_statement_ast(stmt : String) -> AwkStmt {
     return Printf(fmt_ast, args_ast, target_ast, append)
   }
 
-  if aj_starts_with(text, "print") && not(aj_starts_with(text, "printf")) {
+  if aj_starts_with(text, "print") && !(aj_starts_with(text, "printf")) {
     let rest = aj_trim(aj_substr(text, 5, text.length()))
     let has_pipe = awk_find_top_level_token(rest, "|") >= 0
     let (value_expr, target_expr, append) = match awk_parse_print_redirection(rest) {

@@ -88,7 +88,7 @@ fn gunzip_core(
   }
   // If no file args, decompress stdin to stdout
   if ctx.args.length() == 0 {
-    if not(is_gzip_content(ctx.stdin_content)) {
+    if !(is_gzip_content(ctx.stdin_content)) {
       return @ast.ExecResult::err("gunzip: stdin: not in gzip format\n")
     }
     return @ast.ExecResult::ok(gzip_decode(ctx.stdin_content))
@@ -97,8 +97,8 @@ fn gunzip_core(
   let errbuf = StringBuilder::new()
   let mut exit_code = 0
   for arg in ctx.args {
-    if not(str_ends_with(arg, ".gz")) && not(str_ends_with(arg, ".tgz")) &&
-      not(force) {
+    if !(str_ends_with(arg, ".gz")) && !(str_ends_with(arg, ".tgz")) &&
+      !(force) {
       errbuf.write_string("gunzip: \{arg}: unknown suffix -- ignored\n")
       exit_code = 1
       continue
@@ -121,7 +121,7 @@ fn gunzip_core(
         continue
       }
     }
-    if not(is_gzip_content(content)) {
+    if !(is_gzip_content(content)) {
       errbuf.write_string("gunzip: \{arg}: not in gzip format\n")
       exit_code = 1
       continue
@@ -144,7 +144,7 @@ fn gunzip_core(
           continue
         }
       }
-      if not(force) && ctx.fs.exists(out_resolved) {
+      if !(force) && ctx.fs.exists(out_resolved) {
         errbuf.write_string(
           "gunzip: \{out_name}: already exists; not overwritten\n",
         )
@@ -160,7 +160,7 @@ fn gunzip_core(
           continue
         }
       }
-      if not(keep) {
+      if !(keep) {
         try {
           ctx.fs.rm(resolved)
         } catch {
@@ -260,7 +260,7 @@ fn cmd_gzip(ctx : CommandContext) -> @ast.ExecResult {
           continue
         }
       }
-      if not(force) && ctx.fs.exists(gz_resolved) {
+      if !(force) && ctx.fs.exists(gz_resolved) {
         errbuf.write_string(
           "gzip: \{gz_name}: already exists; not overwritten\n",
         )
@@ -276,7 +276,7 @@ fn cmd_gzip(ctx : CommandContext) -> @ast.ExecResult {
           continue
         }
       }
-      if not(keep) {
+      if !(keep) {
         try {
           ctx.fs.rm(resolved)
         } catch {

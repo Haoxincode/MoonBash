@@ -161,7 +161,7 @@ fn ExecContext::arith_set_target(
   value : Int64,
   execute : Bool
 ) -> Unit {
-  if not(execute) {
+  if !(execute) {
     return
   }
   if self.env.contains("__MOON_BASH_ABORT_CURRENT_COMMAND__") {
@@ -210,7 +210,7 @@ fn ExecContext::arith_parse_primary(
       if arith_is_identifier_text(tok) {
         if p.match_tok("[") {
           let idx_expr = self.arith_parse_comma(p, execute)
-          if not(p.match_tok("]")) {
+          if !(p.match_tok("]")) {
             self.arith_fail()
             return arith_plain(0L)
           }
@@ -572,7 +572,7 @@ fn ExecContext::arith_parse_ternary(
   execute : Bool
 ) -> ArithValue {
   let cond = self.arith_parse_logor(p, execute)
-  if not(p.match_tok("?")) {
+  if !(p.match_tok("?")) {
     return cond
   }
 
@@ -603,7 +603,7 @@ fn ExecContext::arith_parse_assignment(
     Some(v) => v
     None => return left
   }
-  if not(arith_is_assignment_op(op)) {
+  if !(arith_is_assignment_op(op)) {
     return left
   }
 

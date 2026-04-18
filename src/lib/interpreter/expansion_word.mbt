@@ -54,7 +54,7 @@ fn ExecContext::expand_word_internal(
   }
 
   let parts : Array[String] = []
-  if not(has_splittable_expansion) {
+  if !(has_splittable_expansion) {
     for candidate in expanded_candidates {
       parts.push(candidate)
     }
@@ -231,8 +231,8 @@ fn ExecContext::expand_array_parameter_words(
       }
       let is_set = self.parameter_is_set(name)
       let is_null = self.parameter_is_null(name, current_joined)
-      let use_default = if colon { is_null } else { not(is_set) }
-      if not(use_default) {
+      let use_default = if colon { is_null } else { !(is_set) }
+      if !(use_default) {
         if join_with_ifs {
           Some([join_values_with_ifs(values, self.env.get("IFS").unwrap_or(" \t\n"))])
         } else {
@@ -459,7 +459,7 @@ fn quote_value_for_q_transform(value : String) -> String {
     }
   }
 
-  if not(has_single_quote) {
+  if !(has_single_quote) {
     return printf_shell_quote(value)
   }
 
@@ -606,12 +606,12 @@ fn ExecContext::expand_word_parts_with_brace(
     }
     expanded_candidates.push(maybe_tilde)
   }
-  if not(had_expandable_brace) {
+  if !(had_expandable_brace) {
     return expanded_candidates
   }
   let normalized_candidates : Array[String] = []
   for candidate in expanded_candidates {
-    if candidate.length() == 0 && not(has_quoted_part) {
+    if candidate.length() == 0 && !(has_quoted_part) {
       continue
     }
     normalized_candidates.push(candidate)
@@ -813,7 +813,7 @@ fn ExecContext::expand_array_element_reference(
       None => {
         let has_array_metadata = self.env.contains(test_array_count_storage_key(base)) ||
           self.collect_array_keys(base).length() > 0
-        if not(has_array_metadata) {
+        if !(has_array_metadata) {
           return self.env.get(base).unwrap_or("")
         }
         return ""
@@ -1028,7 +1028,7 @@ fn ExecContext::expand_param(
           value
         }
       } else {
-        if not(is_set) {
+        if !(is_set) {
           self.expand_param_word_for_split_context(word)
         } else {
           value
@@ -1052,7 +1052,7 @@ fn ExecContext::expand_param(
           value
         }
       } else {
-        if not(is_set) {
+        if !(is_set) {
           let expanded = self.expand_param_word_for_split_context(word)
           let plain = decode_word_split_protected_text(
             expanded,
@@ -1072,7 +1072,7 @@ fn ExecContext::expand_param(
       let is_error = if colon {
         is_null
       } else {
-        not(is_set)
+        !(is_set)
       }
       if is_error {
         let msg = match msg_word {
@@ -1091,7 +1091,7 @@ fn ExecContext::expand_param(
       let is_set = self.parameter_is_set(name)
       let is_null = self.parameter_is_null(name, value)
       if colon {
-        if not(is_null) {
+        if !(is_null) {
           self.expand_param_word_for_split_context(word)
         } else {
           ""
@@ -1113,7 +1113,7 @@ fn ExecContext::expand_param(
               if index_expr != "@" && index_expr != "*" {
                 let has_array_metadata = self.env.contains(test_array_count_storage_key(base)) ||
                   self.collect_array_keys(base).length() > 0
-                if not(has_array_metadata) {
+                if !(has_array_metadata) {
                   let fragment = "\{base}[\{index_expr}]"
                   self.emit_bad_array_subscript(base, fragment)
                   self.exit_code = 1

@@ -331,10 +331,10 @@ fn compgen_split_words_by_ifs(
 }
 
 fn completion_has_unbalanced_param(raw : String) -> Bool {
-  if not(contains_substring(raw, "${")) {
+  if !(contains_substring(raw, "${")) {
     return false
   }
-  not(contains_substring(raw, "}"))
+  !(contains_substring(raw, "}"))
 }
 
 fn trim_ascii_whitespace(raw : String) -> String {
@@ -449,7 +449,7 @@ fn compgen_should_keep_after_filter(value : String, pattern : String) -> Bool {
     return compgen_match_filter_pattern(value, inner)
   }
   // Regular form: remove matches, keep non-matches.
-  not(compgen_match_filter_pattern(value, pattern))
+  !(compgen_match_filter_pattern(value, pattern))
 }
 
 fn completion_variable_base_name(name : String) -> String {

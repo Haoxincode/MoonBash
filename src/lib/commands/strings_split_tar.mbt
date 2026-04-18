@@ -163,7 +163,7 @@ fn decode_strings_escapes(s : String) -> String {
         let mut value = 0
         for j = i + 2; j <= i + 5; j = j + 1 {
           let hc = s[j].to_int().unsafe_to_char()
-          if not(is_hex_char(hc)) {
+          if !(is_hex_char(hc)) {
             ok = false
             break
           }
@@ -492,7 +492,7 @@ fn tar_index_of_char(s : String, start : Int, ch : Char) -> Int {
 
 fn tar_deserialize(content : String) -> Array[TarEntry] {
   let entries : Array[TarEntry] = []
-  if not(cst_starts_with(content, "MBTAR1\n")) {
+  if !(cst_starts_with(content, "MBTAR1\n")) {
     return entries
   }
   let mut pos = 7

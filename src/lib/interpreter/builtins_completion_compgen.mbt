@@ -96,7 +96,7 @@ fn ExecContext::builtin_compgen(
       continue
     }
     if parse_opts && arg == "-A" {
-      if i + 1 >= args.length() || not(completion_is_valid_action(args[i + 1])) {
+      if i + 1 >= args.length() || !(completion_is_valid_action(args[i + 1])) {
         self.exit_code = 2
         return
       }
@@ -179,7 +179,7 @@ fn ExecContext::builtin_compgen(
       continue
     }
     if parse_opts && arg == "-o" {
-      if i + 1 >= args.length() || not(completion_is_valid_compopt(args[i + 1])) {
+      if i + 1 >= args.length() || !(completion_is_valid_compopt(args[i + 1])) {
         self.exit_code = 2
         return
       }
@@ -280,7 +280,7 @@ fn ExecContext::builtin_compgen(
       }
       "file" => {
         let (names, ok) = self.collect_path_completion_candidates(query, false)
-        if not(ok) {
+        if !(ok) {
           self.exit_code = 1
           return
         }
@@ -290,7 +290,7 @@ fn ExecContext::builtin_compgen(
       }
       "directory" => {
         let (names, ok) = self.collect_path_completion_candidates(query, true)
-        if not(ok) {
+        if !(ok) {
           self.exit_code = 1
           return
         }
@@ -322,7 +322,7 @@ fn ExecContext::builtin_compgen(
   match func_name {
     Some(name) => {
       had_generator = true
-      if not(self.functions.contains(name)) {
+      if !(self.functions.contains(name)) {
         self.exit_code = 1
         return
       }
@@ -359,7 +359,7 @@ fn ExecContext::builtin_compgen(
     had_generator = true
     if opt == "plusdirs" || opt == "dirnames" {
       let (names, ok) = self.collect_path_completion_candidates(query, true)
-      if not(ok) {
+      if !(ok) {
         self.exit_code = 1
         return
       }
@@ -368,7 +368,7 @@ fn ExecContext::builtin_compgen(
       }
     } else if opt == "default" {
       let (names, ok) = self.collect_path_completion_candidates(query, false)
-      if not(ok) {
+      if !(ok) {
         self.exit_code = 1
         return
       }
@@ -378,7 +378,7 @@ fn ExecContext::builtin_compgen(
     }
   }
 
-  if not(had_generator) {
+  if !(had_generator) {
     self.exit_code = 2
     return
   }

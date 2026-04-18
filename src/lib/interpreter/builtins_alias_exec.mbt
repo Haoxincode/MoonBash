@@ -71,13 +71,13 @@ fn shell_parse_duration_ms(raw : String) -> Result[Int, String] {
       } else {
         whole = whole * 10 + digit
       }
-    } else if ch == '.' && not(seen_dot) {
+    } else if ch == '.' && !(seen_dot) {
       seen_dot = true
     } else {
       return Err("invalid time interval '\{raw}'")
     }
   }
-  if not(has_digit) {
+  if !(has_digit) {
     return Err("invalid time interval '\{raw}'")
   }
   let max_ms = 2147483647

@@ -55,7 +55,7 @@ fn cmd_rm(ctx : CommandContext) -> @ast.ExecResult {
     }
   }
 
-  if paths.length() == 0 && not(force) {
+  if paths.length() == 0 && !(force) {
     return @ast.ExecResult::err("rm: missing operand\n")
   }
 
@@ -112,7 +112,7 @@ fn cmd_cp(ctx : CommandContext) -> @ast.ExecResult {
     } catch {
       @fs.FsError(_msg) => false
     }
-    if not(dst_is_dir) {
+    if !(dst_is_dir) {
       return @ast.ExecResult::err("cp: target '\{paths[paths.length() - 1]}' is not a directory\n")
     }
   }
@@ -156,7 +156,7 @@ fn cmd_mv(ctx : CommandContext) -> @ast.ExecResult {
     } catch {
       @fs.FsError(_msg) => false
     }
-    if not(dst_is_dir) {
+    if !(dst_is_dir) {
       return @ast.ExecResult::err("mv: target '\{paths[paths.length() - 1]}' is not a directory\n")
     }
   }
@@ -189,7 +189,7 @@ fn cmd_touch_parse_date_value(spec : String) -> Int64? {
       continue
     }
     if ch == '/' || ch == '-' {
-      if not(has_digit) {
+      if !(has_digit) {
         return None
       }
       parts.push(current)
@@ -199,7 +199,7 @@ fn cmd_touch_parse_date_value(spec : String) -> Int64? {
     }
     return None
   }
-  if not(has_digit) {
+  if !(has_digit) {
     return None
   }
   parts.push(current)
@@ -281,7 +281,7 @@ fn cmd_touch(ctx : CommandContext) -> @ast.ExecResult {
         continue
       }
     }
-    if not(ctx.fs.exists(resolved)) {
+    if !(ctx.fs.exists(resolved)) {
       try {
         ctx.fs.write_file(resolved, "")
       } catch {
@@ -412,7 +412,7 @@ fn cmd_find_matches(
   groups : Array[Array[(String, String)]],
   has_predicates : Bool
 ) -> Bool {
-  if not(has_predicates) {
+  if !(has_predicates) {
     return true
   }
   let base = cmd_find_display_basename(display_path)
@@ -421,18 +421,18 @@ fn cmd_find_matches(
     for pred in group {
       let (kind, value) = pred
       if kind == "name" {
-        if not(@fs.glob_match(value, base)) {
+        if !(@fs.glob_match(value, base)) {
           group_match = false
           break
         }
       } else if kind == "type" {
         if value == "f" {
-          if not(is_file) {
+          if !(is_file) {
             group_match = false
             break
           }
         } else if value == "d" {
-          if not(is_directory) {
+          if !(is_directory) {
             group_match = false
             break
           }
@@ -441,7 +441,7 @@ fn cmd_find_matches(
           break
         }
       } else if kind == "perm" {
-        if not(cmd_find_perm_matches(value, mode)) {
+        if !(cmd_find_perm_matches(value, mode)) {
           group_match = false
           break
         }
@@ -493,7 +493,7 @@ fn cmd_find_walk(
     matches.push(display_path)
   }
 
-  if not(stat.is_directory) {
+  if !(stat.is_directory) {
     return
   }
 
@@ -501,7 +501,7 @@ fn cmd_find_walk(
     Some(maxd) => depth < maxd
     None => true
   }
-  if not(should_descend) {
+  if !(should_descend) {
     return
   }
 

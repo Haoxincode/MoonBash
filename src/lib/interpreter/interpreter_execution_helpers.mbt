@@ -74,7 +74,7 @@ fn ExecContext::try_store_array_assignment(
   append : Bool
 ) -> Bool {
   // Only plain shell names can take compound array literals `(a b c)`.
-  if not(is_valid_shell_name(name)) {
+  if !(is_valid_shell_name(name)) {
     return false
   }
 
@@ -339,7 +339,7 @@ fn ExecContext::store_assoc_assignment(
   entries : Array[(String, String, Bool)],
   append : Bool
 ) -> Unit {
-  if not(append) {
+  if !(append) {
     self.store_array_assignment(name, [])
   }
 
@@ -362,7 +362,7 @@ fn ExecContext::next_indexed_assignment_seed(
   name : String,
   append : Bool
 ) -> Int {
-  if not(append) {
+  if !(append) {
     return 0
   }
 
@@ -420,7 +420,7 @@ fn ExecContext::store_indexed_assignment(
   values : Array[String],
   append : Bool
 ) -> Unit {
-  if not(append) {
+  if !(append) {
     self.store_array_assignment(name, [])
   } else {
     self.seed_indexed_assignment_from_scalar(name)
@@ -457,7 +457,7 @@ fn ExecContext::seed_indexed_assignment_from_scalar(
 ) -> Unit {
   if self.env.contains(test_array_count_storage_key(name)) ||
     self.collect_array_keys(name).length() > 0 ||
-    not(self.env.contains(name)) {
+    !(self.env.contains(name)) {
     return
   }
 
@@ -481,7 +481,7 @@ fn collect_assignment_restore_names(
         break
       }
     }
-    if not(exists) {
+    if !(exists) {
       names.push(name)
     }
   }
@@ -570,7 +570,7 @@ fn split_array_assignment_items(
       @ast.WordPart::Literal(text) => {
         for i = 0; i < text.length(); i = i + 1 {
           let ch = text[i].to_int().unsafe_to_char()
-          if not(started) {
+          if !(started) {
             if array_assignment_is_space(ch) {
               continue
             }
@@ -611,7 +611,7 @@ fn split_array_assignment_items(
         }
       }
       _ => {
-        if not(started) || ended {
+        if !(started) || ended {
           return None
         }
         split_array_assignment_flush_literal(current_parts, literal_buf)
@@ -620,7 +620,7 @@ fn split_array_assignment_items(
     }
   }
 
-  if not(started) || not(ended) {
+  if !(started) || !(ended) {
     return None
   }
   if current_parts.length() > 0 || literal_buf.to_string().length() > 0 {
@@ -776,7 +776,7 @@ fn parse_array_element_assignment_name(name : String) -> (String, String)? {
   }
 
   let base = name.view(start_offset=0, end_offset=bracket).to_string()
-  if not(is_valid_shell_name(base)) {
+  if !(is_valid_shell_name(base)) {
     return None
   }
 
@@ -851,7 +851,7 @@ fn is_valid_shell_name(name : String) -> Bool {
   }
 
   let first = name[0].to_int().unsafe_to_char()
-  if not(
+  if !(
     (first >= 'a' && first <= 'z') ||
     (first >= 'A' && first <= 'Z') ||
     first == '_'
@@ -861,7 +861,7 @@ fn is_valid_shell_name(name : String) -> Bool {
 
   for i = 1; i < name.length(); i = i + 1 {
     let ch = name[i].to_int().unsafe_to_char()
-    if not(
+    if !(
       (ch >= 'a' && ch <= 'z') ||
       (ch >= 'A' && ch <= 'Z') ||
       (ch >= '0' && ch <= '9') ||
@@ -1012,7 +1012,7 @@ fn ExecContext::collect_array_values(self : ExecContext, name : String) -> Array
 fn ExecContext::build_external_command_env(self : ExecContext) -> Map[String, String] {
   let out : Map[String, String] = {}
   for name, enabled in self.exported {
-    if not(enabled) {
+    if !(enabled) {
       continue
     }
     // Arrays are shell-only data structures and are not exported to external
@@ -1075,7 +1075,7 @@ fn ExecContext::try_dispatch_virtual_command_stub(
 
   match self.fs.entries.get(resolved_path) {
     Some(@fs.FsEntry::File(data)) => {
-      if not(is_virtual_command_stub_content(data.content)) {
+      if !(is_virtual_command_stub_content(data.content)) {
         return false
       }
       let name = @fs.basename(resolved_path)
@@ -1135,7 +1135,7 @@ fn ExecContext::try_execute_resolved_path_command(
       match entry {
         @fs.FsEntry::Directory(_) => false
         _ => {
-          if not(command_is_executable_entry(entry)) {
+          if !(command_is_executable_entry(entry)) {
             false
           } else {
             self.execute_script_file_command(resolved_path, args, original_name)
@@ -1173,7 +1173,7 @@ fn ExecContext::run_explicit_path_command(
       if self.try_dispatch_virtual_command_stub(resolved_path, args) {
         return
       }
-      if not(command_is_executable_entry(entry)) {
+      if !(command_is_executable_entry(entry)) {
         self.stderr_buf.write_string("moon_bash: \{original_name}: Permission denied\n")
         self.exit_code = 126
         return
@@ -1219,7 +1219,7 @@ fn ExecContext::run_command(
   }
 
   // 1. Check functions (unless command/builtin explicitly disabled function lookup).
-  if not(skip_functions) {
+  if !(skip_functions) {
     match self.functions.get(dispatch_name) {
       Some(fndef) => {
         self.call_depth += 1
@@ -1265,7 +1265,7 @@ fn ExecContext::run_command(
   }
 
   // 2. Optional command allowlist
-  if not(self.command_allowed(dispatch_name)) {
+  if !(self.command_allowed(dispatch_name)) {
     self.stderr_buf.write_string("moon_bash: \{original_name}: command not found\n")
     self.exit_code = 127
     return
@@ -1319,7 +1319,7 @@ fn ExecContext::run_command(
   }
 
   // 5. Check hashed path entries unless command -p forced default PATH.
-  if not(use_default_path) {
+  if !(use_default_path) {
     match self.lookup_hashed_command_path(dispatch_name) {
       Some(hashed_path) => {
         if self.try_execute_resolved_path_command(
@@ -1370,7 +1370,7 @@ fn ExecContext::apply_errexit_after_pipeline(
   pipeline : @ast.Pipeline,
   next_op : Int?
 ) -> Unit {
-  if self.should_exit || not(self.options.errexit) || self.exit_code == 0 {
+  if self.should_exit || !(self.options.errexit) || self.exit_code == 0 {
     return
   }
   if pipeline.negated {
@@ -1401,47 +1401,6 @@ fn ExecContext::command_allowed(self : ExecContext, name : String) -> Bool {
         }
       }
       false
-    }
-  }
-}
-
-fn ExecContext::apply_redirections(
-  self : ExecContext,
-  redirs : Array[@ast.Redirection],
-  _saved_stdout : StringBuilder,
-  _saved_stderr : StringBuilder
-) -> Unit {
-  for redir in redirs {
-    match redir.op {
-      @ast.RedirectOp::Input => {
-        let target = self.expand_word_to_string(redir.target)
-        let resolved = try {
-          @fs.resolve_path(self.cwd, target)
-        } catch {
-          _ => target
-        }
-        let content = try {
-          self.fs.read_file(resolved)
-        } catch {
-          @fs.FsError(_msg) => ""
-        }
-        self.stdin_buf = content
-      }
-      @ast.RedirectOp::HereString => {
-        let content = self.expand_word_to_string(redir.target)
-        self.stdin_buf = content + "\n"
-      }
-      @ast.RedirectOp::HereDoc(_strip_tabs) => {
-        let content = self.expand_word_to_string(redir.target)
-        self.stdin_buf = content
-      }
-      @ast.RedirectOp::Output => {
-        let target = self.expand_word_to_string(redir.target)
-        if target == "/dev/null" {
-          self.stdout_buf = StringBuilder::new()
-        }
-      }
-      _ => ()
     }
   }
 }

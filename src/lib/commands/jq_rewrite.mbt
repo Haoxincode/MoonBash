@@ -28,7 +28,7 @@ fn jq_prev_non_ws_char(s : String, pos : Int) -> Char? {
   let mut i = pos - 1
   while i >= 0 {
     let ch = s[i].to_int().unsafe_to_char()
-    if not(jq_is_ws(ch)) {
+    if !(jq_is_ws(ch)) {
       return Some(ch)
     }
     i -= 1
@@ -40,7 +40,7 @@ fn jq_next_non_ws_char(s : String, pos : Int) -> Char? {
   let mut i = pos
   while i < s.length() {
     let ch = s[i].to_int().unsafe_to_char()
-    if not(jq_is_ws(ch)) {
+    if !(jq_is_ws(ch)) {
       return Some(ch)
     }
     i += 1
@@ -52,7 +52,7 @@ fn jq_prev_non_ws_index(s : String, pos : Int) -> Int {
   let mut i = pos - 1
   while i >= 0 {
     let ch = s[i].to_int().unsafe_to_char()
-    if not(jq_is_ws(ch)) {
+    if !(jq_is_ws(ch)) {
       return i
     }
     i -= 1
@@ -64,7 +64,7 @@ fn jq_next_non_ws_index(s : String, pos : Int) -> Int {
   let mut i = pos
   while i < s.length() {
     let ch = s[i].to_int().unsafe_to_char()
-    if not(jq_is_ws(ch)) {
+    if !(jq_is_ws(ch)) {
       return i
     }
     i += 1
@@ -76,11 +76,11 @@ fn jq_is_plain_ident(text : String) -> Bool {
   if text.length() == 0 {
     return false
   }
-  if not(jq_is_ident_start(text[0].to_int().unsafe_to_char())) {
+  if !(jq_is_ident_start(text[0].to_int().unsafe_to_char())) {
     return false
   }
   for i = 1; i < text.length(); i = i + 1 {
-    if not(jq_is_ident_char(text[i].to_int().unsafe_to_char())) {
+    if !(jq_is_ident_char(text[i].to_int().unsafe_to_char())) {
       return false
     }
   }
@@ -255,7 +255,7 @@ fn jq_rewrite_binary_plus_minus(filter : String) -> String {
         if (ch == '+' || ch == '-') &&
           jq_is_binary_plus_minus(filter, i) {
           match last_out {
-            Some(last_ch) => if not(jq_is_ws(last_ch)) {
+            Some(last_ch) => if !(jq_is_ws(last_ch)) {
               out.write_char(' ')
               last_out = Some(' ')
             } else {
@@ -269,7 +269,7 @@ fn jq_rewrite_binary_plus_minus(filter : String) -> String {
           let next_idx = jq_next_non_ws_index(filter, i + 1)
           if next_idx >= 0 {
             let next = filter[next_idx].to_int().unsafe_to_char()
-            if not(jq_is_ws(next)) {
+            if !(jq_is_ws(next)) {
               out.write_char(' ')
               last_out = Some(' ')
             }
@@ -511,13 +511,13 @@ fn jq_rewrite_keys_builtin(filter : String) -> String {
           let left_ok = if i == 0 {
             true
           } else {
-            not(jq_is_ident_char(filter[i - 1].to_int().unsafe_to_char()))
+            !(jq_is_ident_char(filter[i - 1].to_int().unsafe_to_char()))
           }
           let right_pos = i + 4
           let right_ok = if right_pos >= filter.length() {
             true
           } else {
-            not(jq_is_ident_char(filter[right_pos].to_int().unsafe_to_char()))
+            !(jq_is_ident_char(filter[right_pos].to_int().unsafe_to_char()))
           }
           if left_ok && right_ok {
             let prev_sig = jq_prev_non_ws_char(filter, i)
@@ -543,9 +543,9 @@ fn jq_rewrite_keys_builtin(filter : String) -> String {
               None => false
             }
 
-            if not(is_member_or_var) &&
-              not(is_object_key) &&
-              not(is_object_shorthand) {
+            if !(is_member_or_var) &&
+              !(is_object_key) &&
+              !(is_object_shorthand) {
               out.write_string("(keys|sort)")
               i += 4
               continue

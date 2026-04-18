@@ -52,7 +52,7 @@ fn glob_class_contains(
   while i < pattern.length() {
     let ch = glob_char_at(pattern, i)
     if ch == ']' && has_items {
-      let result = if negated { not(matched) } else { matched }
+      let result = if negated { !(matched) } else { matched }
       return (result, i + 1, true)
     }
 
@@ -114,7 +114,7 @@ fn glob_match_with_char_class(
     let target = glob_char_at(text, ti)
     let (ok, next_pi, parsed) = glob_class_contains(pattern, pi, target)
     if parsed {
-      if not(ok) {
+      if !(ok) {
         return false
       }
       return glob_match_with_char_class(pattern, text, next_pi, ti + 1)

@@ -92,7 +92,7 @@ fn filter_word_ranges(
   line : String,
   word_match : Bool
 ) -> Array[(Int, Int)] {
-  if not(word_match) {
+  if !(word_match) {
     return ranges
   }
   let filtered : Array[(Int, Int)] = []
@@ -108,12 +108,12 @@ fn is_word_boundary(line : String, start : Int, end : Int) -> Bool {
   let left_ok = if start <= 0 {
     true
   } else {
-    not(is_word_char(line[start - 1].to_int().unsafe_to_char()))
+    !(is_word_char(line[start - 1].to_int().unsafe_to_char()))
   }
   let right_ok = if end >= line.length() {
     true
   } else {
-    not(is_word_char(line[end].to_int().unsafe_to_char()))
+    !(is_word_char(line[end].to_int().unsafe_to_char()))
   }
   left_ok && right_ok
 }
@@ -273,7 +273,7 @@ fn ExecContext::builtin_grep(
       i += 1
       pattern = args[i]
       pattern_set = true
-    } else if not(pattern_set) {
+    } else if !(pattern_set) {
       pattern = arg
       pattern_set = true
     } else {
@@ -282,7 +282,7 @@ fn ExecContext::builtin_grep(
     i += 1
   }
 
-  if not(pattern_set) {
+  if !(pattern_set) {
     self.stderr_buf.write_string("grep: missing pattern\n")
     self.exit_code = 2
     return
@@ -317,7 +317,7 @@ fn ExecContext::builtin_grep(
       match self.fs.entries.get(resolved) {
         Some(@fs.FsEntry::Directory(_)) if recursive => {
           let mut prefix = resolved
-          if not(prefix.has_suffix("/")) {
+          if !(prefix.has_suffix("/")) {
             prefix = prefix + "/"
           }
           let matched_paths : Array[String] = []
@@ -341,7 +341,7 @@ fn ExecContext::builtin_grep(
                   break
                 }
               }
-              if not(include_match) {
+              if !(include_match) {
                 continue
               }
             }
@@ -372,7 +372,7 @@ fn ExecContext::builtin_grep(
     }
   }
 
-  let show_filename = not(no_filename) && (targets.length() > 1 || recursive)
+  let show_filename = !(no_filename) && (targets.length() > 1 || recursive)
   let mut total_selected = 0
   let mut listed_file_count = 0
 
@@ -389,7 +389,7 @@ fn ExecContext::builtin_grep(
       let word_ranges = filter_word_ranges(raw_ranges, line, word_match)
       let ranges = filter_whole_line_ranges(word_ranges, line, whole_line)
       let has_match = ranges.length() > 0
-      let selected = if invert { not(has_match) } else { has_match }
+      let selected = if invert { !(has_match) } else { has_match }
       line_matches.push(ranges)
       selected_lines.push(selected)
       if selected {
@@ -432,7 +432,7 @@ fn ExecContext::builtin_grep(
 
     if only_matching {
       for line_idx = 0; line_idx < lines.length(); line_idx = line_idx + 1 {
-        if not(selected_lines[line_idx]) || invert {
+        if !(selected_lines[line_idx]) || invert {
           continue
         }
         let line = lines[line_idx]
@@ -476,7 +476,7 @@ fn ExecContext::builtin_grep(
     }
 
     for line_idx = 0; line_idx < lines.length(); line_idx = line_idx + 1 {
-      if not(print_mask[line_idx]) {
+      if !(print_mask[line_idx]) {
         continue
       }
       let prefix = grep_output_prefix(
@@ -503,7 +503,7 @@ fn filter_whole_line_ranges(
   line : String,
   whole_line : Bool
 ) -> Array[(Int, Int)] {
-  if not(whole_line) {
+  if !(whole_line) {
     return ranges
   }
   let filtered : Array[(Int, Int)] = []

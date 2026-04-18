@@ -75,7 +75,7 @@ pub fn CSV::parse_string(
 }
 
 pub fn CSV::parse_buffer(
-  data : @buffer.T,
+  data : @buffer.Buffer,
   options~ : CSVOptions = {
     delimiter: ',',
     allow_newlines_in_quotes: true,

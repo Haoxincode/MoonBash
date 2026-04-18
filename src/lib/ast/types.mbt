@@ -64,7 +64,11 @@ pub(all) enum Token {
   // Special
   EOF
   FdNumber(Int) // File descriptor number before redirect
-} derive(Show, Eq)
+} derive(Debug, Eq)
+
+pub impl Show for Token with output(self, logger) {
+  logger.write_string(@debug.to_string(self))
+}
 
 // ============================================================================
 // AST Nodes
@@ -73,7 +77,7 @@ pub(all) enum Token {
 /// Top-level script: a sequence of statements.
 pub(all) struct Script {
   statements : Array[Statement]
-} derive(Show)
+} derive(Debug)
 
 /// A statement is a pipeline combined with list operators.
 pub(all) enum Statement {
@@ -82,28 +86,28 @@ pub(all) enum Statement {
   OrList(Pipeline, Statement) // cmd1 || cmd2
   Background(Pipeline) // cmd &
   Sequence(Pipeline, Statement) // cmd1 ; cmd2
-} derive(Show)
+} derive(Debug)
 
 /// A pipeline connects commands via pipes.
 pub(all) struct Pipeline {
   negated : Bool // ! prefix
   commands : Array[Command]
   pipe_stderr : Bool // |& instead of |
-} derive(Show)
+} derive(Debug)
 
 /// Command variants.
 pub(all) enum Command {
   Simple(SimpleCommand)
   Compound(CompoundCommand, Array[Redirection])
   FunctionDef(FunctionDef)
-} derive(Show)
+} derive(Debug)
 
 /// A simple command with optional assignments, words, and redirections.
 pub(all) struct SimpleCommand {
   assignments : Array[Assignment]
   words : Array[Word]
   redirections : Array[Redirection]
-} derive(Show)
+} derive(Debug)
 
 /// Compound command variants.
 pub(all) enum CompoundCommand {
@@ -117,7 +121,7 @@ pub(all) enum CompoundCommand {
   Group(Script)
   ArithmeticCommand(ArithExpr)
   ConditionalCommand(CondExpr)
-} derive(Show)
+} derive(Debug)
 
 /// if/elif/else/fi clause.
 pub(all) struct IfClause {
@@ -125,14 +129,14 @@ pub(all) struct IfClause {
   then_branch : Script
   elif_branches : Array[(Script, Script)]
   else_branch : Script?
-} derive(Show)
+} derive(Debug)
 
 /// for var in words; do body; done
 pub(all) struct ForClause {
   var_name : String
   words : Array[Word]? // None = "$@"
   body : Script
-} derive(Show)
+} derive(Debug)
 
 /// C-style for: for (( init; cond; update )); do body; done
 pub(all) struct CStyleForClause {
@@ -140,46 +144,46 @@ pub(all) struct CStyleForClause {
   condition : ArithExpr
   update : ArithExpr
   body : Script
-} derive(Show)
+} derive(Debug)
 
 /// while condition; do body; done
 pub(all) struct WhileClause {
   condition : Script
   body : Script
-} derive(Show)
+} derive(Debug)
 
 /// until condition; do body; done
 pub(all) struct UntilClause {
   condition : Script
   body : Script
-} derive(Show)
+} derive(Debug)
 
 /// case word in pattern) body ;; esac
 pub(all) struct CaseClause {
   word : Word
   items : Array[CaseItem]
-} derive(Show)
+} derive(Debug)
 
 /// A single case item: pattern) body terminator
 pub(all) struct CaseItem {
   patterns : Array[Word]
   body : Script
   terminator : CaseTerminator
-} derive(Show)
+} derive(Debug)
 
 /// Case item terminators.
 pub(all) enum CaseTerminator {
   Break // ;;
   Fallthrough // ;&
   Continue // ;;&
-} derive(Show, Eq)
+} derive(Debug, Eq)
 
 /// Function definition.
 pub(all) struct FunctionDef {
   name : String
   body : CompoundCommand
   redirections : Array[Redirection]
-} derive(Show)
+} derive(Debug)
 
 // ============================================================================
 // Word and Expansion Types
@@ -188,7 +192,7 @@ pub(all) struct FunctionDef {
 /// A word is composed of parts that may need expansion.
 pub(all) struct Word {
   parts : Array[WordPart]
-} derive(Show)
+} derive(Debug)
 
 /// Individual parts of a word.
 pub(all) enum WordPart {
@@ -202,7 +206,7 @@ pub(all) enum WordPart {
   BraceExpansion(Array[Array[WordPart]])
   TildePrefix(String)
   Glob(GlobPattern)
-} derive(Show)
+} derive(Debug)
 
 /// Parameter expansion variants.
 pub(all) enum ParamExpansion {
@@ -219,7 +223,7 @@ pub(all) enum ParamExpansion {
   Uppercase(String, Word?, Bool) // ${VAR^pat} / ${VAR^^pat}
   Lowercase(String, Word?, Bool) // ${VAR,pat} / ${VAR,,pat}
   Indirection(String) // ${!VAR}
-} derive(Show)
+} derive(Debug)
 
 /// Replace mode for ${VAR/pat/str} variants.
 pub(all) enum ReplaceMode {
@@ -227,7 +231,7 @@ pub(all) enum ReplaceMode {
   All // ${VAR//pat/str}
   Prefix // ${VAR/#pat/str}
   Suffix // ${VAR/%pat/str}
-} derive(Show, Eq)
+} derive(Debug, Eq)
 
 // ============================================================================
 // Redirection Types
@@ -239,7 +243,7 @@ pub(all) struct Redirection {
   fd_var : String? // {varname} for fd variable
   op : RedirectOp
   target : Word
-} derive(Show)
+} derive(Debug)
 
 /// Redirection operator variants.
 pub(all) enum RedirectOp {
@@ -254,7 +258,11 @@ pub(all) enum RedirectOp {
   DupOutput // >&
   AndOutput // &>
   AndAppend // &>>
-} derive(Show, Eq)
+} derive(Debug, Eq)
+
+pub impl Show for RedirectOp with output(self, logger) {
+  logger.write_string(@debug.to_string(self))
+}
 
 // ============================================================================
 // Assignment
@@ -265,7 +273,7 @@ pub(all) struct Assignment {
   name : String
   value : Word?
   append : Bool // += vs =
-} derive(Show)
+} derive(Debug)
 
 // ============================================================================
 // Arithmetic Expressions (placeholder, expanded later)
@@ -279,7 +287,7 @@ pub(all) enum ArithExpr {
   Assign(String, ArithExpr)
   Ternary(ArithExpr, ArithExpr, ArithExpr)
   Raw(String)
-} derive(Show)
+} derive(Debug)
 
 pub(all) enum ArithBinOp {
   Add
@@ -301,7 +309,7 @@ pub(all) enum ArithBinOp {
   ShiftRight
   LogicalAnd
   LogicalOr
-} derive(Show, Eq)
+} derive(Debug, Eq)
 
 pub(all) enum ArithUnaryOp {
   Negate
@@ -311,7 +319,7 @@ pub(all) enum ArithUnaryOp {
   PreDecr
   PostIncr
   PostDecr
-} derive(Show, Eq)
+} derive(Debug, Eq)
 
 // ============================================================================
 // Conditional Expressions (placeholder, expanded later)
@@ -324,7 +332,7 @@ pub(all) enum CondExpr {
   Or(CondExpr, CondExpr) // ||
   Not(CondExpr) // !
   Regex(Word, Word) // =~
-} derive(Show)
+} derive(Debug)
 
 // ============================================================================
 // Glob Pattern (placeholder)
@@ -332,7 +340,7 @@ pub(all) enum CondExpr {
 
 pub(all) struct GlobPattern {
   pattern : String
-} derive(Show)
+} derive(Debug)
 
 // ============================================================================
 // Execution Result
@@ -342,7 +350,7 @@ pub(all) struct ExecResult {
   stdout : String
   stderr : String
   exit_code : Int
-} derive(Show)
+} derive(Debug)
 
 /// Create a successful result with stdout output.
 pub fn ExecResult::ok(stdout : String) -> ExecResult {
@@ -387,7 +395,7 @@ pub(all) struct ExecutionLimits {
   max_awk_iterations : Int
   max_sed_iterations : Int
   max_jq_iterations : Int
-} derive(Show)
+} derive(Debug)
 
 pub fn ExecutionLimits::default() -> ExecutionLimits {
   {
@@ -417,7 +425,7 @@ pub(all) struct ShellOptions {
   mut xtrace : Bool // set -x
   mut noglob : Bool // set -f
   mut allexport : Bool // set -a
-} derive(Show)
+} derive(Debug)
 
 pub fn ShellOptions::default() -> ShellOptions {
   {

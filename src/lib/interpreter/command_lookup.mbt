@@ -42,7 +42,7 @@ fn command_has_virtual_external(name : String) -> Bool {
   if @commands.find_command(name) is Some(_) {
     return true
   }
-  is_shell_builtin(name) && not(is_lookup_shell_builtin(name))
+  is_shell_builtin(name) && !(is_lookup_shell_builtin(name))
 }
 
 fn command_mode_has_execute_permission(mode : Int) -> Bool {
@@ -157,7 +157,7 @@ fn ExecContext::collect_path_command_matches(
     let mut candidate_missing = false
     match self.fs.entries.get(resolved) {
       Some(entry) => {
-        if not(command_is_executable_entry(entry)) {
+        if !(command_is_executable_entry(entry)) {
           ()
         } else {
           if seen.contains(display) {

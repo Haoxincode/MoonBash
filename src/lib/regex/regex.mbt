@@ -60,14 +60,14 @@ pub fn GrepMatcher::find_first(
       while cursor <= line.length() {
         let segment = line.view(start_offset=cursor).to_string()
         let result = re.execute(segment[:])
-        if not(result.matched()) {
+        if !(result.matched()) {
           return None
         }
         let before_len = result.before().length()
         if before_len == 0 &&
           cursor > 0 &&
           has_bol_anchor &&
-          not(accept_shifted_bol_start(re, segment)) {
+          !(accept_shifted_bol_start(re, segment)) {
             cursor += 1
             continue
         }
@@ -110,14 +110,14 @@ pub fn GrepMatcher::find_first_with_groups(
       while cursor <= line.length() {
         let segment = line.view(start_offset=cursor).to_string()
         let result = re.execute(segment[:])
-        if not(result.matched()) {
+        if !(result.matched()) {
           return None
         }
         let before_len = result.before().length()
         if before_len == 0 &&
           cursor > 0 &&
           has_bol_anchor &&
-          not(accept_shifted_bol_start(re, segment)) {
+          !(accept_shifted_bol_start(re, segment)) {
             cursor += 1
             continue
         }
@@ -126,7 +126,7 @@ pub fn GrepMatcher::find_first_with_groups(
             let groups : Array[String] = []
             let mut group_idx = 1
             let mut done = false
-            while not(done) {
+            while !(done) {
               match result.get(group_idx) {
                 Some(group_text) => {
                   groups.push(group_text.to_string())
@@ -238,10 +238,10 @@ pub fn normalize_basic_regex(pattern : String) -> String {
 
       if is_bre_literal_regex_char(ch) {
         buf.write_char('\\')
-      } else if ch == '^' && not(bre_caret_is_anchor(pattern, i)) {
+      } else if ch == '^' && !(bre_caret_is_anchor(pattern, i)) {
         // In BRE, unescaped ^ is special at regex start or after \( / \|.
         buf.write_char('\\')
-      } else if ch == '$' && not(bre_dollar_is_anchor(pattern, i)) {
+      } else if ch == '$' && !(bre_dollar_is_anchor(pattern, i)) {
         // In BRE, unescaped $ is special at regex end or before \) / \|.
         buf.write_char('\\')
       }
@@ -419,7 +419,7 @@ fn parse_interval_quantifier(
   start : Int,
   has_target : Bool
 ) -> Int? {
-  if not(has_target) {
+  if !(has_target) {
     return None
   }
   if start < 0 || start >= pattern.length() || pattern[start].to_int().unsafe_to_char() != '{' {
@@ -561,7 +561,7 @@ fn has_invalid_posix_char_class_syntax(pattern : String) -> Bool {
               pattern[j + 1].to_int().unsafe_to_char() == ']' {
                 found_close = true
                 let name = pattern.view(start_offset=i + 2, end_offset=j).to_string()
-                if not(is_valid_posix_char_class_name(name)) {
+                if !(is_valid_posix_char_class_name(name)) {
                   return true
                 }
                 class_has_member = true
@@ -571,7 +571,7 @@ fn has_invalid_posix_char_class_syntax(pattern : String) -> Bool {
               }
             j += 1
           }
-          if not(found_close) {
+          if !(found_close) {
             return true
           }
           continue
@@ -665,7 +665,7 @@ fn parse_interval_syntax(pattern : String, start : Int) -> Int? {
 
 fn accept_shifted_bol_start(re : @regexp.Regexp, segment : String) -> Bool {
   let probe_one = re.execute(("/" + segment)[:])
-  if not(probe_one.matched()) {
+  if !(probe_one.matched()) {
     return false
   }
   let before_one = probe_one.before().length()

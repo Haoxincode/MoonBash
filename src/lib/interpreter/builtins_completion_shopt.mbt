@@ -95,7 +95,7 @@ fn ExecContext::builtin_shopt(
   let mut had_error = false
   let mut any_unset_in_query = false
   for name in names {
-    if not(is_known_shopt_name(name)) {
+    if !(is_known_shopt_name(name)) {
       had_error = true
       continue
     }
@@ -103,7 +103,7 @@ fn ExecContext::builtin_shopt(
       1 => self.shopt_set_enabled(name, true)
       2 => self.shopt_set_enabled(name, false)
       3 => {
-        if not(self.shopt_is_enabled(name)) {
+        if !(self.shopt_is_enabled(name)) {
           any_unset_in_query = true
         }
       }

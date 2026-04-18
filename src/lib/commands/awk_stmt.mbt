@@ -39,12 +39,12 @@ fn awk_find_regex_match_range(pattern_expr : String, input : String) -> (Int, In
 
 fn awk_parse_if_statement(stmt : String) -> (String, String)? {
   let text = aj_trim(stmt)
-  if not(aj_starts_with(text, "if")) {
+  if !(aj_starts_with(text, "if")) {
     return None
   }
   if text.length() > 2 {
     let boundary = text[2].to_int().unsafe_to_char()
-    if not(awk_is_space(boundary)) && boundary != '(' {
+    if !(awk_is_space(boundary)) && boundary != '(' {
       return None
     }
   }
@@ -219,10 +219,10 @@ fn awk_apply_ofmt_if_needed_ast(
   value : String,
   vars : Map[String, String]
 ) -> String {
-  if not(vars.contains("OFMT")) {
+  if !(vars.contains("OFMT")) {
     return value
   }
-  if not(awk_is_numeric_string(value)) {
+  if !(awk_is_numeric_string(value)) {
     return value
   }
   if awk_expr_ast_is_string_literal(expr_ast) {
@@ -266,7 +266,7 @@ fn awk_render_print_output_ast(
 
 fn awk_match_regex_pattern(pattern_expr : String, line : String) -> Bool {
   let p = aj_trim(pattern_expr)
-  if not(aj_starts_with(p, "/")) || not(aj_ends_with(p, "/")) || p.length() < 2 {
+  if !(aj_starts_with(p, "/")) || !(aj_ends_with(p, "/")) || p.length() < 2 {
     return false
   }
   let pat = aj_substr(p, 1, p.length() - 1)
@@ -293,7 +293,7 @@ fn awk_pattern_match_program(
   array_vars : Map[String, String],
   in_range : Bool
 ) -> (Bool, Bool) {
-  if not(prog.has_main) {
+  if !(prog.has_main) {
     return (false, in_range)
   }
 
@@ -309,7 +309,7 @@ fn awk_pattern_match_program(
           vars,
           array_vars,
         )
-        (true, not(end_hit))
+        (true, !(end_hit))
       } else {
         let start_hit = awk_eval_condition_ast(
           start_ast,
@@ -320,7 +320,7 @@ fn awk_pattern_match_program(
           vars,
           array_vars,
         )
-        if not(start_hit) {
+        if !(start_hit) {
           (false, false)
         } else {
           let end_hit = awk_eval_condition_ast(
@@ -332,7 +332,7 @@ fn awk_pattern_match_program(
             vars,
             array_vars,
           )
-          (true, not(end_hit))
+          (true, !(end_hit))
         }
       }
     }
@@ -406,12 +406,12 @@ fn awk_split_statements(action : String) -> Array[String] {
 fn awk_merge_if_else_statements(statements : Array[String]) -> Array[String] {
   fn is_bare_if_header(stmt : String) -> Bool {
     let text = aj_trim(stmt)
-    if not(aj_starts_with(text, "if")) {
+    if !(aj_starts_with(text, "if")) {
       return false
     }
     if text.length() > 2 {
       let boundary = text[2].to_int().unsafe_to_char()
-      if not(awk_is_space(boundary)) && boundary != '(' {
+      if !(awk_is_space(boundary)) && boundary != '(' {
         return false
       }
     }
@@ -461,7 +461,7 @@ fn awk_merge_if_else_statements(statements : Array[String]) -> Array[String] {
 
   fn is_bare_for_header(stmt : String) -> Bool {
     let text = aj_trim(stmt)
-    if not(aj_starts_with(text, "for")) {
+    if !(aj_starts_with(text, "for")) {
       return false
     }
     let mut i = 3
@@ -510,12 +510,12 @@ fn awk_merge_if_else_statements(statements : Array[String]) -> Array[String] {
 
   fn is_bare_while_header(stmt : String) -> Bool {
     let text = aj_trim(stmt)
-    if not(aj_starts_with(text, "while")) {
+    if !(aj_starts_with(text, "while")) {
       return false
     }
     if text.length() > 5 {
       let boundary = text[5].to_int().unsafe_to_char()
-      if not(awk_is_space(boundary)) && boundary != '(' {
+      if !(awk_is_space(boundary)) && boundary != '(' {
         return false
       }
     }
@@ -651,12 +651,12 @@ let awk_loop_guard_limit : Int = 10_000
 
 fn awk_parse_while_statement(stmt : String) -> (String, String)? {
   let text = aj_trim(stmt)
-  if not(aj_starts_with(text, "while")) {
+  if !(aj_starts_with(text, "while")) {
     return None
   }
   if text.length() > 5 {
     let boundary = text[5].to_int().unsafe_to_char()
-    if not(awk_is_space(boundary)) && boundary != '(' {
+    if !(awk_is_space(boundary)) && boundary != '(' {
       return None
     }
   }
@@ -761,7 +761,7 @@ fn awk_split_for_header(header : String) -> Array[String] {
 
 fn awk_parse_for_statement(stmt : String) -> (String, String, String, String)? {
   let text = aj_trim(stmt)
-  if not(aj_starts_with(text, "for")) {
+  if !(aj_starts_with(text, "for")) {
     return None
   }
   let mut i = 3
@@ -822,7 +822,7 @@ fn awk_parse_for_statement(stmt : String) -> (String, String, String, String)? {
 
 fn awk_parse_for_in_statement(stmt : String) -> (String, String, String)? {
   let text = aj_trim(stmt)
-  if not(aj_starts_with(text, "for")) {
+  if !(aj_starts_with(text, "for")) {
     return None
   }
   let mut i = 3
@@ -877,7 +877,7 @@ fn awk_parse_for_in_statement(stmt : String) -> (String, String, String)? {
   }
   let var_name = aj_trim(aj_substr(header, 0, in_idx))
   let arr_name = aj_trim(aj_substr(header, in_idx + 4, header.length()))
-  if not(awk_is_identifier(var_name)) || not(awk_is_identifier(arr_name)) {
+  if !(awk_is_identifier(var_name)) || !(awk_is_identifier(arr_name)) {
     return None
   }
 
@@ -897,7 +897,7 @@ fn awk_parse_var_assignment(spec : String) -> (String, String)? {
   }
   let name = aj_trim(aj_substr(spec, 0, eq_idx))
   let value = aj_substr(spec, eq_idx + 1, spec.length())
-  if not(awk_is_identifier(name)) {
+  if !(awk_is_identifier(name)) {
     return None
   }
   Some((name, value))

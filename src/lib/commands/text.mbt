@@ -312,7 +312,7 @@ fn cmd_wc_count(input : String) -> (Int, Int, Int) {
     let ch = input[i].to_int().unsafe_to_char()
     if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
       in_word = false
-    } else if not(in_word) {
+    } else if !(in_word) {
       word_count += 1
       in_word = true
     }
@@ -338,7 +338,7 @@ fn cmd_wc_write_row(
 ) -> Unit {
   let mut first = true
   let write_col = (value : Int, width : Int) => {
-    if not(first) {
+    if !(first) {
       out.write_char(' ')
     }
     let text = value.to_string()
@@ -392,7 +392,7 @@ fn cmd_wc(ctx : CommandContext) -> @ast.ExecResult {
   }
 
   // Default: show all
-  if not(flag_lines) && not(flag_words) && not(flag_chars) {
+  if !(flag_lines) && !(flag_words) && !(flag_chars) {
     flag_lines = true
     flag_words = true
     flag_chars = true

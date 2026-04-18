@@ -195,7 +195,7 @@ fn net_fetch_url(
     Err(msg) => return Err(msg)
     Ok(r) => r
   }
-  if not(response.ok) && response.status == 0 && response.error.length() == 0 {
+  if !(response.ok) && response.status == 0 && response.error.length() == 0 {
     return Err("network request failed")
   }
   if response.error.length() > 0 {
@@ -686,7 +686,7 @@ fn cmd_curl(ctx : CommandContext) -> @ast.ExecResult {
           break
         }
       }
-      if not(valid_bundle) {
+      if !(valid_bundle) {
         return @ast.ExecResult::new(
           stderr="curl: unsupported option -- '\{arg}'\n",
           exit_code=2,

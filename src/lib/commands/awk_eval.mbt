@@ -528,7 +528,7 @@ fn awk_execute_function_statements(
           }
           match cond_ast {
             Some(cond_expr_ast) => {
-              if not(
+              if !(
                 awk_eval_condition_ast(
                   cond_expr_ast,
                   line,
@@ -569,7 +569,7 @@ fn awk_execute_function_statements(
             vars.contains(awk_ctrl_return_key) {
             break
           }
-          if not(
+          if !(
             awk_eval_condition_ast(
               cond_ast,
               line,

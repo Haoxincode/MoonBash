@@ -40,7 +40,7 @@ fn cmd_echo(ctx : CommandContext) -> @ast.ExecResult {
       buf.write_string(ctx.args[i])
     }
   }
-  if not(no_newline) {
+  if !(no_newline) {
     buf.write_char('\n')
   }
   @ast.ExecResult::ok(buf.to_string())

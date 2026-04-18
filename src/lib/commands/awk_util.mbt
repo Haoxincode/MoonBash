@@ -2,7 +2,7 @@
 
 fn awk_eval_getline_command_line(command : String) -> String {
   let cmd = aj_trim(command)
-  if not(aj_starts_with(cmd, "echo")) {
+  if !(aj_starts_with(cmd, "echo")) {
     return ""
   }
   let mut rest = if cmd.length() > 4 {
@@ -75,12 +75,12 @@ fn awk_is_numeric_string(s : String) -> Bool {
       i += 1
       continue
     }
-    if ch == '.' && not(seen_dot) && not(seen_exp) {
+    if ch == '.' && !(seen_dot) && !(seen_exp) {
       seen_dot = true
       i += 1
       continue
     }
-    if (ch == 'e' || ch == 'E') && seen_digit && not(seen_exp) {
+    if (ch == 'e' || ch == 'E') && seen_digit && !(seen_exp) {
       seen_exp = true
       seen_exp_digit = false
       i += 1
@@ -102,7 +102,7 @@ fn awk_is_numeric_string(s : String) -> Bool {
 }
 
 fn awk_parse_number(s : String) -> Double {
-  if not(awk_is_numeric_string(s)) {
+  if !(awk_is_numeric_string(s)) {
     return 0.0
   }
   let t = aj_trim(s)
@@ -201,7 +201,7 @@ fn awk_parse_array_ref(expr : String) -> (String, String)? {
     return None
   }
   let arr_name = aj_trim(aj_substr(t, 0, open_bracket))
-  if not(awk_is_identifier(arr_name)) {
+  if !(awk_is_identifier(arr_name)) {
     return None
   }
   let idx_expr = aj_trim(aj_substr(t, open_bracket + 1, t.length() - 1))
@@ -322,7 +322,7 @@ fn awk_split_for_split_builtin(source : String, delim : String) -> Array[String]
   if delim.length() == 0 {
     return awk_split_chars(source)
   }
-  if delim == " " && not(is_regex) {
+  if delim == " " && !(is_regex) {
     return awk_split_fields(source, " ")
   }
   aj_split_by_delim(source, delim)

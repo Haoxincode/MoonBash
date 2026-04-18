@@ -91,7 +91,7 @@ fn parse_word_parts_with_context(
       continue
     } else if parse_raw_quotes &&
       ch == '\'' &&
-      not(in_double_quote) &&
+      !(in_double_quote) &&
       has_closing_raw_single_quote(s, i + 1) {
       let lit = buf.to_string()
       let ansi_c_quote = lit.length() > 0 && wchar_at(lit, lit.length() - 1) == '$'
@@ -117,7 +117,7 @@ fn parse_word_parts_with_context(
       continue
     } else if parse_raw_quotes &&
       ch == '"' &&
-      not(in_double_quote) &&
+      !(in_double_quote) &&
       has_closing_raw_double_quote(s, i + 1) {
       let lit = buf.to_string()
       let locale_quote = lit.length() > 0 && wchar_at(lit, lit.length() - 1) == '$'
@@ -214,7 +214,7 @@ fn parse_word_parts_with_context(
         continue
       }
     } else if ch == '`' {
-      if not(has_closing_backtick(s, i + 1)) {
+      if !(has_closing_backtick(s, i + 1)) {
         buf.write_char('`')
         i += 1
         continue
@@ -314,12 +314,12 @@ fn parse_raw_single_quoted_segment(
   while i < s.length() {
     let ch = wchar_at(s, i)
     if ch == '\'' {
-      if not(ansi_c_quote) || not(escaped) {
+      if !(ansi_c_quote) || !(escaped) {
         return (quoted.to_string(), i + 1)
       }
     }
     quoted.write_char(ch)
-    if ansi_c_quote && ch == '\\' && not(escaped) {
+    if ansi_c_quote && ch == '\\' && !(escaped) {
       escaped = true
     } else {
       escaped = false
@@ -525,7 +525,7 @@ fn parse_param_name_end(content : String) -> Int {
   if len == 0 {
     return 0
   }
-  if not(is_var_start(wchar_at(content, 0))) {
+  if !(is_var_start(wchar_at(content, 0))) {
     return 0
   }
 
@@ -849,7 +849,7 @@ fn parse_param_operator_word(
   word_str : String,
   in_double_quote~ : Bool = false
 ) -> @ast.Word {
-  if not(in_double_quote) {
+  if !(in_double_quote) {
     return parse_word_content_with_raw_quotes(word_str)
   }
   let preprocessed = preprocess_param_word_in_double_quote(word_str)
@@ -1083,9 +1083,9 @@ fn parse_arith_expansion(s : String, start : Int) -> (@ast.WordPart, Int) {
   let mut escaped = false
 
   while i < s.length() {
-    if not(in_single) &&
-      not(in_double) &&
-      not(escaped) &&
+    if !(in_single) &&
+      !(in_double) &&
+      !(escaped) &&
       paren_depth == 0 &&
       i + 1 < s.length() &&
       wchar_at(s, i) == ')' &&

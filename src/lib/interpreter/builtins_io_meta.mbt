@@ -282,7 +282,7 @@ fn ExecContext::builtin_printf(
           }
         }
         None => {
-          if not(self.store_scalar_assignment(name, result)) {
+          if !(self.store_scalar_assignment(name, result)) {
             return
           }
         }
@@ -434,7 +434,7 @@ fn ExecContext::builtin_type(
       if self.lookup_alias_value(name) is Some(_) {
         self.stdout_buf.write_string("alias\n")
         found = true
-      } else if not(opt_f) && self.functions.contains(name) {
+      } else if !(opt_f) && self.functions.contains(name) {
         self.stdout_buf.write_string("function\n")
         found = true
       } else if is_lookup_shell_keyword(name) {
@@ -452,7 +452,7 @@ fn ExecContext::builtin_type(
           None => ()
         }
       }
-      if not(found) {
+      if !(found) {
         all_found = false
       }
       continue
@@ -465,9 +465,9 @@ fn ExecContext::builtin_type(
       }
 
       let force_path_lookup = opt_upper_p || opt_a
-      if not(force_path_lookup) {
+      if !(force_path_lookup) {
         let shadowed_by_non_file = self.lookup_alias_value(name) is Some(_) ||
-          (not(opt_f) && self.functions.contains(name)) ||
+          (!(opt_f) && self.functions.contains(name)) ||
           is_lookup_shell_keyword(name) ||
           is_lookup_shell_builtin(name)
         if shadowed_by_non_file {
@@ -491,7 +491,7 @@ fn ExecContext::builtin_type(
           found = true
         }
       }
-      if not(found) {
+      if !(found) {
         all_found = false
       }
       continue
@@ -508,7 +508,7 @@ fn ExecContext::builtin_type(
         }
         None => ()
       }
-      if not(opt_f) {
+      if !(opt_f) {
         match self.functions.get(name) {
           Some(fndef) => {
             self.print_type_function_definition(name, fndef)
@@ -530,7 +530,7 @@ fn ExecContext::builtin_type(
         self.stdout_buf.write_string("\{name} is a \{builtin_kind}\n")
         found = true
       }
-      if not(type_builtin_without_external_path(name)) {
+      if !(type_builtin_without_external_path(name)) {
         for match_item in self.all_path_command_matches(
           name,
           false,
@@ -541,7 +541,7 @@ fn ExecContext::builtin_type(
           found = true
         }
       }
-      if not(found) {
+      if !(found) {
         self.stderr_buf.write_string("\{name}: not found\n")
         all_found = false
       }
@@ -558,7 +558,7 @@ fn ExecContext::builtin_type(
       None => ()
     }
 
-    if not(opt_f) {
+    if !(opt_f) {
       match self.functions.get(name) {
         Some(fndef) => {
           self.print_type_function_definition(name, fndef)

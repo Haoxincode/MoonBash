@@ -160,7 +160,7 @@ fn lookup_reserved(word : String) -> @ast.Token? {
 // ============================================================================
 
 fn Lexer::scan_tokens(self : Lexer) -> Unit raise @ast.BashError {
-  while not(self.at_end()) {
+  while !(self.at_end()) {
     let ch = self.peek()
 
     if is_whitespace(ch) {
@@ -195,7 +195,7 @@ fn Lexer::scan_tokens(self : Lexer) -> Unit raise @ast.BashError {
 // ============================================================================
 
 fn Lexer::skip_comment(self : Lexer) -> Unit {
-  while not(self.at_end()) && self.peek() != '\n' {
+  while !(self.at_end()) && self.peek() != '\n' {
     self.pos += 1
   }
 }
@@ -367,7 +367,7 @@ fn Lexer::scan_dollar_brace_into_word(
   let mut in_double = false
   let mut escaped = false
 
-  while not(self.at_end()) {
+  while !(self.at_end()) {
     let ch = self.advance()
     buf.write_char(ch)
 
@@ -439,11 +439,11 @@ fn Lexer::scan_dollar_paren_into_word(
   let mut in_double = false
   let mut escaped = false
 
-  while not(self.at_end()) {
+  while !(self.at_end()) {
     if arithmetic &&
-      not(in_single) &&
-      not(in_double) &&
-      not(escaped) &&
+      !(in_single) &&
+      !(in_double) &&
+      !(escaped) &&
       depth == 0 &&
       self.peek() == ')' &&
       self.peek_at(1) == ')' {
@@ -530,7 +530,7 @@ fn Lexer::scan_dollar_bracket_into_word(
   let mut in_double = false
   let mut escaped = false
 
-  while not(self.at_end()) {
+  while !(self.at_end()) {
     let ch = self.advance()
     buf.write_char(ch)
 
@@ -594,7 +594,7 @@ fn Lexer::scan_backtick_into_word(
   buf.write_char(self.advance())
 
   let mut escaped = false
-  while not(self.at_end()) {
+  while !(self.at_end()) {
     let ch = self.advance()
     buf.write_char(ch)
 
@@ -625,11 +625,11 @@ fn Lexer::scan_parenthesized_assignment_value(
   let mut in_double = false
   let mut single_quote_has_content = false
 
-  while not(self.at_end()) {
+  while !(self.at_end()) {
     if in_single {
       let ch = self.advance()
       if ch == '\'' {
-        if not(single_quote_has_content) {
+        if !(single_quote_has_content) {
           // Preserve empty single-quoted token (e.g. (''))
           // so word parser can materialize it as SingleQuoted("").
           buf.write_char('\u0001')
@@ -674,7 +674,7 @@ fn Lexer::scan_parenthesized_assignment_value(
         continue
       }
       if ch == '\\' {
-        if not(self.at_end()) {
+        if !(self.at_end()) {
           let next = self.peek()
           if next == '$' || next == '`' || next == '"' || next == '\\' || next == '\n' {
             buf.write_char(self.advance())
@@ -704,7 +704,7 @@ fn Lexer::scan_parenthesized_assignment_value(
       }
       '\\' => {
         self.pos += 1
-        if not(self.at_end()) {
+        if !(self.at_end()) {
           let next = self.advance()
           if next == '$' ||
             next == '`' ||
@@ -773,7 +773,7 @@ fn assignment_name_prefix_bracket_depth(word : String) -> Int? {
   if word.length() == 0 {
     return None
   }
-  if not(is_name_start(char_at(word, 0))) {
+  if !(is_name_start(char_at(word, 0))) {
     return None
   }
 
@@ -878,7 +878,7 @@ fn Lexer::scan_word(self : Lexer) -> Unit raise @ast.BashError {
   let buf = StringBuilder::new()
   let mut had_quoted = false
 
-  while not(self.at_end()) {
+  while !(self.at_end()) {
     let ch = self.peek()
 
     if ch == '$' && self.peek_at(1) == '{' {
@@ -920,7 +920,7 @@ fn Lexer::scan_word(self : Lexer) -> Unit raise @ast.BashError {
           None => ()
         }
       }
-      if not(keep_scanning) {
+      if !(keep_scanning) {
         break
       }
     }
@@ -940,7 +940,7 @@ fn Lexer::scan_word(self : Lexer) -> Unit raise @ast.BashError {
       }
       '\\' => {
         self.pos += 1
-        if not(self.at_end()) {
+        if !(self.at_end()) {
           let next = self.advance()
           if next != '\n' {
             buf.write_char(next)
@@ -962,7 +962,7 @@ fn Lexer::scan_word(self : Lexer) -> Unit raise @ast.BashError {
   }
 
   // Check for fd number before redirect
-  if is_all_digits(word) && not(self.at_end()) {
+  if is_all_digits(word) && !(self.at_end()) {
     let next = self.peek()
     if next == '<' || next == '>' {
       let num = parse_int(word)
@@ -996,10 +996,10 @@ fn Lexer::scan_word(self : Lexer) -> Unit raise @ast.BashError {
 fn Lexer::scan_single_quote(self : Lexer, buf : StringBuilder) -> Unit raise @ast.BashError {
   self.pos += 1 // skip opening quote
   let mut has_content = false
-  while not(self.at_end()) {
+  while !(self.at_end()) {
     let ch = self.advance()
     if ch == '\'' {
-      if not(has_content) {
+      if !(has_content) {
         // Preserve explicit empty single-quoted literal ('').
         buf.write_char('\u0001')
         buf.write_char('\u0000')
@@ -1018,10 +1018,10 @@ fn Lexer::scan_ansi_c_quote(self : Lexer, buf : StringBuilder) -> Unit raise @as
   self.pos += 1 // skip opening quote
   let mut escaped = false
   let mut has_content = false
-  while not(self.at_end()) {
+  while !(self.at_end()) {
     let ch = self.advance()
-    if ch == '\'' && not(escaped) {
-      if not(has_content) {
+    if ch == '\'' && !(escaped) {
+      if !(has_content) {
         buf.write_char('\u0001')
         buf.write_char('\u0000')
       }
@@ -1031,7 +1031,7 @@ fn Lexer::scan_ansi_c_quote(self : Lexer, buf : StringBuilder) -> Unit raise @as
     buf.write_char('\u0001')
     buf.write_char(ch)
     has_content = true
-    if ch == '\\' && not(escaped) {
+    if ch == '\\' && !(escaped) {
       escaped = true
     } else {
       escaped = false
@@ -1049,7 +1049,7 @@ fn Lexer::scan_double_quote(self : Lexer, buf : StringBuilder) -> Unit raise @as
   self.pos += 1 // skip opening quote
   // Mark double-quoted region so parser can preserve quote context.
   buf.write_char('\u0002')
-  while not(self.at_end()) {
+  while !(self.at_end()) {
     if self.peek() == '$' && self.peek_at(1) == '{' {
       self.scan_dollar_brace_into_word(buf)
       continue
@@ -1078,7 +1078,7 @@ fn Lexer::scan_double_quote(self : Lexer, buf : StringBuilder) -> Unit raise @as
         return
       }
       '\\' => {
-        if not(self.at_end()) {
+        if !(self.at_end()) {
           let next = self.peek()
           if next == '$' || next == '`' || next == '"' || next == '\\' {
             // Preserve escape marker for expansion parser.
@@ -1118,7 +1118,7 @@ fn is_all_digits(s : String) -> Bool {
     return false
   }
   for i = 0; i < s.length(); i = i + 1 {
-    if not(is_digit(char_at(s, i))) {
+    if !(is_digit(char_at(s, i))) {
       return false
     }
   }
@@ -1171,7 +1171,7 @@ fn parse_assignment_name_end(word : String, eq_pos : Int) -> Int? {
     return None
   }
 
-  if not(is_name_start(char_at(word, 0))) {
+  if !(is_name_start(char_at(word, 0))) {
     return None
   }
 

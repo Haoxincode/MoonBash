@@ -326,7 +326,7 @@ fn cmd_custom_bridge(ctx : CommandContext) -> @ast.ExecResult {
     }
   }
 
-  if not(response.handled) {
+  if !(response.handled) {
     return {
       stdout: "",
       stderr: "moon_bash: \{command_name}: command not found\n",

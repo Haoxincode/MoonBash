@@ -11,7 +11,7 @@ fn nyacsv_trim_field(s : String) -> String {
   let mut start = 0
   while start < s.length() {
     let ch = s[start].to_int().unsafe_to_char()
-    if not(nyacsv_is_trim_char(ch)) {
+    if !(nyacsv_is_trim_char(ch)) {
       break
     }
     start += 1
@@ -22,7 +22,7 @@ fn nyacsv_trim_field(s : String) -> String {
   let mut end_exclusive = s.length()
   while end_exclusive > start {
     let ch = s[end_exclusive - 1].to_int().unsafe_to_char()
-    if not(nyacsv_is_trim_char(ch)) {
+    if !(nyacsv_is_trim_char(ch)) {
       break
     }
     end_exclusive -= 1
@@ -43,7 +43,7 @@ fn nyacsv_finalize_field(field : StringBuilder, trim_spaces : Bool) -> String {
   }
 }
 
-fn parse[T : CSVReader](
+fn[T : CSVReader] parse(
   reader : T,
   options~ : CSVOptions = {
     delimiter: ',',
@@ -58,7 +58,7 @@ fn parse[T : CSVReader](
   let mut field = StringBuilder::new()
   let mut in_quotes = false
 
-  while not(reader.is_eof()) {
+  while !(reader.is_eof()) {
     let mut ch = reader.read_char().unwrap()
 
     if ch == '\r' {
@@ -81,17 +81,17 @@ fn parse[T : CSVReader](
 
     if in_quotes {
       if ch == options.quote_char {
-        if not(reader.is_eof()) &&
+        if !(reader.is_eof()) &&
           reader.peek_char() == Some(options.quote_char) {
           field.write_char(options.quote_char)
           reader.read_char() |> ignore
         } else {
           in_quotes = false
         }
-      } else if ch == '\n' && not(options.allow_newlines_in_quotes) {
+      } else if ch == '\n' && !(options.allow_newlines_in_quotes) {
         in_quotes = false
         row.push(nyacsv_finalize_field(field, options.trim_spaces))
-        if not(row.is_empty()) || not(options.skip_empty_lines) {
+        if !(row.is_empty()) || !(options.skip_empty_lines) {
           rows.push(row)
         }
         row = Array::new()
@@ -110,7 +110,7 @@ fn parse[T : CSVReader](
       field = StringBuilder::new()
     } else if ch == '\n' {
       row.push(nyacsv_finalize_field(field, options.trim_spaces))
-      if not(row.is_empty()) || not(options.skip_empty_lines) {
+      if !(row.is_empty()) || !(options.skip_empty_lines) {
         rows.push(row)
       }
       row = Array::new()
@@ -120,9 +120,9 @@ fn parse[T : CSVReader](
     }
   }
 
-  if not(field.is_empty()) || row.length() > 0 {
+  if !(field.is_empty()) || row.length() > 0 {
     row.push(nyacsv_finalize_field(field, options.trim_spaces))
-    if not(row.is_empty()) || not(options.skip_empty_lines) {
+    if !(row.is_empty()) || !(options.skip_empty_lines) {
       rows.push(row)
     }
   }

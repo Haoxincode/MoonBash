@@ -122,7 +122,7 @@ fn ExecContext::builtin_unset(self : ExecContext, args : Array[String]) -> Unit 
     self.env.remove(lower_attr_storage_key(arg))
     self.env.remove(upper_attr_storage_key(arg))
     self.exported.remove(arg)
-    if not(explicit_mode) {
+    if !(explicit_mode) {
       self.functions.remove(arg)
     }
   }
@@ -354,7 +354,7 @@ fn ExecContext::parse_loop_control_count_arg(
   }
 
   let raw = args[0]
-  if not(is_positive_decimal_text(raw)) {
+  if !(is_positive_decimal_text(raw)) {
     self.stderr_buf.write_string("moon_bash: \{builtin_name}: \{raw}: numeric argument required\n")
     self.exit_code = 1
     self.should_exit = true
@@ -444,7 +444,7 @@ fn ExecContext::builtin_local(
     let seen : Map[String, Bool] = {}
     let names : Array[String] = []
     for name in locals {
-      if not(seen.contains(name)) {
+      if !(seen.contains(name)) {
         seen[name] = true
         names.push(name)
       }
@@ -526,7 +526,7 @@ fn ExecContext::builtin_local(
                 break
               }
               let next_value = if append { self.env.get(name).unwrap_or("") + value } else { value }
-              if not(self.store_scalar_assignment_with_options(name, next_value, false)) {
+              if !(self.store_scalar_assignment_with_options(name, next_value, false)) {
                 failed = true
                 break
               }
@@ -606,7 +606,7 @@ fn ExecContext::builtin_local(
                 } else {
                   value
                 }
-                if not(self.store_scalar_assignment_with_options(target_name, next_value, false)) {
+                if !(self.store_scalar_assignment_with_options(target_name, next_value, false)) {
                   failed = true
                   break
                 }
@@ -619,8 +619,8 @@ fn ExecContext::builtin_local(
               failed = true
               break
             }
-            if not(self.env.contains(name)) {
-              if not(self.store_scalar_assignment_with_options(name, "", false)) {
+            if !(self.env.contains(name)) {
+              if !(self.store_scalar_assignment_with_options(name, "", false)) {
                 failed = true
                 break
               }
@@ -836,7 +836,7 @@ fn ExecContext::builtin_declare(
         filtered
       }
       for name in names {
-        if not(
+        if !(
           self.declare_entry_matches_filters(
             name,
             nameref,
@@ -867,17 +867,17 @@ fn ExecContext::builtin_declare(
     for spec in filtered {
       match parse_name_value_spec(spec) {
         Some((name, Some(target), _append)) => {
-          if not(global_mode) {
+          if !(global_mode) {
             self.capture_local_binding(name)
           }
           self.env[name] = target
           self.env["__MOON_BASH_NAMEREF__" + name] = target
         }
         Some((name, None, _append)) => {
-          if not(global_mode) {
+          if !(global_mode) {
             self.capture_local_binding(name)
           }
-          if not(self.env.contains(name)) {
+          if !(self.env.contains(name)) {
             self.env[name] = ""
           }
         }
@@ -889,7 +889,7 @@ fn ExecContext::builtin_declare(
   }
 
   if filtered.length() == 0 &&
-    not(
+    !(
       readonly_mode ||
       clear_readonly_mode ||
       integer_mode ||
@@ -957,7 +957,7 @@ fn ExecContext::builtin_declare(
   }
 
   if (indexed_array_mode || assoc_array_mode) &&
-    not(
+    !(
       readonly_mode ||
       clear_readonly_mode ||
       integer_mode ||
@@ -977,7 +977,7 @@ fn ExecContext::builtin_declare(
               failed = true
               continue
             }
-            if not(global_mode) {
+            if !(global_mode) {
               self.capture_local_binding(name)
             }
             self.env[test_array_kind_storage_key(name)] = target_kind
@@ -1003,13 +1003,13 @@ fn ExecContext::builtin_declare(
                 } else {
                   value
                 }
-                if not(self.store_scalar_assignment_with_options(name, next_value, false)) {
+                if !(self.store_scalar_assignment_with_options(name, next_value, false)) {
                   failed = true
                   break
                 }
               }
               None => {
-                if not(self.env.contains(test_array_count_storage_key(name))) {
+                if !(self.env.contains(test_array_count_storage_key(name))) {
                   self.store_array_assignment(name, [])
                 }
               }
@@ -1022,7 +1022,7 @@ fn ExecContext::builtin_declare(
       return
     }
 
-  if not(
+  if !(
     readonly_mode ||
     clear_readonly_mode ||
     integer_mode ||
@@ -1040,7 +1040,7 @@ fn ExecContext::builtin_declare(
   for spec in filtered {
     match parse_name_value_spec(spec) {
       Some((name, assigned_value, append)) => {
-        if not(global_mode) {
+        if !(global_mode) {
           self.capture_local_binding(name)
         }
         if readonly_mode {
@@ -1098,7 +1098,7 @@ fn ExecContext::builtin_declare(
                 } else {
                   value
                 }
-                if not(self.store_scalar_assignment_with_options(name, next_value, false)) {
+                if !(self.store_scalar_assignment_with_options(name, next_value, false)) {
                   failed = true
                   break
                 }
@@ -1109,8 +1109,8 @@ fn ExecContext::builtin_declare(
             }
           }
           None => {
-            if not(self.env.contains(name)) {
-              if not(self.store_scalar_assignment_with_options(name, "", false)) {
+            if !(self.env.contains(name)) {
+              if !(self.store_scalar_assignment_with_options(name, "", false)) {
                 failed = true
                 break
               }
@@ -1237,13 +1237,13 @@ fn ExecContext::declare_entry_matches_filters(
   indexed_array_mode : Bool,
   assoc_array_mode : Bool
 ) -> Bool {
-  if nameref_mode && not(self.env.contains("__MOON_BASH_NAMEREF__" + name)) {
+  if nameref_mode && !(self.env.contains("__MOON_BASH_NAMEREF__" + name)) {
     return false
   }
-  if readonly_mode && not(self.is_readonly_variable(name)) {
+  if readonly_mode && !(self.is_readonly_variable(name)) {
     return false
   }
-  if export_mode && not(self.exported.contains(name)) {
+  if export_mode && !(self.exported.contains(name)) {
     return false
   }
   let array_kind = self.env.get(test_array_kind_storage_key(name)).unwrap_or("")
@@ -1265,13 +1265,13 @@ fn ExecContext::collect_declare_print_names(self : ExecContext) -> Array[String]
     }
     match parse_array_element_assignment_name(key) {
       Some((base, _index)) => {
-        if not(seen.contains(base)) {
+        if !(seen.contains(base)) {
           seen[base] = true
           names.push(base)
         }
       }
       None => {
-        if not(seen.contains(key)) {
+        if !(seen.contains(key)) {
           seen[key] = true
           names.push(key)
         }
@@ -1282,7 +1282,7 @@ fn ExecContext::collect_declare_print_names(self : ExecContext) -> Array[String]
     if is_internal_declare_storage_name(key) {
       continue
     }
-    if not(seen.contains(key)) {
+    if !(seen.contains(key)) {
       seen[key] = true
       names.push(key)
     }
@@ -1359,18 +1359,6 @@ fn parse_declare_option_token(flag : String) -> (Bool, Array[Char])? {
   Some((enable, flags))
 }
 
-fn declare_flag_contains(flag : String, needle : Char) -> Bool {
-  if flag.length() <= 1 {
-    return false
-  }
-  for i = 1; i < flag.length(); i = i + 1 {
-    if flag[i].to_int().unsafe_to_char() == needle {
-      return true
-    }
-  }
-  false
-}
-
 fn ExecContext::builtin_readonly(
   self : ExecContext,
   args : Array[String]
@@ -1437,10 +1425,10 @@ fn ExecContext::builtin_getopts(
   let option_name = getopts_char_string(option_char)
   let opt_idx = getopts_find_option(opt_spec, option_char)
   if opt_idx < 0 {
-    if not(self.store_scalar_assignment(target_name, "?")) {
+    if !(self.store_scalar_assignment(target_name, "?")) {
       return
     }
-    if not(self.store_scalar_assignment("OPTARG", option_name)) {
+    if !(self.store_scalar_assignment("OPTARG", option_name)) {
       return
     }
     self.env["OPTIND"] = (optind + 1).to_string()
@@ -1456,17 +1444,17 @@ fn ExecContext::builtin_getopts(
     } else if optind < parse_args.length() {
       parse_args[optind]
     } else {
-      if not(self.store_scalar_assignment(target_name, "?")) {
+      if !(self.store_scalar_assignment(target_name, "?")) {
         return
       }
       self.env["OPTIND"] = (optind + 1).to_string()
       self.exit_code = 0
       return
     }
-    if not(self.store_scalar_assignment(target_name, option_name)) {
+    if !(self.store_scalar_assignment(target_name, option_name)) {
       return
     }
-    if not(self.store_scalar_assignment("OPTARG", optarg)) {
+    if !(self.store_scalar_assignment("OPTARG", optarg)) {
       return
     }
     self.env["OPTIND"] = if inline.length() > 0 {
@@ -1478,7 +1466,7 @@ fn ExecContext::builtin_getopts(
     return
   }
 
-  if not(self.store_scalar_assignment(target_name, option_name)) {
+  if !(self.store_scalar_assignment(target_name, option_name)) {
     return
   }
   self.env.remove("OPTARG")

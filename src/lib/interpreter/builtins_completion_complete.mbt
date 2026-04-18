@@ -145,7 +145,7 @@ fn ExecContext::builtin_complete(
 
   match func_name {
     Some(name) => {
-      if not(self.functions.contains(name)) {
+      if !(self.functions.contains(name)) {
         for target in names {
           if target == "-D" {
             self.exit_code = 2
@@ -203,7 +203,7 @@ fn ExecContext::builtin_compopt(
       break
     }
     if arg == "-o" || arg == "+o" {
-      if i + 1 >= args.length() || not(completion_is_valid_compopt(args[i + 1])) {
+      if i + 1 >= args.length() || !(completion_is_valid_compopt(args[i + 1])) {
         self.exit_code = 2
         return
       }
@@ -221,7 +221,7 @@ fn ExecContext::builtin_compopt(
     i += 1
   }
 
-  if not(has_action) {
+  if !(has_action) {
     self.exit_code = 2
     return
   }
@@ -262,7 +262,7 @@ fn ExecContext::collect_variable_names_sorted(self : ExecContext) -> Array[Strin
       continue
     }
     let base = completion_variable_base_name(key)
-    if not(is_valid_shell_name(base)) {
+    if !(is_valid_shell_name(base)) {
       continue
     }
     if seen.contains(base) {
@@ -398,13 +398,13 @@ fn ExecContext::collect_path_completion_candidates(
       continue
     }
     let name = @fs.basename(path)
-    if not(name.has_prefix(name_prefix)) {
+    if !(name.has_prefix(name_prefix)) {
       continue
     }
     match entry {
       @fs.FsEntry::Directory(_) => out.push(output_prefix + name)
       _ => {
-        if not(directories_only) {
+        if !(directories_only) {
           out.push(output_prefix + name)
         }
       }

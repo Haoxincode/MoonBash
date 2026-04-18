@@ -334,7 +334,7 @@ fn jq_compat_functions_dates(trimmed : String, input : Json) -> Array[Json]? {
             _ => valid = false
           }
         }
-        if not(valid) {
+        if !(valid) {
           return Some([Json::string("strftime/1 requires parsed datetime inputs")])
         }
         return None
@@ -356,7 +356,7 @@ fn jq_compat_functions_dates(trimmed : String, input : Json) -> Array[Json]? {
             _ => valid = false
           }
         }
-        if not(valid) {
+        if !(valid) {
           return Some([Json::string("mktime requires parsed datetime inputs")])
         }
         return None

@@ -187,7 +187,7 @@ fn cmd_awk(ctx : CommandContext) -> @ast.ExecResult {
     None => ()
   }
 
-  if not(vars.contains(awk_ctrl_error_key)) {
+  if !(vars.contains(awk_ctrl_error_key)) {
     for action in prog.end_actions {
       if vars.contains(awk_ctrl_exit_key) {
         break
@@ -211,7 +211,7 @@ fn cmd_awk(ctx : CommandContext) -> @ast.ExecResult {
     }
   }
 
-  if not(vars.contains(awk_ctrl_exit_key)) {
+  if !(vars.contains(awk_ctrl_exit_key)) {
     match begin_exit {
       Some(code) => vars[awk_ctrl_exit_key] = code
       None => ()

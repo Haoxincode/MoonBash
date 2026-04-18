@@ -723,7 +723,7 @@ fn awk_execute_action_ast_list(
                     )
                     current_line = next_line_value
                     current_fields = next_fields_value
-                    cond_passed = not(vars.contains(awk_ctrl_exit_key))
+                    cond_passed = !(vars.contains(awk_ctrl_exit_key))
                   } else {
                     cond_passed = false
                   }
@@ -743,7 +743,7 @@ fn awk_execute_action_ast_list(
             }
             None => ()
           }
-          if not(cond_passed) {
+          if !(cond_passed) {
             break
           }
 
@@ -834,14 +834,14 @@ fn awk_execute_action_ast_list(
                 )
                 current_line = next_line_value
                 current_fields = next_fields_value
-                cond_passed = not(vars.contains(awk_ctrl_exit_key))
+                cond_passed = !(vars.contains(awk_ctrl_exit_key))
               } else {
                 cond_passed = false
               }
             }
             None => ()
           }
-          if not(handled_getline) {
+          if !(handled_getline) {
             cond_passed = awk_eval_condition_ast(
               cond_ast,
               current_line,
@@ -852,7 +852,7 @@ fn awk_execute_action_ast_list(
               array_vars,
             )
           }
-          if not(cond_passed) {
+          if !(cond_passed) {
             break
           }
 
@@ -914,14 +914,14 @@ fn awk_execute_action_ast_list(
               )
               current_line = next_line_value
               current_fields = next_fields_value
-              cond_passed = not(vars.contains(awk_ctrl_exit_key))
+              cond_passed = !(vars.contains(awk_ctrl_exit_key))
             } else {
               cond_passed = false
             }
           }
           None => ()
         }
-        if not(handled_getline) {
+        if !(handled_getline) {
           cond_passed = awk_eval_condition_ast(
             cond_ast,
             current_line,

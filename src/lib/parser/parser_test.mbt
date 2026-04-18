@@ -152,7 +152,7 @@ test "parse if-else statement" {
     @ast.Statement::Pipeline(pipeline) => {
       match pipeline.commands[0] {
         @ast.Command::Compound(@ast.CompoundCommand::If(clause), _) => {
-          assert_true(not(clause.else_branch is None))
+          assert_true(!(clause.else_branch is None))
         }
         _ => fail("expected if compound command")
       }

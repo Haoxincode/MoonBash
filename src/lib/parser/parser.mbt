@@ -28,7 +28,7 @@ pub fn parse_tokens(tokens : Array[@ast.Token]) -> @ast.Script raise @ast.BashEr
   let parser : Parser = { tokens, pos: 0, depth: 0 }
   let script = parser.parse_script()
   parser.skip_newlines()
-  if not(parser.at_end()) {
+  if !(parser.at_end()) {
     raise @ast.BashError("syntax error near unexpected token")
   }
   script
@@ -224,7 +224,7 @@ fn Parser::parse_arithmetic_raw(self : Parser) -> String raise @ast.BashError {
   let buf = StringBuilder::new()
   let mut depth = 0
 
-  while not(self.at_end()) {
+  while !(self.at_end()) {
     let tok = self.advance()
     match tok {
       @ast.Token::LeftParen => {
@@ -262,7 +262,7 @@ fn Parser::parse_arithmetic_raw(self : Parser) -> String raise @ast.BashError {
 fn Parser::parse_script(self : Parser) -> @ast.Script raise @ast.BashError {
   let statements : Array[@ast.Statement] = []
   self.skip_newlines()
-  while not(self.at_end()) && not(self.is_script_terminator()) {
+  while !(self.at_end()) && !(self.is_script_terminator()) {
     let stmt = self.parse_statement()
     statements.push(stmt)
     // Consume statement separators (but not ;; which is a case terminator)
@@ -270,7 +270,7 @@ fn Parser::parse_script(self : Parser) -> @ast.Script raise @ast.BashError {
       // skip newlines
     }
     // Only consume ; if it's not part of ;; (case terminator)
-    while self.check(@ast.Token::Semi) && not(self.peek_at_offset(1) == @ast.Token::Semi) {
+    while self.check(@ast.Token::Semi) && !(self.peek_at_offset(1) == @ast.Token::Semi) {
       self.advance() |> ignore
     }
   }
@@ -506,7 +506,7 @@ fn Parser::parse_double_bracket_simple_command(
   words.push(parse_word_content(opening_text))
 
   let mut closed = false
-  while not(self.at_end()) {
+  while !(self.at_end()) {
     match self.peek() {
       @ast.Token::Newline => {
         self.advance() |> ignore
@@ -528,7 +528,7 @@ fn Parser::parse_double_bracket_simple_command(
     }
   }
 
-  if not(closed) {
+  if !(closed) {
     raise @ast.BashError("expected ]] to close conditional expression")
   }
 
@@ -739,7 +739,7 @@ fn Parser::read_heredoc_until(
   delimiter : String
 ) -> String raise @ast.BashError {
   let body = StringBuilder::new()
-  while not(self.at_end()) {
+  while !(self.at_end()) {
     let line = self.read_line_tokens()
     if line == delimiter {
       return body.to_string()
@@ -752,7 +752,7 @@ fn Parser::read_heredoc_until(
 
 fn Parser::read_line_tokens(self : Parser) -> String {
   let parts : Array[String] = []
-  while not(self.at_end()) && not(self.check(@ast.Token::Newline)) {
+  while !(self.at_end()) && !(self.check(@ast.Token::Newline)) {
     let tok = self.advance()
     parts.push(token_line_text(tok))
   }

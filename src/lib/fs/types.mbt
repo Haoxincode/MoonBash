@@ -30,18 +30,18 @@ pub(all) struct FsStat {
   size : Int
   mode : Int
   mtime : Int64
-} derive(Show)
+} derive(Debug)
 
 pub(all) struct DirentEntry {
   name : String
   entry_type : EntryType
-} derive(Show)
+} derive(Debug)
 
 pub(all) enum EntryType {
   FileType
   DirectoryType
   SymlinkType
-} derive(Show)
+} derive(Debug)
 
 pub suberror FsError {
   FsError(String)

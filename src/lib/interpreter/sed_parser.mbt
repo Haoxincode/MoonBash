@@ -180,7 +180,7 @@ fn parse_sed_write_command(
     rest[0].to_int().unsafe_to_char() == ' ' ||
     rest[0].to_int().unsafe_to_char() == '\t'
   )
-  if address is None && not(has_space) {
+  if address is None && !(has_space) {
     return None
   }
   let path = trim_ascii_space(rest)
@@ -581,13 +581,13 @@ fn parse_sed_until_delim(
       continue
     }
     if regex_part {
-      if ch == '[' && not(in_char_class) {
+      if ch == '[' && !(in_char_class) {
         in_char_class = true
       } else if ch == ']' && in_char_class {
         in_char_class = false
       }
     }
-    if ch == delim && not(in_char_class) {
+    if ch == delim && !(in_char_class) {
       return Some((buf.to_string(), i + 1))
     }
     buf.write_char(ch)

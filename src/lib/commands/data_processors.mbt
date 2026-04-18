@@ -366,7 +366,7 @@ fn xan_slice(ctx : CommandContext) -> @ast.ExecResult {
     } else if ctx.args[i] == "-l" && i + 1 < ctx.args.length() {
       length = Some(cmd_parse_int(ctx.args[i + 1]).to_int())
       i += 2
-    } else if not(ctx.args[i].has_prefix("-")) {
+    } else if !(ctx.args[i].has_prefix("-")) {
       file_idx = i
       i += 1
     } else {

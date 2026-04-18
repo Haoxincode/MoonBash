@@ -228,7 +228,7 @@ fn Parser::parse_case(self : Parser) -> @ast.CaseClause raise @ast.BashError {
 
   let items : Array[@ast.CaseItem] = []
 
-  while not(self.check(@ast.Token::Esac)) && not(self.at_end()) {
+  while !(self.check(@ast.Token::Esac)) && !(self.at_end()) {
     // Parse optional (
     let _ = self.match_token(@ast.Token::LeftParen)
 

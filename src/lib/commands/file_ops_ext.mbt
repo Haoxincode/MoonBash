@@ -349,7 +349,7 @@ fn cmd_du(ctx : CommandContext) -> @ast.ExecResult {
         continue
       }
     }
-    if not(ctx.fs.entries.contains(resolved)) {
+    if !(ctx.fs.entries.contains(resolved)) {
       errbuf.write_string("du: cannot access '\{path}': No such file or directory\n")
       exit_code = 1
       continue
@@ -501,7 +501,7 @@ fn cmd_chmod(ctx : CommandContext) -> @ast.ExecResult {
         continue
       }
     }
-    if not(ctx.fs.entries.contains(resolved)) {
+    if !(ctx.fs.entries.contains(resolved)) {
       errbuf.write_string("chmod: cannot access '\{path}': No such file or directory\n")
       exit_code = 1
       continue
@@ -571,7 +571,7 @@ fn cmd_ln(ctx : CommandContext) -> @ast.ExecResult {
     }
   }
   // VFS only supports symlinks
-  if not(symbolic) {
+  if !(symbolic) {
     return @ast.ExecResult::err("ln: hard links not supported in sandbox\n")
   }
   if args.length() < 2 {
@@ -672,7 +672,7 @@ fn cmd_readlink(ctx : CommandContext) -> @ast.ExecResult {
           break
         }
       }
-      if not(err_found) {
+      if !(err_found) {
         out.write_string(current + "\n")
       }
     } else {

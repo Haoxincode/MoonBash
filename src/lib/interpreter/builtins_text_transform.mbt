@@ -39,20 +39,20 @@ fn ExecContext::builtin_tr(
   arg_idx += 1
   let mut has_set2 = false
   let mut set2 : Array[Char] = []
-  if not(delete_mode) && arg_idx < args.length() {
+  if !(delete_mode) && arg_idx < args.length() {
     set2 = expand_tr_set(args[arg_idx])
     has_set2 = true
   }
 
-  if not(delete_mode) && not(has_set2) && not(squeeze_mode) {
+  if !(delete_mode) && !(has_set2) && !(squeeze_mode) {
     self.stderr_buf.write_string("tr: missing operand after set1\n")
     self.exit_code = 1
     return
   }
 
-  let squeeze_set = if delete_mode || not(has_set2) { set1 } else { set2 }
+  let squeeze_set = if delete_mode || !(has_set2) { set1 } else { set2 }
   let squeeze_complement = if has_set2 { false } else { complement_mode }
-  if squeeze_mode && not(tr_set_matches(squeeze_set, ' ', squeeze_complement)) {
+  if squeeze_mode && !(tr_set_matches(squeeze_set, ' ', squeeze_complement)) {
     // Keep compatibility with quoted sets that include a trailing space.
     squeeze_set.push(' ')
   }
@@ -384,7 +384,7 @@ fn ExecContext::builtin_cut(
       let mut first = true
       for field_num in fields {
         if field_num > 0 && field_num <= parts.length() {
-          if not(first) {
+          if !(first) {
             out_buf.write_string(delimiter)
           }
           out_buf.write_string(parts[field_num - 1])

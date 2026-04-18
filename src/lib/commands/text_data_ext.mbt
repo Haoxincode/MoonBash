@@ -242,7 +242,7 @@ fn cmd_comm(ctx : CommandContext) -> @ast.ExecResult {
           }
         }
       }
-      if not(is_flag) {
+      if !(is_flag) {
         files.push(arg)
       }
     } else {
@@ -273,14 +273,14 @@ fn cmd_comm(ctx : CommandContext) -> @ast.ExecResult {
   while i < lines1.length() && j < lines2.length() {
     let cmp = cmd_find_compare_ascii(lines1[i], lines2[j])
     if cmp < 0 {
-      if not(suppress1) {
+      if !(suppress1) {
         out.write_string(lines1[i])
         out.write_char('\n')
       }
       i += 1
     } else if cmp > 0 {
-      if not(suppress2) {
-        if not(suppress1) {
+      if !(suppress2) {
+        if !(suppress1) {
           out.write_char('\t')
         }
         out.write_string(lines2[j])
@@ -288,11 +288,11 @@ fn cmd_comm(ctx : CommandContext) -> @ast.ExecResult {
       }
       j += 1
     } else {
-      if not(suppress3) {
-        if not(suppress1) {
+      if !(suppress3) {
+        if !(suppress1) {
           out.write_char('\t')
         }
-        if not(suppress2) {
+        if !(suppress2) {
           out.write_char('\t')
         }
         out.write_string(lines1[i])
@@ -304,7 +304,7 @@ fn cmd_comm(ctx : CommandContext) -> @ast.ExecResult {
   }
 
   while i < lines1.length() {
-    if not(suppress1) {
+    if !(suppress1) {
       out.write_string(lines1[i])
       out.write_char('\n')
     }
@@ -312,8 +312,8 @@ fn cmd_comm(ctx : CommandContext) -> @ast.ExecResult {
   }
 
   while j < lines2.length() {
-    if not(suppress2) {
-      if not(suppress1) {
+    if !(suppress2) {
+      if !(suppress1) {
         out.write_char('\t')
       }
       out.write_string(lines2[j])

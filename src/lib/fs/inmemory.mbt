@@ -206,7 +206,7 @@ pub fn InMemoryFs::readdir(
   self.entries.each(fn(key, value) {
     if key.length() > prefix_len && starts_with(key, prefix) {
       let rest = substr(key, prefix_len, key.length())
-      if not(contains_char(rest, '/')) {
+      if !(contains_char(rest, '/')) {
         let entry_type = match value {
           File(_) => FileType
           Directory(_) => DirectoryType
@@ -301,7 +301,7 @@ pub fn InMemoryFs::rm(
       raise FsError("No such file or directory: " + path)
     }
     Some(Directory(_)) => {
-      if not(recursive) {
+      if !(recursive) {
         let prefix = norm + "/"
         let mut has_children = false
         self.entries.each(fn(key, _value) {
@@ -356,7 +356,7 @@ pub fn InMemoryFs::cp(
       )
     }
     Some(Directory(_)) => {
-      if not(recursive) {
+      if !(recursive) {
         raise FsError("Is a directory (use recursive): " + src)
       }
       let final_dst = match self.entries.get(dst_norm) {

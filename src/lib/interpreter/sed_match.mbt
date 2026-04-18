@@ -78,7 +78,7 @@ fn sed_find_missing_branch_label(commands : Array[SedCommand]) -> String? {
                 break
               }
             }
-            if not(found) {
+            if !(found) {
               return Some(name)
             }
           }
@@ -209,7 +209,7 @@ fn sed_address_applies(
               (
                 true,
                 {
-                  in_range: not(end_hit),
+                  in_range: !(end_hit),
                   relative_end_line: -1,
                   pending_single_line: false,
                 },
@@ -225,7 +225,7 @@ fn sed_address_applies(
             total_lines,
             last_regex,
           )
-          if not(start_hit) {
+          if !(start_hit) {
             (
               false,
               sed_empty_range_state(),
@@ -282,7 +282,7 @@ fn sed_address_applies(
                 (
                   true,
                   {
-                    in_range: not(end_hit),
+                    in_range: !(end_hit),
                     relative_end_line: -1,
                     pending_single_line: false,
                   },
@@ -330,7 +330,7 @@ fn sed_address_tick_skipped(
             total_lines,
             last_regex,
           )
-          if not(start_hit) {
+          if !(start_hit) {
             (
               sed_empty_range_state(),
               last_after_start,
@@ -418,7 +418,7 @@ fn sed_substitute_line(
   occurrence : Int,
   literal_ampersand~ : Bool = false
 ) -> (String, Bool) {
-  if not(global) {
+  if !(global) {
     if occurrence > 1 {
       let mut cursor = 0
       let mut seen = 0
@@ -481,7 +481,7 @@ fn sed_substitute_line(
     let mut changed = false
     let mut done = false
     let mut last_match_end = -1
-    while not(done) {
+    while !(done) {
       match matcher.find_first_with_groups(line, start=cursor) {
         Some((start, end, groups)) => {
           if start < cursor {
@@ -551,7 +551,7 @@ fn sed_transliterate_line(
         break
       }
     }
-    if not(replaced) {
+    if !(replaced) {
       out.write_char(ch.to_int().unsafe_to_char())
     }
   }
@@ -594,7 +594,7 @@ fn apply_sed_replacement(
       }
       continue
     }
-    if ch == '&' && not(literal_ampersand) {
+    if ch == '&' && !(literal_ampersand) {
       out.write_string(matched)
       i += 1
       continue

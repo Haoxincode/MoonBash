@@ -93,7 +93,7 @@ fn find_first_expandable_brace_pair(s : String) -> (Int, Int)? {
         }
         j += 1
       }
-      if not(matched) {
+      if !(matched) {
         i += 1
         continue
       }
@@ -269,7 +269,7 @@ fn brace_char_kind(ch : Char) -> Int {
 fn brace_numeric_pad_width(start_text : String, end_text : String) -> Int {
   match (brace_numeric_digit_info(start_text), brace_numeric_digit_info(end_text)) {
     (Some((start_width, start_zero)), Some((end_width, end_zero))) => {
-      if not(start_zero) && not(end_zero) {
+      if !(start_zero) && !(end_zero) {
         0
       } else if start_width >= end_width {
         start_width
@@ -434,7 +434,7 @@ fn ExecContext::pathname_expand(
   }
   let expanded : Array[String] = []
   for word in words {
-    if not(has_glob_meta(word)) {
+    if !(has_glob_meta(word)) {
       expanded.push(word)
       continue
     }
@@ -491,7 +491,7 @@ fn ExecContext::glob_expand_segments(
   out : Array[String]
 ) -> Unit {
   if idx >= segments.length() {
-    if not(self.consume_glob_operation()) {
+    if !(self.consume_glob_operation()) {
       return
     }
     if self.fs.exists(current_abs) {
@@ -502,7 +502,7 @@ fn ExecContext::glob_expand_segments(
 
   let segment = segments[idx]
   if has_glob_meta(segment) {
-    if not(self.consume_glob_operation()) {
+    if !(self.consume_glob_operation()) {
       return
     }
     let entries = try {
@@ -523,10 +523,10 @@ fn ExecContext::glob_expand_segments(
     }
 
     for name in names {
-      if not(include_dotfiles) && name.length() > 0 && name[0] == '.' {
+      if !(include_dotfiles) && name.length() > 0 && name[0] == '.' {
         continue
       }
-      if not(@fs.glob_match(segment, name)) {
+      if !(@fs.glob_match(segment, name)) {
         continue
       }
 
@@ -536,14 +536,14 @@ fn ExecContext::glob_expand_segments(
         current_abs + "/" + name
       }
       if idx + 1 >= segments.length() {
-        if not(self.consume_glob_operation()) {
+        if !(self.consume_glob_operation()) {
           return
         }
         if self.fs.exists(child_abs) {
           out.push(child_abs)
         }
       } else {
-        if not(self.consume_glob_operation()) {
+        if !(self.consume_glob_operation()) {
           return
         }
         let stat = try {
@@ -564,17 +564,17 @@ fn ExecContext::glob_expand_segments(
   } else {
     current_abs + "/" + segment
   }
-  if not(self.consume_glob_operation()) {
+  if !(self.consume_glob_operation()) {
     return
   }
-  if not(self.fs.exists(next_abs)) {
+  if !(self.fs.exists(next_abs)) {
     return
   }
   if idx + 1 >= segments.length() {
     out.push(next_abs)
     return
   }
-  if not(self.consume_glob_operation()) {
+  if !(self.consume_glob_operation()) {
     return
   }
   let stat = try {
@@ -680,7 +680,7 @@ fn parse_array_reference_name(name : String) -> (String, String)? {
   }
 
   let base = name.view(start_offset=0, end_offset=bracket).to_string()
-  if not(is_expand_var_base_name(base)) {
+  if !(is_expand_var_base_name(base)) {
     return None
   }
 
@@ -717,7 +717,7 @@ fn is_expand_var_base_name(name : String) -> Bool {
     return false
   }
   let first = name[0].to_int().unsafe_to_char()
-  if not(
+  if !(
     (first >= 'a' && first <= 'z') ||
     (first >= 'A' && first <= 'Z') ||
     first == '_'
@@ -727,7 +727,7 @@ fn is_expand_var_base_name(name : String) -> Bool {
 
   for i = 1; i < name.length(); i = i + 1 {
     let ch = name[i].to_int().unsafe_to_char()
-    if not(
+    if !(
       (ch >= 'a' && ch <= 'z') ||
       (ch >= 'A' && ch <= 'Z') ||
       (ch >= '0' && ch <= '9') ||
@@ -1110,7 +1110,7 @@ fn match_char_class_pattern(
         i += 1
         continue
       }
-      let final_match = if negated { not(matched) } else { matched }
+      let final_match = if negated { !(matched) } else { matched }
       return Some((final_match, i + 1))
     }
 
@@ -1208,7 +1208,7 @@ fn replace_all(value : String, pattern : String, replacement : String) -> String
         break
       }
     }
-    if not(matched) {
+    if !(matched) {
       buf.write_char(value[i].to_int().unsafe_to_char())
       i += 1
     }

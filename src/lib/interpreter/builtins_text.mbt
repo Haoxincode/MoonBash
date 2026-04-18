@@ -523,7 +523,7 @@ fn ExecContext::builtin_paste(
       }
     }
 
-    if not(row_has_data) {
+    if !(row_has_data) {
       break
     }
 

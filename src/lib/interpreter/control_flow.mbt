@@ -488,7 +488,7 @@ fn ExecContext::eval_cond(self : ExecContext, cond : @ast.CondExpr) -> Bool {
       self.eval_cond(left) && self.eval_cond(right)
     @ast.CondExpr::Or(left, right) =>
       self.eval_cond(left) || self.eval_cond(right)
-    @ast.CondExpr::Not(inner) => not(self.eval_cond(inner))
+    @ast.CondExpr::Not(inner) => !(self.eval_cond(inner))
     @ast.CondExpr::Regex(left_word, right_word) => {
       let left = self.expand_word_to_string(left_word)
       let right = self.expand_word_to_string(right_word)

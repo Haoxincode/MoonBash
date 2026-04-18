@@ -41,7 +41,7 @@ fn alias_first_word_span(source : String) -> (Int, Int, String)? {
   let mut i = 0
   while i < source.length() {
     let ch = source[i].to_int().unsafe_to_char()
-    if not(alias_is_blank_char(ch)) {
+    if !(alias_is_blank_char(ch)) {
       break
     }
     i += 1
@@ -86,7 +86,7 @@ fn append_alias_call_args(source : String, args : Array[String]) -> String {
   out.write_string(source)
   if source.length() > 0 {
     let last = source[source.length() - 1].to_int().unsafe_to_char()
-    if not(alias_is_blank_char(last)) {
+    if !(alias_is_blank_char(last)) {
       out.write_char(' ')
     }
   }
@@ -144,7 +144,7 @@ fn ExecContext::try_execute_alias_command(
   args : Array[String],
   has_multiline_literal_arg : Bool
 ) -> Bool {
-  if not(self.shopt_is_enabled("expand_aliases")) {
+  if !(self.shopt_is_enabled("expand_aliases")) {
     return false
   }
   if self.env.get(alias_runtime_disable_key).unwrap_or("") == "1" {

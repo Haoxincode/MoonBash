@@ -40,7 +40,7 @@ fn jq_decode_base64_for_jq(input : String) -> String? {
   }
 
   let mut normalized = compact
-  if not(jq_string_contains_char(normalized, '=')) {
+  if !(jq_string_contains_char(normalized, '=')) {
     let rem = normalized.length() % 4
     if rem == 1 {
       return None

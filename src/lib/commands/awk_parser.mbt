@@ -48,11 +48,11 @@ fn awk_is_identifier(name : String) -> Bool {
     return false
   }
   let first = name[0].to_int().unsafe_to_char()
-  if not((first >= 'a' && first <= 'z') || (first >= 'A' && first <= 'Z') || first == '_') {
+  if !((first >= 'a' && first <= 'z') || (first >= 'A' && first <= 'Z') || first == '_') {
     return false
   }
   for i = 1; i < name.length(); i = i + 1 {
-    if not(awk_is_identifier_char(name[i].to_int().unsafe_to_char())) {
+    if !(awk_is_identifier_char(name[i].to_int().unsafe_to_char())) {
       return false
     }
   }
@@ -80,7 +80,7 @@ fn awk_take_function_definition(src : String) -> (String?, AwkFunction?, String)
       let left_ok = if i == 0 {
         true
       } else {
-        not(awk_is_identifier_char(src[i - 1].to_int().unsafe_to_char()))
+        !(awk_is_identifier_char(src[i - 1].to_int().unsafe_to_char()))
       }
       if left_ok {
         start = i
@@ -105,7 +105,7 @@ fn awk_take_function_definition(src : String) -> (String?, AwkFunction?, String)
     name_end += 1
   }
   let name = aj_trim(aj_substr(src, name_start, name_end))
-  if not(awk_is_identifier(name)) {
+  if !(awk_is_identifier(name)) {
     return (None, None, src)
   }
 
@@ -265,7 +265,7 @@ fn awk_parse_call_expr(expr : String) -> (String, Array[String])? {
     return None
   }
   let name = aj_trim(aj_substr(t, 0, open_paren))
-  if not(awk_is_identifier(name)) {
+  if !(awk_is_identifier(name)) {
     return None
   }
   let mut depth = 1
@@ -316,7 +316,7 @@ fn awk_take_named_block(
       let left_ok = if i == 0 {
         true
       } else {
-        not(awk_is_identifier_char(src[i - 1].to_int().unsafe_to_char()))
+        !(awk_is_identifier_char(src[i - 1].to_int().unsafe_to_char()))
       }
       if left_ok {
         let mut j = i + name.length()

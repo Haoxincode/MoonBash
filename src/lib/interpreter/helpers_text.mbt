@@ -305,19 +305,6 @@ fn reverse_string(s : String) -> String {
   buf.to_string()
 }
 
-fn to_lowercase(s : String) -> String {
-  let buf = StringBuilder::new()
-  for i = 0; i < s.length(); i = i + 1 {
-    let ch = s[i].to_int().unsafe_to_char()
-    if ch >= 'A' && ch <= 'Z' {
-      buf.write_char((ch.to_int() + 32).unsafe_to_char())
-    } else {
-      buf.write_char(ch)
-    }
-  }
-  buf.to_string()
-}
-
 fn compare_ints(a : Int, b : Int) -> Int {
   if a < b {
     -1
@@ -473,7 +460,7 @@ fn is_numeric_token(s : String) -> Bool {
     return false
   }
   for i = 0; i < s.length(); i = i + 1 {
-    if not(is_ascii_digit(s[i].to_int().unsafe_to_char())) {
+    if !(is_ascii_digit(s[i].to_int().unsafe_to_char())) {
       return false
     }
   }
@@ -606,7 +593,7 @@ fn tr_set_contains(set : Array[Char], ch : Char) -> Bool {
 
 fn tr_set_matches(set : Array[Char], ch : Char, complement : Bool) -> Bool {
   if complement {
-    not(tr_set_contains(set, ch))
+    !(tr_set_contains(set, ch))
   } else {
     tr_set_contains(set, ch)
   }

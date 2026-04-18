@@ -249,151 +249,6 @@ fn ExecContext::emit_bad_array_subscript(
   )
 }
 
-// ============================================================================
-// Test Evaluation
-// ============================================================================
-
-fn evaluate_test(args : Array[String], ctx : ExecContext) -> Bool {
-  // Logical operators inside test/[ ... ].
-  // Implement minimal precedence: -a binds tighter than -o.
-  for i = 0; i < args.length(); i = i + 1 {
-    if args[i] == "-o" || args[i] == "||" {
-      let left : Array[String] = []
-      let right : Array[String] = []
-      for j = 0; j < i; j = j + 1 {
-        left.push(args[j])
-      }
-      for j = i + 1; j < args.length(); j = j + 1 {
-        right.push(args[j])
-      }
-      return evaluate_test(left, ctx) || evaluate_test(right, ctx)
-    }
-  }
-  for i = 0; i < args.length(); i = i + 1 {
-    if args[i] == "-a" || args[i] == "&&" {
-      let left : Array[String] = []
-      let right : Array[String] = []
-      for j = 0; j < i; j = j + 1 {
-        left.push(args[j])
-      }
-      for j = i + 1; j < args.length(); j = j + 1 {
-        right.push(args[j])
-      }
-      return evaluate_test(left, ctx) && evaluate_test(right, ctx)
-    }
-  }
-
-  if args.length() == 0 {
-    return false
-  }
-  if args[0] == "!" {
-    let rest : Array[String] = []
-    for i = 1; i < args.length(); i = i + 1 {
-      rest.push(args[i])
-    }
-    return not(evaluate_test(rest, ctx))
-  }
-  if args.length() >= 3 && args[1] == "=~" {
-    let left = args[0]
-    let right = join_test_tokens(args, 2)
-    return ctx.regex_cond_match(left, right)
-  }
-  if args.length() == 1 {
-    // test STRING: true if string is non-empty
-    return args[0].length() > 0
-  }
-  if args.length() == 2 {
-    let op = args[0]
-    let arg = args[1]
-    match op {
-      "-z" => return arg.length() == 0
-      "-n" => return arg.length() > 0
-      "-f" => {
-        let path = try {
-          @fs.resolve_path(ctx.cwd, arg)
-        } catch {
-          _ => return false
-        }
-        return match ctx.fs.entries.get(path) {
-          Some(@fs.FsEntry::File(_)) => true
-          _ => false
-        }
-      }
-      "-d" => {
-        let path = try {
-          @fs.resolve_path(ctx.cwd, arg)
-        } catch {
-          _ => return false
-        }
-        return match ctx.fs.entries.get(path) {
-          Some(@fs.FsEntry::Directory(_)) => true
-          _ => false
-        }
-      }
-      "-e" => {
-        let path = try {
-          @fs.resolve_path(ctx.cwd, arg)
-        } catch {
-          _ => return false
-        }
-        return ctx.fs.exists(path)
-      }
-      "-s" => {
-        let path = try {
-          @fs.resolve_path(ctx.cwd, arg)
-        } catch {
-          _ => return false
-        }
-        return match ctx.fs.entries.get(path) {
-          Some(@fs.FsEntry::File(data)) => data.content.length() > 0
-          _ => false
-        }
-      }
-      "-r" | "-w" | "-x" => {
-        let path = try {
-          @fs.resolve_path(ctx.cwd, arg)
-        } catch {
-          _ => return false
-        }
-        return ctx.fs.exists(path)
-      }
-      "-L" | "-h" => {
-        let path = try {
-          @fs.resolve_path(ctx.cwd, arg)
-        } catch {
-          _ => return false
-        }
-        return match ctx.fs.entries.get(path) {
-          Some(@fs.FsEntry::Symlink(_)) => true
-          _ => false
-        }
-      }
-      "-v" => return test_var_is_set(arg, ctx)
-      "!" => return not(evaluate_test([arg], ctx))
-      _ => ()
-    }
-  }
-  if args.length() == 3 {
-    let left = args[0]
-    let op = args[1]
-    let right = args[2]
-    match op {
-      "=" | "==" => return test_string_compare(left, right)
-      "!=" => return not(test_string_compare(left, right))
-      "=~" => return ctx.regex_cond_match(left, right)
-      "-eq" => return parse_int_str(left) == parse_int_str(right)
-      "-ne" => return parse_int_str(left) != parse_int_str(right)
-      "-lt" => return parse_int_str(left) < parse_int_str(right)
-      "-le" => return parse_int_str(left) <= parse_int_str(right)
-      "-gt" => return parse_int_str(left) > parse_int_str(right)
-      "-ge" => return parse_int_str(left) >= parse_int_str(right)
-      "-nt" | "-ot" | "-ef" => return false // File comparison not meaningful in sandbox
-      _ => ()
-    }
-  }
-  false
-}
-
 priv enum TestEvalMode {
   TestBuiltin
   BracketBuiltin
@@ -447,7 +302,7 @@ fn test_token_raw(token : String) -> String {
 }
 
 fn test_token_can_be_operator(token : String) -> Bool {
-  not(test_token_has_meta(token))
+  !(test_token_has_meta(token))
 }
 
 fn TestExprParser::peek(self : TestExprParser) -> String? {
@@ -569,7 +424,7 @@ fn ExecContext::test_lookup_entry(
   } catch {
     _ => return None
   }
-  if not(follow_symlink) {
+  if !(follow_symlink) {
     return self.fs.entries.get(resolved)
   }
   let mut current = resolved
@@ -736,7 +591,7 @@ fn ExecContext::test_eval_binary_with_status(
         if literal_compare {
           left_text != right_text
         } else {
-          not(test_string_compare(left_value, right_text))
+          !(test_string_compare(left_value, right_text))
         },
       )
     "<" => test_eval_ok(left_value < right_value)
@@ -870,7 +725,7 @@ fn test_eval_negated(result : TestEvalResult) -> TestEvalResult {
   if result.status != 0 {
     result
   } else {
-    test_eval_ok(not(result.value))
+    test_eval_ok(!(result.value))
   }
 }
 
@@ -908,7 +763,7 @@ fn ExecContext::test_eval_small_arity(
       let op_text = test_token_raw(op)
       let arg_text = test_token_raw(arg)
       if test_token_can_be_operator(op) && op_text == "!" {
-        test_eval_ok(not(test_eval_string_operand(args[1])))
+        test_eval_ok(!(test_eval_string_operand(args[1])))
       } else if test_token_can_be_operator(op) && test_is_unary_op(op_text) {
         if test_mode_is_double_bracket(mode) &&
           test_token_can_be_operator(arg) &&
@@ -944,11 +799,11 @@ fn ExecContext::test_eval_small_arity(
         test_eval_ok(test_eval_string_operand(op))
       } else if test_token_can_be_operator(op) &&
         test_is_logical_and_op(op_text) &&
-        not(test_mode_is_double_bracket(mode)) {
+        !(test_mode_is_double_bracket(mode)) {
         test_eval_ok(test_eval_string_operand(left) && test_eval_string_operand(right))
       } else if test_token_can_be_operator(op) &&
         test_is_logical_or_op(op_text) &&
-        not(test_mode_is_double_bracket(mode)) {
+        !(test_mode_is_double_bracket(mode)) {
         test_eval_ok(test_eval_string_operand(left) || test_eval_string_operand(right))
       } else {
         test_eval_syntax_error()
@@ -1027,7 +882,7 @@ fn ExecContext::test_parse_not_expr(
         if inner.status != 0 {
           return inner
         }
-        return test_eval_ok(not(inner.value))
+        return test_eval_ok(!(inner.value))
       }
     }
     None => return test_eval_syntax_error()
@@ -1052,7 +907,7 @@ fn ExecContext::test_parse_primary_expr(
           return inner
         }
         if parser.pos >= parser.tokens.length() ||
-          not(test_token_can_be_operator(parser.tokens[parser.pos])) ||
+          !(test_token_can_be_operator(parser.tokens[parser.pos])) ||
           test_token_raw(parser.tokens[parser.pos]) != ")" {
           return test_eval_syntax_error()
         }
@@ -1106,14 +961,6 @@ fn ExecContext::evaluate_test_with_status(
     return test_eval_syntax_error()
   }
   result
-}
-
-fn join_test_tokens(args : Array[String], start : Int) -> String {
-  let out = StringBuilder::new()
-  for i = start; i < args.length(); i = i + 1 {
-    out.write_string(args[i])
-  }
-  out.to_string()
 }
 
 fn test_var_is_set(name : String, ctx : ExecContext) -> Bool {
@@ -1327,7 +1174,7 @@ fn format_printf(format : String, args : Array[String]) -> String {
           let mut digits = 0
           while j < format.length() && digits < 3 {
             let oct_ch = format[j].to_int().unsafe_to_char()
-            if not(printf_is_octal_digit(oct_ch)) {
+            if !(printf_is_octal_digit(oct_ch)) {
               break
             }
             value = value * 8 + (oct_ch.to_int() - '0'.to_int())
@@ -1373,7 +1220,7 @@ fn format_printf(format : String, args : Array[String]) -> String {
         let mut width = 0
         while j < format.length() {
           let digit = format[j].to_int().unsafe_to_char()
-          if not(printf_is_digit(digit)) {
+          if !(printf_is_digit(digit)) {
             break
           }
           width = width * 10 + (digit.to_int() - '0'.to_int())
@@ -1387,7 +1234,7 @@ fn format_printf(format : String, args : Array[String]) -> String {
           let mut has_digits = false
           while j < format.length() {
             let digit = format[j].to_int().unsafe_to_char()
-            if not(printf_is_digit(digit)) {
+            if !(printf_is_digit(digit)) {
               break
             }
             has_digits = true
@@ -1459,7 +1306,7 @@ fn format_printf(format : String, args : Array[String]) -> String {
         }
 
         let allow_zero_pad = zero_pad &&
-          not(left_justify) &&
+          !(left_justify) &&
           (precision is None) &&
           (spec == 'd' || spec == 'x' || spec == 'f')
         rendered = printf_apply_width(
@@ -1596,7 +1443,7 @@ fn printf_shell_quote(value : String) -> String {
   let mut safe = true
   for i = 0; i < value.length(); i = i + 1 {
     let ch = value[i].to_int().unsafe_to_char()
-    if not(printf_is_shell_safe_char(ch)) {
+    if !(printf_is_shell_safe_char(ch)) {
       safe = false
       break
     }
@@ -1654,7 +1501,7 @@ fn printf_format_float(raw : String, precision : Int) -> String {
       i += 1
       continue
     }
-    if not(printf_is_digit(ch)) {
+    if !(printf_is_digit(ch)) {
       break
     }
     if in_frac {
@@ -1697,7 +1544,7 @@ fn printf_format_float(raw : String, precision : Int) -> String {
         out_int = printf_increment_digits(out_int)
       }
     }
-    let sign = if negative && not(out_int == "0" && printf_all_zeros(out_frac)) {
+    let sign = if negative && !(out_int == "0" && printf_all_zeros(out_frac)) {
       "-"
     } else {
       ""

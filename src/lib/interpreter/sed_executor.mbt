@@ -22,13 +22,13 @@ fn ExecContext::builtin_sed(
   let mut i = 0
   while i < args.length() {
     let arg = args[i]
-    if arg == "-i" || (arg.has_prefix("-i") && arg.length() > 1 && not(script_taken)) {
+    if arg == "-i" || (arg.has_prefix("-i") && arg.length() > 1 && !(script_taken)) {
       inplace = true
     } else if arg == "-n" {
       quiet = true
     } else if arg == "-E" || arg == "-r" {
       extended = true
-    } else if arg.length() > 2 && arg[0] == '-' && not(script_taken) {
+    } else if arg.length() > 2 && arg[0] == '-' && !(script_taken) {
       let mut handled_bundle = true
       let mut treat_as_script = false
       let mut j = 1
@@ -78,7 +78,7 @@ fn ExecContext::builtin_sed(
           expressions.push(arg)
         }
         script_taken = true
-      } else if not(handled_bundle) {
+      } else if !(handled_bundle) {
         // Unknown non-bundled option form; defer to script handling fallback.
         let mut candidate = arg
         let mut consumed = 0
@@ -103,7 +103,7 @@ fn ExecContext::builtin_sed(
     } else if arg.has_prefix("-e") && arg.length() > 2 {
       expressions.push(arg.view(start_offset=2).to_string())
       script_taken = true
-    } else if not(script_taken) {
+    } else if !(script_taken) {
       let mut candidate = arg
       let mut consumed = 0
       let mut parsed = parse_sed_script_commands(candidate, extended~)
@@ -358,7 +358,7 @@ fn ExecContext::sed_render_input(
       runtime.range_states[cmd_idx] = next_state
       state.last_regex = next_last_regex
 
-      let should_apply = if cmd.negated { not(applies) } else { applies }
+      let should_apply = if cmd.negated { !(applies) } else { applies }
       let action = if should_apply {
         self.sed_execute_one_command(runtime, state, cycle, cmd, cmd_idx, line_idx, quiet~)
       } else {
@@ -379,7 +379,7 @@ fn ExecContext::sed_render_input(
       }
     }
 
-    if not(cycle.deleted) && not(quiet) {
+    if !(cycle.deleted) && !(quiet) {
       state.pending_no_newline = sed_emit_chunk(
         runtime.out,
         cycle.line,
@@ -634,7 +634,7 @@ fn sed_execute_next_line(
   line_idx : Int,
   quiet~ : Bool = false
 ) -> CycleAction {
-  if not(quiet) {
+  if !(quiet) {
     state.pending_no_newline = sed_emit_chunk(
       runtime.out,
       cycle.line,
@@ -783,7 +783,7 @@ fn ExecContext::sed_execute_conditional_branch(
   let should_branch = if branch_on_subst {
     cycle.substituted
   } else {
-    not(cycle.substituted)
+    !(cycle.substituted)
   }
   cycle.substituted = false
   if should_branch {
@@ -798,7 +798,7 @@ fn ExecContext::sed_execute_version_check(
   cycle : SedCycle,
   required : String?
 ) -> CycleAction {
-  if not(sed_version_supported(required)) {
+  if !(sed_version_supported(required)) {
     self.sed_cycle_error(cycle, "sed: version check failed")
   } else {
     Next
@@ -811,7 +811,7 @@ fn sed_execute_quit(
   cycle : SedCycle,
   quiet~ : Bool = false
 ) -> CycleAction {
-  if not(quiet) {
+  if !(quiet) {
     state.pending_no_newline = sed_emit_chunk(
       runtime.out,
       cycle.line,

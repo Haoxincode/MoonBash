@@ -15,7 +15,7 @@ fn cmd_cat(ctx : CommandContext) -> @ast.ExecResult {
 
   if files.length() == 0 {
     // No args = output stdin
-    if not(number_lines) {
+    if !(number_lines) {
       return @ast.ExecResult::ok(ctx.stdin_content)
     }
     let out = StringBuilder::new()
@@ -127,7 +127,7 @@ fn cmd_ls(ctx : CommandContext) -> @ast.ExecResult {
             show_all = true
             almost_all = false
           }
-          'A' => if not(show_all) { almost_all = true }
+          'A' => if !(show_all) { almost_all = true }
           'R' => recursive = true
           'r' => reverse = true
           '1' => one_per_line = true
@@ -140,7 +140,7 @@ fn cmd_ls(ctx : CommandContext) -> @ast.ExecResult {
           }
         }
       }
-      if not(valid_flags) {
+      if !(valid_flags) {
         paths.push(arg)
       }
     } else {
@@ -286,7 +286,7 @@ fn cmd_ls_format_human(size : Int, unit : Int, suffix : String) -> String {
 }
 
 fn cmd_ls_format_size(size : Int, human_readable : Bool) -> String {
-  if not(human_readable) {
+  if !(human_readable) {
     return size.to_string()
   }
   if size >= 1073741824 {
@@ -322,7 +322,7 @@ fn cmd_ls_read_entries(
 
   for entry in entries {
     let name = entry.name
-    if show_all || almost_all || not(name.length() > 0 && name[0] == '.') {
+    if show_all || almost_all || !(name.length() > 0 && name[0] == '.') {
       let child_abs = if dir_abs == "/" {
         "/" + name
       } else {
@@ -385,7 +385,7 @@ fn cmd_ls_write_names(
 
   let mut first = true
   for name in names {
-    if not(first) {
+    if !(first) {
       out.write_string("  ")
     }
     out.write_string(name)
@@ -440,7 +440,7 @@ fn cmd_ls_list_recursive(
     match entry.entry_type {
       @fs.EntryType::DirectoryType => {
         let name = entry.name
-        if not(show_all) && not(almost_all) && name.length() > 0 && name[0] == '.' {
+        if !(show_all) && !(almost_all) && name.length() > 0 && name[0] == '.' {
           continue
         }
         child_names.push(name)

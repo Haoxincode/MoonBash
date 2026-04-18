@@ -110,11 +110,11 @@ fn arith_is_identifier_text(s : String) -> Bool {
     return false
   }
   let first = s[0].to_int().unsafe_to_char()
-  if not(arith_is_ident_start(first)) {
+  if !(arith_is_ident_start(first)) {
     return false
   }
   for i = 1; i < s.length(); i = i + 1 {
-    if not(arith_is_ident_char(s[i].to_int().unsafe_to_char())) {
+    if !(arith_is_ident_char(s[i].to_int().unsafe_to_char())) {
       return false
     }
   }
@@ -128,7 +128,7 @@ fn arith_parse_decimal_str(s : String) -> Int64? {
   let mut value = 0L
   for i = 0; i < s.length(); i = i + 1 {
     let ch = s[i].to_int().unsafe_to_char()
-    if not(arith_is_digit(ch)) {
+    if !(arith_is_digit(ch)) {
       return None
     }
     value = value * 10L + (ch.to_int() - 48).to_int64()

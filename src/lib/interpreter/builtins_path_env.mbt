@@ -49,7 +49,7 @@ fn ExecContext::builtin_basename(
     return
   }
 
-  if not(allow_multiple) {
+  if !(allow_multiple) {
     let raw = trim_trailing_slashes_for_path(paths[0])
     let effective_suffix = match suffix {
       Some(s) => Some(s)
@@ -108,7 +108,7 @@ fn ExecContext::builtin_dirname(
       continue
     }
     let parent = @fs.parent_path(normalized)
-    let result = if parent == "/" && not(normalized.has_prefix("/")) {
+    let result = if parent == "/" && !(normalized.has_prefix("/")) {
       "."
     } else if parent == normalized {
       "."

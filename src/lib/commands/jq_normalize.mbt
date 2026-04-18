@@ -30,13 +30,13 @@ fn jq_normalize_def_param_dollars(filter : String) -> String {
           let left_ok = if i == 0 {
             true
           } else {
-            not(jq_is_ident_char(filter[i - 1].to_int().unsafe_to_char()))
+            !(jq_is_ident_char(filter[i - 1].to_int().unsafe_to_char()))
           }
           let after = i + 3
           let right_ok = if after >= filter.length() {
             true
           } else {
-            not(jq_is_ident_char(filter[after].to_int().unsafe_to_char()))
+            !(jq_is_ident_char(filter[after].to_int().unsafe_to_char()))
           }
           if left_ok && right_ok {
             out.write_string("def")
@@ -120,7 +120,7 @@ fn jq_strip_all_ws(text : String) -> String {
   let out = StringBuilder::new()
   for i = 0; i < text.length(); i = i + 1 {
     let ch = text[i].to_int().unsafe_to_char()
-    if not(jq_is_ws(ch)) {
+    if !(jq_is_ws(ch)) {
       out.write_char(ch)
     }
   }
@@ -148,7 +148,7 @@ fn jq_parse_positive_int_at(text : String, start : Int) -> (Int, Int)? {
     }
     i += 1
   }
-  if not(has_digit) {
+  if !(has_digit) {
     None
   } else {
     Some((value, i))
@@ -233,7 +233,7 @@ fn jq_range_values_from_args(args : Array[Int]) -> Array[Int] {
 }
 
 fn jq_parse_range_call_at(text : String, pos : Int) -> (Array[Int], Int)? {
-  if not(jq_starts_with_at(text, pos, "range(")) {
+  if !(jq_starts_with_at(text, pos, "range(")) {
     return None
   }
   let args : Array[Int] = []

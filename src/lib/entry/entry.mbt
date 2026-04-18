@@ -83,7 +83,7 @@ pub fn execute_with_state(
   let actual_cwd = if cwd.length() > 0 { cwd } else { "/home/user" }
 
   // Optionally strip default /home/user layout for explicit-layout mode.
-  if layout_mode == "minimal" && not(needs_home_user_layout(
+  if layout_mode == "minimal" && !(needs_home_user_layout(
     file_entries,
     dir_entries,
     link_entries,
@@ -506,7 +506,7 @@ fn ensure_parents(fs : @fs.InMemoryFs, path : String) -> Unit {
     dir_buf.write_char('/')
     dir_buf.write_string(parts[i])
     let dir_path = dir_buf.to_string()
-    if not(fs.exists(dir_path)) {
+    if !(fs.exists(dir_path)) {
       try { fs.mkdir(dir_path) } catch { _ => () }
     }
   }

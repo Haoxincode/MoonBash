@@ -265,7 +265,7 @@ fn jq_compat_types(trimmed : String, input : Json) -> Array[Json]? {
             Json::Null => false
             _ => true
           }
-          let v = not(truthy)
+          let v = !(truthy)
           any_result = any_result || v
           all_result = all_result && v
         }

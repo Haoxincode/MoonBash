@@ -194,12 +194,12 @@ fn ExecContext::builtin_od(
   }
 
   let total = bytes.length()
-  let emit_default_octal = not(char_mode) && not(hex_byte_mode) && not(hex_word_mode)
+  let emit_default_octal = !(char_mode) && !(hex_byte_mode) && !(hex_word_mode)
   let mut offset = 0
   while offset < total {
     let line_end = if offset + 16 <= total { offset + 16 } else { total }
     if char_mode {
-      if not(no_address) {
+      if !(no_address) {
         if hex_address {
           self.stdout_buf.write_string(od_format_hex_addr(offset))
         } else {
@@ -216,7 +216,7 @@ fn ExecContext::builtin_od(
     }
 
     if hex_byte_mode {
-      if not(no_address) {
+      if !(no_address) {
         if hex_address {
           self.stdout_buf.write_string(od_format_hex_addr(offset))
         } else {
@@ -233,7 +233,7 @@ fn ExecContext::builtin_od(
     }
 
     if hex_word_mode {
-      if not(no_address) {
+      if !(no_address) {
         if hex_address {
           self.stdout_buf.write_string(od_format_hex_addr(offset))
         } else {
@@ -254,7 +254,7 @@ fn ExecContext::builtin_od(
     }
 
     if emit_default_octal {
-      if not(no_address) {
+      if !(no_address) {
         if hex_address {
           self.stdout_buf.write_string(od_format_hex_addr(offset))
         } else {
@@ -277,7 +277,7 @@ fn ExecContext::builtin_od(
   }
 
   // Final offset line
-  if not(no_address) {
+  if !(no_address) {
     if hex_address {
       self.stdout_buf.write_string(od_format_hex_addr(total))
     } else {
