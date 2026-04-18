@@ -10,21 +10,25 @@ fn mount_demo_impl() -> Unit {
 
   register_handlers(app)
   render_intro(app)
-  append_verification_hint(app)
+  append_mode_hint(app)
   dom.input.set_value(config.initial_command)
   update_ui(app)
   html_input_focus(dom.input)
   element_scroll_to_bottom(dom.output)
 
-  if config.verification_auto_start && !app.val.verification_plan.is_empty() {
-    let delay_ms = if config.verification_initial_delay_ms < 0 {
+  let mode = current_mode(app)
+  if mode.autoplay && !mode.steps.is_empty() {
+    let delay_ms = if mode.initial_delay_ms < 0 {
       0
     } else {
-      config.verification_initial_delay_ms
+      mode.initial_delay_ms
     }
-    ignore(@dom_ffi.set_timeout(fn() {
-      start_verification(app)
-    }, UInt::trunc_double(delay_ms.to_double())))
+    ignore(
+      @dom_ffi.set_timeout(
+        fn() { start_verification(app) },
+        UInt::trunc_double(delay_ms.to_double()),
+      ),
+    )
   }
 }
 

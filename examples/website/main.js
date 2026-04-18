@@ -96,6 +96,51 @@ Commands: about, install, github, help
 Auto-demo: real command verification runs on load
 Try later: ls, tree, cat wtf-is-this.md, grep -n browser ROADMAP.md
 `;
+
+const SHOWCASE_INTRO = String.raw`
+启动序列: parser, expander, pipes, VFS, jq, awk, sed
+MoonBash 已在浏览器中上线。无 WASM，无服务端往返。
+现在开始执行一组真实的中文任务演示数据流...
+`;
+
+const DEMO_APP_LOG = `2026-04-18T09:00:01Z INFO 启动: 初始化 parser
+2026-04-18T09:00:02Z INFO 启动: 预加载虚拟文件系统
+2026-04-18T09:00:03Z WARN 接口: 正在重试 /v1/sync
+2026-04-18T09:00:04Z ERROR 接口: 上游超时 request_id=req-17
+2026-04-18T09:00:05Z INFO 队列: 积压任务清空
+2026-04-18T09:00:06Z ERROR Worker: 载荷解析失败 request_id=req-18
+2026-04-18T09:00:07Z INFO Worker: 重试后恢复
+`;
+
+const DEMO_USERS_JSON = JSON.stringify(
+  {
+    users: [
+      { id: 1, name: "阿周", plan: "专业版", region: "华东" },
+      { id: 2, name: "林溪", plan: "免费版", region: "华北" },
+      { id: 3, name: "米拉", plan: "专业版", region: "华南" },
+      { id: 4, name: "小乔", plan: "团队版", region: "华东" },
+      { id: 5, name: "任远", plan: "专业版", region: "西南" }
+    ]
+  },
+  null,
+  2
+) + "\n";
+
+const DEMO_REVENUE_CSV = `团队,月份,营收
+北辰,2026-01,1200
+北辰,2026-02,1350
+云河,2026-01,980
+云河,2026-02,1430
+星塔,2026-01,1600
+星塔,2026-02,1710
+`;
+
+const DEMO_NOTES_MD = `# 任务说明
+
+- 浏览器运行时: MoonBit + JS host bridge
+- 文件系统: 全虚拟内存实现
+- 目标: 证明 MoonBash 能在浏览器里完成真实工作流，而不仅是命令存在校验
+`;
 globalThis.__moonbash_demo_runtime_libs = {
   Bash,
   defineCommand,
@@ -106,11 +151,14 @@ globalThis.__moonbash_demo_config_json = JSON.stringify({
   githubUrl: GITHUB_URL,
   docsUrl: DOCS_URL,
   welcomeText: WELCOME_TEXT,
+  showcaseIntro: SHOWCASE_INTRO,
   initialCommand: "cat wtf-is-this.md",
   aboutText: ABOUT_TEXT,
   installText: INSTALL_TEXT,
   githubText: `${GITHUB_URL}\n`,
   verificationTitle: "Real Browser Verification",
+  showcaseTitle: "Agent Mission / Browser Ops Console",
+  defaultMode: "verification",
   verificationAutoStart: true,
   verificationInitialDelayMs: 900,
   commandNames: getCommandNames(),
@@ -131,6 +179,15 @@ globalThis.__moonbash_demo_config_json = JSON.stringify({
     "/home/user/src/moon.mod.json": JSON.stringify(moonMod, null, 2) + "\n",
     "/home/user/wtf-is-this.md": WTF_TEXT,
     "/home/user/links/github.txt": `${GITHUB_URL}\n`,
+    "/demo/logs/app.log": DEMO_APP_LOG,
+    "/demo/data/users.json": DEMO_USERS_JSON,
+    "/demo/data/revenue.csv": DEMO_REVENUE_CSV,
+    "/demo/notes/mission.md": DEMO_NOTES_MD,
+    "/demo/src/core/parser.mbt": "/// 中文演示: parser\nfn parse(input : String) -> String { input }\n",
+    "/demo/src/core/interpreter.mbt": "/// 中文演示: interpreter\nfn run(script : String) -> String { script }\n",
+    "/demo/src/commands/grep.mbt": "/// 中文演示: grep\nfn grep() -> Unit { () }\n",
+    "/demo/src/commands/jq.mbt": "/// 中文演示: jq\nfn jq() -> Unit { () }\n",
+    "/demo/src/fs/inmemory.mbt": "/// 中文演示: in-memory fs\nfn snapshot() -> Unit { () }\n",
   },
 });
 

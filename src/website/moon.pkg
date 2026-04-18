@@ -1,0 +1,10 @@
+import {
+  "moonbitlang/core/json" @json,
+  "moonbitlang/async" @async,
+  "moonbitlang/async/js_async" @js_async,
+  "tiye/dom-ffi" @dom_ffi,
+}
+
+options(
+  link: { "js": { "exports": [ "mount_demo" ], "format": "esm" } },
+)

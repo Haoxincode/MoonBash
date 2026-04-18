@@ -9,6 +9,9 @@ priv struct DomRefs {
   input : @dom_ffi.HtmlInputElement
   location : @dom_ffi.Element
   demo_panel : @dom_ffi.Element
+  tabs : @dom_ffi.Element
+  verification_tab : @dom_ffi.Element
+  showcase_tab : @dom_ffi.Element
   demo_state : @dom_ffi.Element
   demo_summary : @dom_ffi.Element
   demo_progress : @dom_ffi.Element
@@ -27,8 +30,8 @@ fn dom_document() -> @dom_ffi.Document {
 ///|
 fn create_element(
   tag : String,
-  class_name~ : String = "",
-  text~ : String = "",
+  class_name? : String = "",
+  text? : String = "",
 ) -> @dom_ffi.Element {
   let element = dom_document().create_element(tag)
   if class_name != "" {
@@ -55,7 +58,11 @@ fn set_button_disabled(element : @dom_ffi.Element, disabled : Bool) -> Unit {
 }
 
 ///|
-fn set_input_disabled(input_row : @dom_ffi.Element, input : @dom_ffi.HtmlInputElement, disabled : Bool) -> Unit {
+fn set_input_disabled(
+  input_row : @dom_ffi.Element,
+  input : @dom_ffi.HtmlInputElement,
+  disabled : Bool,
+) -> Unit {
   if disabled {
     input_row.set_attribute("class", "moonbash-input-row is-busy")
     html_input_set_disabled(input, true)
@@ -66,11 +73,18 @@ fn set_input_disabled(input_row : @dom_ffi.Element, input : @dom_ffi.HtmlInputEl
 }
 
 ///|
-fn append_block(dom : DomRefs, text : String, tone~ : String = "stdout") -> Unit {
+fn append_block(
+  dom : DomRefs,
+  text : String,
+  tone? : String = "stdout",
+) -> Unit {
   if text == "" {
     return
   }
-  let block = create_element("pre", class_name="moonbash-line moonbash-line-\{tone}")
+  let block = create_element(
+    "pre",
+    class_name="moonbash-line moonbash-line-\{tone}",
+  )
   let normalized = text.trim_end().to_string()
   if normalized == "" {
     block.set_inner_text(text)
@@ -84,9 +98,21 @@ fn append_block(dom : DomRefs, text : String, tone~ : String = "stdout") -> Unit
 ///|
 fn append_command(dom : DomRefs, cwd : String, command : String) -> Unit {
   let line = create_element("div", class_name="moonbash-command")
-  let cwd_text = create_element("span", class_name="moonbash-command-cwd", text=cwd)
-  let prompt = create_element("span", class_name="moonbash-command-prompt", text="$")
-  let command_text = create_element("span", class_name="moonbash-command-text", text=command)
+  let cwd_text = create_element(
+    "span",
+    class_name="moonbash-command-cwd",
+    text=cwd,
+  )
+  let prompt = create_element(
+    "span",
+    class_name="moonbash-command-prompt",
+    text="$",
+  )
+  let command_text = create_element(
+    "span",
+    class_name="moonbash-command-text",
+    text=command,
+  )
   append(line, cwd_text)
   append(line, prompt)
   append(line, command_text)
@@ -112,8 +138,16 @@ fn build_dom() -> DomRefs {
   append(shell, header)
 
   let title_wrap = create_element("div", class_name="moonbash-title")
-  let badge = create_element("span", class_name="moonbash-badge", text="MoonBit Frontend")
-  let heading = create_element("h1", class_name="moonbash-heading", text="moonbash")
+  let badge = create_element(
+    "span",
+    class_name="moonbash-badge",
+    text="MoonBit Frontend",
+  )
+  let heading = create_element(
+    "h1",
+    class_name="moonbash-heading",
+    text="moonbash",
+  )
   let subtitle = create_element(
     "p",
     class_name="moonbash-subtitle",
@@ -146,6 +180,25 @@ fn build_dom() -> DomRefs {
   let demo_panel = create_element("section", class_name="moonbash-demo")
   append(shell, demo_panel)
 
+  let tabs = create_element("div", class_name="moonbash-demo-tabs")
+  let verification_tab = create_element(
+    "button",
+    class_name="moonbash-demo-tab is-active",
+    text="Verification",
+  )
+  verification_tab.set_attribute("type", "button")
+  verification_tab.set_data_attribute("mode", "verification")
+  let showcase_tab = create_element(
+    "button",
+    class_name="moonbash-demo-tab",
+    text="Showcase",
+  )
+  showcase_tab.set_attribute("type", "button")
+  showcase_tab.set_data_attribute("mode", "showcase")
+  append(tabs, verification_tab)
+  append(tabs, showcase_tab)
+  append(demo_panel, tabs)
+
   let demo_info = create_element("div", class_name="moonbash-demo-info")
   let title_row = create_element("div", class_name="moonbash-demo-title-row")
   let demo_title = create_element("h2", class_name="moonbash-demo-title")
@@ -154,7 +207,10 @@ fn build_dom() -> DomRefs {
   append(title_row, demo_state)
   let demo_summary = create_element("p", class_name="moonbash-demo-summary")
   let demo_meta = create_element("div", class_name="moonbash-demo-meta")
-  let demo_progress = create_element("span", class_name="moonbash-demo-progress")
+  let demo_progress = create_element(
+    "span",
+    class_name="moonbash-demo-progress",
+  )
   let demo_last = create_element("span", class_name="moonbash-demo-last")
   append(demo_meta, demo_progress)
   append(demo_meta, demo_last)
@@ -163,11 +219,23 @@ fn build_dom() -> DomRefs {
   append(demo_info, demo_meta)
 
   let demo_actions = create_element("div", class_name="moonbash-demo-actions")
-  let run_button = create_element("button", class_name="moonbash-demo-button moonbash-demo-button-primary", text="Run")
+  let run_button = create_element(
+    "button",
+    class_name="moonbash-demo-button moonbash-demo-button-primary",
+    text="Run",
+  )
   run_button.set_attribute("type", "button")
-  let replay_button = create_element("button", class_name="moonbash-demo-button moonbash-demo-button-ghost", text="Replay")
+  let replay_button = create_element(
+    "button",
+    class_name="moonbash-demo-button moonbash-demo-button-ghost",
+    text="Replay",
+  )
   replay_button.set_attribute("type", "button")
-  let stop_button = create_element("button", class_name="moonbash-demo-button moonbash-demo-button-ghost", text="Stop")
+  let stop_button = create_element(
+    "button",
+    class_name="moonbash-demo-button moonbash-demo-button-ghost",
+    text="Stop",
+  )
   stop_button.set_attribute("type", "button")
   append(demo_actions, run_button)
   append(demo_actions, replay_button)
@@ -213,6 +281,9 @@ fn build_dom() -> DomRefs {
     input: input_element.reinterpret_as_html_input_element(),
     location,
     demo_panel,
+    tabs,
+    verification_tab,
+    showcase_tab,
     demo_state,
     demo_summary,
     demo_progress,
