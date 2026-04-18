@@ -5,7 +5,7 @@
  * as SED labels and branch targets.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { Bash } from "../../index.js";
 
 const DANGEROUS_KEYWORDS = [

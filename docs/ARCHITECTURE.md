@@ -537,7 +537,7 @@ moon-bash/
 ├── docs/                                  # Design documentation
 ├── package.json                           # NPM package config
 ├── tsconfig.json                          # TypeScript config
-└── tsup.config.ts                         # Bundling config
+└── vite.config.ts                         # Vite+ config (pack/test/lint/fmt)
 ```
 
 ## 5. Data Flow Example
@@ -621,7 +621,7 @@ TypeScript / JS integration layer
        └── examples/website/main.js   (thin config/bootstrap bridge)
        │
        ▼
-tsup / esbuild bundling
+Vite+ pack / Rolldown bundling
        │
        ├── dist/index.js                (Node.js ESM library build)
        ├── dist/index.d.ts              (Type definitions)

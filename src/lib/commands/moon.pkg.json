@@ -13,8 +13,7 @@
     "moon_bash/lib/ffi",
     "moonbitlang/core/math",
     "gmlewis/base64",
-    "moonbit-community/piediff/line_diff",
-    "moonbit-community/piediff/edit",
+    "moonbit-community/piediff",
     "gmlewis/gzip",
     "gmlewis/flate"
   ]

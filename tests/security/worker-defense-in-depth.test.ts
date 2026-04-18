@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vite-plus/test";
 import { DefenseInDepthBox } from "./defense-in-depth-box.js";
 import type { SecurityViolation } from "./types.js";
 import {

@@ -9,7 +9,7 @@
  * additional edge cases and attack vectors.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { Bash } from "../../index.js";
 
 // All keywords that could potentially access JS prototypes

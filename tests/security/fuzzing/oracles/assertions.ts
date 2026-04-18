@@ -5,7 +5,7 @@
  * and prototype pollution indicators.
  */
 
-import { expect } from "vitest";
+import { expect } from "vite-plus/test";
 
 /**
  * Patterns that indicate JavaScript native code was exposed.

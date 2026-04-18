@@ -19,4 +19,4 @@ echo "[vercel-build] Updating MoonBit registry index..."
 moon -C src update
 
 echo "[vercel-build] Building website..."
-pnpm build:website
+vp run build:website

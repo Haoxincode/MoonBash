@@ -11,7 +11,7 @@ else
   export NODE_OPTIONS="--max-old-space-size=${HEAP_MB}"
 fi
 
-COMMON_ARGS=(run --no-cache --pool=forks --maxWorkers=1 --fileParallelism=false --silent)
+COMMON_ARGS=(run --no-cache --pool=forks --maxWorkers=1 --fileParallelism=false --silent=true)
 
 FAILED=()
 
@@ -20,7 +20,7 @@ run_batch() {
   shift
   echo
   echo "== [test:safe] ${name} =="
-  if pnpm exec vitest "${COMMON_ARGS[@]}" "$@"; then
+  if vp exec vitest "${COMMON_ARGS[@]}" "$@"; then
     echo "   ✓ ${name} passed"
   else
     echo "   ✗ ${name} FAILED (exit $?)"

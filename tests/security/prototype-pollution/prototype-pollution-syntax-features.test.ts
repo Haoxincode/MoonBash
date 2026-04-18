@@ -5,7 +5,7 @@
  * that could potentially be vectors for prototype pollution.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { Bash } from "../../index.js";
 
 const DANGEROUS_KEYWORDS = ["constructor", "__proto__", "prototype"];

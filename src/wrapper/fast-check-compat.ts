@@ -1,29 +1,28 @@
 import baseFc from "fast-check-real";
+import type { Arbitrary } from "fast-check";
 
 type StringOfConstraints = {
   minLength?: number;
   maxLength?: number;
 };
 
+type FastCheckStringOf = <T extends string>(
+  arbitrary: Arbitrary<T>,
+  constraints?: StringOfConstraints,
+) => Arbitrary<string>;
+
 type FastCheckWithCompat = typeof baseFc & {
-  stringOf?: (
-    arbitrary: ReturnType<typeof baseFc.constantFrom<string>>,
-    constraints?: StringOfConstraints,
-  ) => ReturnType<typeof baseFc.string>;
+  stringOf?: FastCheckStringOf;
 };
 
-const stringOfCompat: NonNullable<FastCheckWithCompat["stringOf"]> = (
-  arbitrary,
-  constraints = {},
+const stringOfCompat: FastCheckStringOf = <T extends string>(
+  arbitrary: Arbitrary<T>,
+  constraints: StringOfConstraints = {},
 ) => {
   const minLength = constraints.minLength ?? 0;
   const maxLength =
-    typeof constraints.maxLength === "number"
-      ? constraints.maxLength
-      : Math.max(minLength, 32);
-  return baseFc
-    .array(arbitrary, { minLength, maxLength })
-    .map((items) => items.join(""));
+    typeof constraints.maxLength === "number" ? constraints.maxLength : Math.max(minLength, 32);
+  return baseFc.array(arbitrary, { minLength, maxLength }).map((items: T[]) => items.join(""));
 };
 
 const compat = new Proxy(baseFc as FastCheckWithCompat, {

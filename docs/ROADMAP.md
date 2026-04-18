@@ -61,7 +61,7 @@ Phase 5: Multi-Platform Expansion            🔧 PARTIALLY COMPLETE
 - [x] Initialize MoonBit project (`moon.mod.json`)
 - [x] Configure JS backend (`moon.pkg.json` with `"targets": {"js": {...}}`)
 - [x] Set up TypeScript wrapper project (`package.json`, `tsconfig.json`)
-- [x] Configure build pipeline (`moon build --target js` → `tsup` bundle)
+- [x] Configure build pipeline (`moon build --target js` → `vp pack`)
 - [x] Set up test infrastructure (MoonBit tests + TS integration tests)
 - [ ] CI/CD pipeline (GitHub Actions)
 
@@ -155,7 +155,7 @@ Phase 5: Multi-Platform Expansion            🔧 PARTIALLY COMPLETE
 ### 1.9 Build & Publish
 
 - [x] `moon build --target js` integration
-- [x] `tsup` bundling (ESM + types)
+- [x] Vite+ `pack` bundling (ESM + types)
 - [x] npm package structure
 - [x] Verify drop-in compatibility with just-bash API
 
@@ -508,7 +508,7 @@ Migrated from handwritten evaluator to `bobzhang/moonjq` (MoonBit creator's pack
 - [x] Resource limit tests (DoS, memory, output size, pipeline limits)
 - [ ] Security suites fully green (as of 2026-02-19: `tests/security/attacks` has `1` failing case; fuzzing has `2` failing suites)
 - [x] Agent workflow tests: 13 real-world scenarios
-- [x] OOM-safe batched test execution (`pnpm test:safe`)
+- [x] OOM-safe batched test execution (`vp run test:safe`)
 - [ ] Edge case coverage (Unicode, binary, huge files)
 - [ ] Performance benchmarks vs just-bash
 
@@ -536,7 +536,7 @@ Migrated from handwritten evaluator to `bobzhang/moonjq` (MoonBit creator's pack
 
 ### 5.2 Browser Bundle
 
-- [x] Browser-specific build path (`pnpm build:website`)
+- [x] Browser-specific build path (`vp run build:website`)
 - [x] Static website demo (`examples/website/`) replicating the `justbash.dev` full-screen terminal style
 - [x] MoonBit frontend mount package (`src/website/`) for browser UI bootstrapping
 - [x] Browser wrapper entry scaffold (`src/wrapper/browser.ts`)

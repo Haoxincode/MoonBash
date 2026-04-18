@@ -6,7 +6,7 @@
  */
 
 import fc from "fast-check";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vite-plus/test";
 import { createFcOptions, createFuzzConfig } from "../config.js";
 import { CoverageTracker } from "../coverage/coverage-tracker.js";
 import { coverageBoost } from "../generators/coverage-boost-generator.js";

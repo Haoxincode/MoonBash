@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, it } from "vitest";
+import { afterEach, beforeEach, describe, it } from "vite-plus/test";
 import {
   cleanupTestDir,
   compareOutputs,

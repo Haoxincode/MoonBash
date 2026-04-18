@@ -35,28 +35,18 @@ fn cmd_diff_unified_piediff(
   file1 : String,
   file2 : String
 ) -> Unit {
-  let hunks = @line_diff.line_diff(old=content1[:], new=content2[:])
+  let lines1 = cmd_split_lines(content1)
+  let lines2 = cmd_split_lines(content2)
+  let old = lines1[:]
+  let new = lines2[:]
+  let hunks = @piediff.Diff(old~, new~).group()
   if hunks.length() == 0 {
     return
   }
   out.write_string("--- a/\{file1}\n")
   out.write_string("+++ b/\{file2}\n")
   for hunk in hunks {
-    let header = hunk.0
-    let edits = hunk.1
-    out.write_string(header.to_string())
-    out.write_char('\n')
-    for edit in edits {
-      let tag = edit.0
-      let text = edit.1
-      match tag {
-        Eql => out.write_char(' ')
-        Del => out.write_char('-')
-        Ins => out.write_char('+')
-      }
-      out.write_stringview(text)
-      out.write_char('\n')
-    }
+    out.write_string(hunk.to_string())
   }
 }
 
@@ -181,9 +171,8 @@ fn cmd_cmp(ctx : CommandContext) -> @ast.ExecResult {
     return @ast.ExecResult::new(stderr=err2, exit_code=2)
   }
 
-  // Use piediff as the canonical equality check for cmp, same as diff.
-  let hunks = @line_diff.line_diff(old=content1[:], new=content2[:])
-  if hunks.length() == 0 {
+  // cmp compares raw bytes, so direct string equality is the exact fast path.
+  if content1 == content2 {
     return @ast.ExecResult::new(exit_code=0)
   }
 

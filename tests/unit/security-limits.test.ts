@@ -2,7 +2,7 @@
  * Tests for security limits to prevent resource exhaustion attacks.
  */
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vite-plus/test";
 import { Bash } from "./index.js";
 
 describe("Security Limits", () => {

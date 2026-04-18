@@ -5,7 +5,7 @@
  * timing information is not disclosed, and internal state is protected.
  */
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vite-plus/test";
 import { Bash } from "../../index.js";
 
 describe("Information Disclosure Prevention", () => {

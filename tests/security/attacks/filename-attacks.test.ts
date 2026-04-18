@@ -5,7 +5,7 @@
  * special characters, path traversal, and unicode edge cases.
  */
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vite-plus/test";
 import { Bash } from "../../index.js";
 
 describe("Filename Attack Prevention", () => {

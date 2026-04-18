@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { Bash, type BashLogger } from "./Bash.js";
 
 // Helper to create a mock clock for testing sleep

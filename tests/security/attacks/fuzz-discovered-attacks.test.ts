@@ -10,7 +10,7 @@
  * 3. Prevent regression
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { Bash } from "../../Bash.js";
 import { assertExecResultSafe } from "../fuzzing/oracles/assertions.js";
 

@@ -6,7 +6,7 @@
  */
 
 import fc from "fast-check";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { createFcOptions, createFuzzConfig } from "../config.js";
 import { ARITHMETIC_ATTACKS, DOS_ATTACKS } from "../corpus/known-attacks.js";
 import {

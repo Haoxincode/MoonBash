@@ -1,9 +1,9 @@
 import packageInfo from "../../package.json";
-import readmeText from "../../docs/README.md";
-import architectureText from "../../docs/ARCHITECTURE.md";
-import apiText from "../../docs/API.md";
-import roadmapText from "../../docs/ROADMAP.md";
-import agentsText from "../../AGENTS.md";
+import readmeText from "../../docs/README.md?raw";
+import architectureText from "../../docs/ARCHITECTURE.md?raw";
+import apiText from "../../docs/API.md?raw";
+import roadmapText from "../../docs/ROADMAP.md?raw";
+import agentsText from "../../AGENTS.md?raw";
 import moonMod from "../../src/moon.mod.json";
 import { Bash, defineCommand, getCommandNames } from "../../src/wrapper/browser.ts";
 import { mount_demo } from "../../src/_build/js/debug/build/website/website.js";
@@ -32,7 +32,7 @@ GitHub
 ${GITHUB_URL}
 `;
 
-const INSTALL_TEXT = `pnpm add moon-bash
+const INSTALL_TEXT = `vp add moon-bash
 
 import { Bash } from "moon-bash";
 

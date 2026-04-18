@@ -11,15 +11,15 @@ MoonBash is a zero-dependency, pure-memory POSIX Shell sandbox written in MoonBi
 ## Build Commands
 
 ```bash
-cd src && moon build --target js   # Compile MoonBit to JS
-cd src && moon check --target js   # Type-check without building
-pnpm test:safe                     # Recommended default: batched, heap-bounded, no-cache
-MOONBASH_TEST_HEAP_MB=1536 MOONBASH_TEST_SKIP_FUZZ=1 pnpm test:safe  # Low-memory local mode
-pnpm test                          # One-shot full run (can OOM on low-memory machines)
-npx vitest run tests/comparison/   # Run comparison tests (Vitest)
+moon -C src build --target js      # Compile MoonBit to JS
+moon -C src check --target js      # Type-check without building
+vp run test:safe                   # Recommended default: batched, heap-bounded, no-cache
+MOONBASH_TEST_HEAP_MB=1536 MOONBASH_TEST_SKIP_FUZZ=1 vp run test:safe  # Low-memory local mode
+moon -C src build --target js && vp test  # One-shot full run (can OOM on low-memory machines)
+moon -C src build --target js && vp test run tests/comparison/  # Run comparison tests
 ```
 
-Build pipeline: MoonBit (.mbt) → `moon build --target js` → Pure JS → TypeScript wrapper → `tsup` bundle → npm package
+Build pipeline: MoonBit (.mbt) → `moon build --target js` → Pure JS → TypeScript wrapper → `vp pack` → npm package
 
 ## Architecture: "巨核与薄壳"（Fat Kernel & Thin Shell）
 
@@ -45,10 +45,10 @@ All TypeScript tests use Vitest and the `Bash` class.
 
 ### Test Execution Policy (OOM Avoidance)
 
-- Default to `pnpm test:safe` for routine validation; it splits suites into isolated batches and disables Vitest cache.
+- Default to `vp run test:safe` for routine validation; it splits suites into isolated batches and disables Vitest cache.
 - `test:safe` runs with single-worker fork mode and bounded heap (`MOONBASH_TEST_HEAP_MB`, default `4096`).
 - Set `MOONBASH_TEST_SKIP_FUZZ=1` when iterating locally to skip the heaviest fuzzing suites.
-- Use plain `pnpm test` only on high-memory environments when you explicitly want one-shot full execution.
+- Use `moon -C src build --target js && vp test` only on high-memory environments when you explicitly want one-shot full execution.
 
 ## Key Design Documents
 

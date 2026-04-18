@@ -4,7 +4,7 @@ Comparison tests validate that just-bash produces the same output as real bash. 
 
 ## How It Works
 
-1. **Fixtures** are JSON files containing recorded bash outputs (`src/comparison-tests/fixtures/*.fixtures.json`)
+1. **Fixtures** are JSON files containing recorded bash outputs (`tests/comparison/fixtures/*.fixtures.json`)
 2. **Tests** run commands in just-bash and compare against the recorded fixtures
 3. **Record mode** runs real bash and saves outputs to fixtures
 
@@ -12,17 +12,16 @@ Comparison tests validate that just-bash produces the same output as real bash. 
 
 ```bash
 # Run all comparison tests (uses fixtures, no real bash needed)
-pnpm test:comparison
+vp run test:comparison
 
 # Run a specific test file
-pnpm test:run src/comparison-tests/ls.comparison.test.ts
+moon -C src build --target js && vp test run tests/comparison/ls.comparison.test.ts
 
 # Re-record fixtures (runs real bash, skips locked fixtures)
-pnpm test:comparison:record
-# Or: RECORD_FIXTURES=1 pnpm test:comparison
+vp run test:comparison:record
 
 # Force re-record ALL fixtures including locked ones
-RECORD_FIXTURES=force pnpm test:comparison
+RECORD_FIXTURES=force vp run test:comparison
 ```
 
 ## Adding New Tests
@@ -30,7 +29,7 @@ RECORD_FIXTURES=force pnpm test:comparison
 ### 1. Add the test case
 
 ```typescript
-// src/comparison-tests/mycommand.comparison.test.ts
+// tests/comparison/mycommand.comparison.test.ts
 import { afterEach, beforeEach, describe, it } from "vitest";
 import {
   cleanupTestDir,
@@ -62,10 +61,10 @@ describe("mycommand - Real Bash Comparison", () => {
 ### 2. Record the fixture
 
 ```bash
-RECORD_FIXTURES=1 pnpm test:run src/comparison-tests/mycommand.comparison.test.ts
+RECORD_FIXTURES=1 moon -C src build --target js && vp test run tests/comparison/mycommand.comparison.test.ts
 ```
 
-This creates `src/comparison-tests/fixtures/mycommand.comparison.fixtures.json`.
+This creates `tests/comparison/fixtures/mycommand.comparison.fixtures.json`.
 
 ### 3. Commit both the test and fixture file
 
@@ -75,10 +74,10 @@ When bash behavior changes or you need to update expected outputs:
 
 ```bash
 # Re-record specific test file
-RECORD_FIXTURES=1 pnpm test:run src/comparison-tests/ls.comparison.test.ts
+RECORD_FIXTURES=1 moon -C src build --target js && vp test run tests/comparison/ls.comparison.test.ts
 
 # Re-record all fixtures
-pnpm test:comparison:record
+vp run test:comparison:record
 ```
 
 ## Handling Platform Differences

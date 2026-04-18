@@ -1485,14 +1485,18 @@ fn parse_name_value_spec(spec : String) -> (String, String?, Bool)? {
     if name_end <= 0 {
       return None
     }
-    let name = spec.view(start_offset=0, end_offset=name_end).to_string()
-    let value = spec.view(start_offset=eq_pos + 1).to_string()
+    let name = strip_array_assignment_index_markers(
+      spec.view(start_offset=0, end_offset=name_end).to_string(),
+    )
+    let value = strip_array_assignment_index_markers(
+      spec.view(start_offset=eq_pos + 1).to_string(),
+    )
     if name.length() == 0 {
       return None
     }
     return Some((name, Some(value), append))
   }
-  Some((spec, None, false))
+  Some((strip_array_assignment_index_markers(spec), None, false))
 }
 
 fn find_name_value_separator_pos(spec : String) -> Int {

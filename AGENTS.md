@@ -8,16 +8,16 @@
 - Core implementation lives under `src/lib/` (MoonBit engine) and `src/wrapper/` (TypeScript facade).
 
 ## Build, Test, and Development Commands
-- `cd src && moon build --target js` - compile MoonBit core to JavaScript.
-- `cd src && moon check --target js` - type-check MoonBit code.
-- `pnpm test:safe` - recommended default; runs Vitest in isolated batches with single worker, bounded heap, and `--no-cache` to avoid OOM/stale artifacts.
-- `MOONBASH_TEST_HEAP_MB=1536 MOONBASH_TEST_SKIP_FUZZ=1 pnpm test:safe` - low-memory/local quick mode (skip fuzzing suites).
-- `pnpm test` - full Vitest run in one process (faster on high-memory machines, but can OOM locally).
-- `npx vitest run tests/comparison/` - run comparison tests directly.
-- `pnpm test:comparison` - run fixture-based Bash parity tests.
-- `pnpm test:comparison:record` - re-record comparison fixtures using real Bash.
-- `RECORD_FIXTURES=1 pnpm test:run tests/comparison/ls.comparison.test.ts` - re-record a single comparison test.
-- Build pipeline: MoonBit (`.mbt`) -> `moon build --target js` -> pure JS -> TypeScript wrapper -> `tsup` bundle -> npm package.
+- `moon -C src build --target js` - compile MoonBit core to JavaScript.
+- `moon -C src check --target js` - type-check MoonBit code.
+- `vp run test:safe` - recommended default; runs the batched Vitest workflow with single worker, bounded heap, and `--no-cache` to avoid OOM/stale artifacts.
+- `MOONBASH_TEST_HEAP_MB=1536 MOONBASH_TEST_SKIP_FUZZ=1 vp run test:safe` - low-memory/local quick mode (skip fuzzing suites).
+- `moon -C src build --target js && vp test` - one-shot full Vitest run after refreshing generated MoonBit JS.
+- `moon -C src build --target js && vp test run tests/comparison/` - run comparison tests directly.
+- `vp run build` - full library build (`moon build` + `vp pack`).
+- `vp run build:website` - build the browser demo bundle.
+- `vp run serve:website` - serve the browser demo locally.
+- Build pipeline: MoonBit (`.mbt`) -> `moon build --target js` -> pure JS -> TypeScript wrapper -> `vp pack` -> npm package.
 
 ## Coding Style & Naming Conventions
 - Follow existing TypeScript test style: 2-space indentation, double quotes, semicolons, and `describe/it/expect` structure.
@@ -29,8 +29,8 @@
 
 ## Testing Guidelines
 - Framework: Vitest for TypeScript suites.
-- Default test workflow: use `pnpm test:safe` to avoid machine freezes from Node OOM during full-suite runs.
-- Use `pnpm test` only when you explicitly need the one-shot full run and have enough memory.
+- Default test workflow: use `vp run test:safe` to avoid machine freezes from Node OOM during full-suite runs.
+- Use `moon -C src build --target js && vp test` only when you explicitly need the one-shot full run and have enough memory.
 - Do not modify files under `tests/` unless explicitly requested for this repository.
 - If test adaptation is explicitly requested, update files in the closest suite (`unit`, `comparison`, `security`, or `spec`) and keep attribution context intact.
 - When changing comparison behavior, commit both the test file and updated fixture JSON.

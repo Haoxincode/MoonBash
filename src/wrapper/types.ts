@@ -51,9 +51,7 @@ export interface NetworkOptions {
    * Optional host fetch bridge.
    * Can be synchronous or Promise-based.
    */
-  fetch?: (
-    request: MoonBashFetchRequest
-  ) => MoonBashFetchResponse | Promise<MoonBashFetchResponse>;
+  fetch?: (request: MoonBashFetchRequest) => MoonBashFetchResponse | Promise<MoonBashFetchResponse>;
 }
 
 export type MoonBashVmRuntime = "python3" | "sqlite3";
@@ -79,7 +77,7 @@ export interface VmWasmPythonOptions {
   /** Enable built-in Pyodide runtime for python3. */
   enabled?: boolean;
   /** Optional custom loader for Pyodide runtime. */
-  loadRuntime?: () => unknown | Promise<unknown>;
+  loadRuntime?: () => unknown;
   /** Optional Pyodide index URL passed to loadPyodide. */
   indexURL?: string;
 }
@@ -88,7 +86,7 @@ export interface VmWasmSqliteOptions {
   /** Enable built-in sql.js runtime for sqlite3. */
   enabled?: boolean;
   /** Optional custom loader for sql.js runtime. */
-  loadRuntime?: () => unknown | Promise<unknown>;
+  loadRuntime?: () => unknown;
   /** Optional wasm file URL passed through locateFile. */
   wasmUrl?: string;
 }
@@ -103,9 +101,7 @@ export interface VmOptions {
    * Optional host VM bridge used by python3/sqlite3 commands.
    * Can be synchronous or Promise-based.
    */
-  run?: (
-    request: MoonBashVmRequest
-  ) => MoonBashVmResponse | Promise<MoonBashVmResponse>;
+  run?: (request: MoonBashVmRequest) => MoonBashVmResponse | Promise<MoonBashVmResponse>;
   /** Optional built-in WASM runtime settings for python3/sqlite3. */
   wasm?: VmWasmOptions;
 }
@@ -178,6 +174,9 @@ export interface ExecutionLimits {
   maxHeredocSize: number;
   maxSubstitutionDepth: number;
   maxGlobOperations: number;
+  maxAwkIterations: number;
+  maxSedIterations: number;
+  maxJqIterations: number;
 }
 
 export interface FileSystem {

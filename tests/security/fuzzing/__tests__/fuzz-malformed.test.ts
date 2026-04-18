@@ -7,7 +7,7 @@
  */
 
 import fc from "fast-check";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 import { createFcOptions, createFuzzConfig } from "../config.js";
 import {
   byteInjectedScript,

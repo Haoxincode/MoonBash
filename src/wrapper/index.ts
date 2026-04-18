@@ -239,10 +239,7 @@ interface NodeWorkerLike {
   on(event: "message", listener: (message: unknown) => void): this;
   on(event: "error", listener: (error: unknown) => void): this;
   off?(event: "message" | "error", listener: (...args: unknown[]) => void): this;
-  removeListener?(
-    event: "message" | "error",
-    listener: (...args: unknown[]) => void,
-  ): this;
+  removeListener?(event: "message" | "error", listener: (...args: unknown[]) => void): this;
 }
 
 interface NodeWorkerBridgeContext {
@@ -370,18 +367,22 @@ function toErrorMessage(error: unknown): string {
   return String(error);
 }
 
+function stringifyPrimitive(value: boolean | number | bigint | symbol): string {
+  return String(value);
+}
+
 function isPromiseLike<T>(value: unknown): value is PromiseLike<T> {
-  return typeof value === "object" &&
+  return (
+    typeof value === "object" &&
     value !== null &&
     "then" in value &&
-    typeof (value as { then?: unknown }).then === "function";
+    typeof (value as { then?: unknown }).then === "function"
+  );
 }
 
 function waitForPromise<T>(promise: Promise<T>): T {
   if (typeof SharedArrayBuffer === "undefined" || typeof Atomics === "undefined") {
-    throw new Error(
-      "moon_bash: async bridge requires SharedArrayBuffer and Atomics support",
-    );
+    throw new Error("moon_bash: async bridge requires SharedArrayBuffer and Atomics support");
   }
 
   const signal = new Int32Array(new SharedArrayBuffer(4));
@@ -404,7 +405,7 @@ function waitForPromise<T>(promise: Promise<T>): T {
   while (Atomics.load(signal, 0) === 0) {
     try {
       Atomics.wait(signal, 0, 0, 100);
-    } catch (_error) {
+    } catch {
       throw new Error("moon_bash: Atomics.wait is not available in this runtime");
     }
   }
@@ -422,7 +423,9 @@ function shellSingleQuote(value: string): string {
 function normalizePosixPath(inputPath: string, cwd = "/"): string {
   const base = inputPath.startsWith("/")
     ? inputPath
-    : (cwd === "/" ? `/${inputPath}` : `${cwd}/${inputPath}`);
+    : cwd === "/"
+      ? `/${inputPath}`
+      : `${cwd}/${inputPath}`;
   const parts = base.split("/");
   const out: string[] = [];
   for (const part of parts) {
@@ -456,7 +459,6 @@ function listChildren(paths: string[], dirPath: string): string[] {
   }
   return [...names].sort();
 }
-
 
 export function getCommandNames(): string[] {
   return [...DEFAULT_COMMAND_NAMES];
@@ -530,19 +532,22 @@ export class Bash {
     const fsSnapshot = this.extractFsSnapshot((options as { fs?: unknown }).fs);
     if (fsSnapshot) {
       normalizedOptions.files = {
-        ...(normalizedOptions.files ?? {}),
+        ...normalizedOptions.files,
         ...fsSnapshot,
       };
     }
     if (typeof options.sleep === "function" && !options.timers?.sleep) {
-      normalizedOptions.timers = { ...(options.timers ?? {}), sleep: options.sleep };
+      normalizedOptions.timers = { ...options.timers, sleep: options.sleep };
     }
 
     this.options = normalizedOptions;
-    this.baseCwd = normalizedOptions.cwd && normalizedOptions.cwd.length > 0
-      ? normalizedOptions.cwd
-      : (normalizedOptions.files ? "/" : "/home/user");
-    this.baseEnv = { ...(normalizedOptions.env ?? {}) };
+    this.baseCwd =
+      normalizedOptions.cwd && normalizedOptions.cwd.length > 0
+        ? normalizedOptions.cwd
+        : normalizedOptions.files
+          ? "/"
+          : "/home/user";
+    this.baseEnv = { ...normalizedOptions.env };
     this.useDefaultLayout = normalizedOptions.files === undefined && !normalizedOptions.cwd;
     const initialFs = this.normalizeInitialFiles(normalizedOptions.files);
     this.files = initialFs.files;
@@ -641,9 +646,11 @@ export class Bash {
       },
       exists: (path: string): boolean => {
         const normalized = this.normalizePath(path);
-        return Object.prototype.hasOwnProperty.call(this.files, normalized) ||
+        return (
+          Object.prototype.hasOwnProperty.call(this.files, normalized) ||
           Object.prototype.hasOwnProperty.call(this.dirs, normalized) ||
-          Object.prototype.hasOwnProperty.call(this.links, normalized);
+          Object.prototype.hasOwnProperty.call(this.links, normalized)
+        );
       },
       stat: (path: string) => {
         const normalized = this.normalizePath(path);
@@ -711,8 +718,8 @@ export class Bash {
           const type = Object.prototype.hasOwnProperty.call(this.dirs, child)
             ? "directory"
             : Object.prototype.hasOwnProperty.call(this.links, child)
-            ? "symlink"
-            : "file";
+              ? "symlink"
+              : "file";
           return { name, type } as const;
         });
       },
@@ -819,8 +826,15 @@ export class Bash {
         out[path] = "";
       } else if (typeof value === "object") {
         out[path] = value as InitialFileEntry;
+      } else if (
+        typeof value === "boolean" ||
+        typeof value === "number" ||
+        typeof value === "bigint" ||
+        typeof value === "symbol"
+      ) {
+        out[path] = stringifyPrimitive(value);
       } else {
-        out[path] = String(value);
+        out[path] = "";
       }
     }
     return out;
@@ -881,7 +895,15 @@ export class Bash {
     if (content === null || content === undefined) {
       return "";
     }
-    return String(content);
+    if (
+      typeof content === "boolean" ||
+      typeof content === "number" ||
+      typeof content === "bigint" ||
+      typeof content === "symbol"
+    ) {
+      return stringifyPrimitive(content);
+    }
+    return "";
   }
 
   private decodeInitialFileBytes(bytes: Uint8Array): string {
@@ -937,9 +959,7 @@ export class Bash {
     }
   }
 
-  private normalizeFetchResponse(
-    response: MoonBashFetchResponse,
-  ): MoonBashFetchResponse {
+  private normalizeFetchResponse(response: MoonBashFetchResponse): MoonBashFetchResponse {
     return {
       ok: Boolean(response.ok),
       status: Number.isFinite(response.status) ? response.status : 0,
@@ -950,9 +970,7 @@ export class Bash {
     };
   }
 
-  private normalizeVmResponse(
-    response: MoonBashVmResponse,
-  ): MoonBashVmResponse {
+  private normalizeVmResponse(response: MoonBashVmResponse): MoonBashVmResponse {
     return {
       stdout: response.stdout ?? "",
       stderr: response.stderr ?? "",
@@ -988,9 +1006,11 @@ export class Bash {
       typeof Atomics !== "undefined" &&
       typeof setTimeout === "function"
     ) {
-      waitForPromise(new Promise<void>((resolve) => {
-        setTimeout(resolve, waitMs);
-      }));
+      waitForPromise(
+        new Promise<void>((resolve) => {
+          setTimeout(resolve, waitMs);
+        }),
+      );
       return;
     }
 
@@ -1000,9 +1020,7 @@ export class Bash {
     }
   }
 
-  private defaultFetch(
-    request: MoonBashFetchRequest,
-  ): Promise<MoonBashFetchResponse> {
+  private defaultFetch(request: MoonBashFetchRequest): Promise<MoonBashFetchResponse> {
     if (typeof fetch !== "function") {
       return Promise.resolve({
         ok: false,
@@ -1100,7 +1118,7 @@ export class Bash {
           return 0;
         }
         return Math.floor(value) % 2147483647;
-      } catch (_error) {
+      } catch {
         return 0;
       }
     };
@@ -1145,8 +1163,8 @@ export class Bash {
 
   private getExecutionLimits(): Partial<ExecutionLimits> {
     return {
-      ...(this.options.limits ?? {}),
-      ...(this.options.executionLimits ?? {}),
+      ...this.options.limits,
+      ...this.options.executionLimits,
     };
   }
 
@@ -1268,11 +1286,9 @@ export class Bash {
     }
 
     const cwd = normalizePosixPath(request.cwd ?? "/");
-    const envObject: Record<string, string> = { ...(request.env ?? {}) };
+    const envObject: Record<string, string> = { ...request.env };
     let filesState: Record<string, string> =
-      request.files && typeof request.files === "object"
-        ? request.files
-        : {};
+      request.files && typeof request.files === "object" ? request.files : {};
     let filesMutable = false;
     let filesDirty = false;
     const ensureMutableFilesState = (): void => {
@@ -1379,13 +1395,10 @@ export class Bash {
       },
     };
 
-    const execFn = async (
-      command: string,
-      options: ExecOptions = {},
-    ): Promise<ExecResult> => {
+    const execFn = async (command: string, options: ExecOptions = {}): Promise<ExecResult> => {
       const subEnv = {
         ...envObject,
-        ...(options.env ?? {}),
+        ...options.env,
       };
       const subCwd = normalizePosixPath(options.cwd ?? cwd);
       let commandToRun = command;
@@ -1395,17 +1408,19 @@ export class Bash {
       if (this.hasCustomCommands()) {
         commandToRun = this.buildCustomPrelude(commandToRun);
       }
-      const subResult = JSON.parse(mbExecuteWithState(
-        commandToRun,
-        JSON.stringify(subEnv),
-        JSON.stringify(filesState),
-        "{}",
-        "{}",
-        "{}",
-        subCwd,
-        limitsJson,
-        layoutMode,
-      )) as StateExecResult;
+      const subResult = JSON.parse(
+        mbExecuteWithState(
+          commandToRun,
+          JSON.stringify(subEnv),
+          JSON.stringify(filesState),
+          "{}",
+          "{}",
+          "{}",
+          subCwd,
+          limitsJson,
+          layoutMode,
+        ),
+      ) as StateExecResult;
       if (subResult.files && typeof subResult.files === "object") {
         filesState = subResult.files;
         filesMutable = false;
@@ -1473,7 +1488,7 @@ export class Bash {
       return undefined;
     }
     try {
-      const nodeModule = await this.invokeDynamicImport("node:module") as {
+      const nodeModule = (await this.invokeDynamicImport("node:module")) as {
         createRequire?: unknown;
         default?: {
           createRequire?: unknown;
@@ -1490,7 +1505,7 @@ export class Bash {
         return undefined;
       }
       return requireFn.resolve(specifier);
-    } catch (_error) {
+    } catch {
       return undefined;
     }
   }
@@ -1500,7 +1515,7 @@ export class Bash {
       return undefined;
     }
     try {
-      const nodePath = await this.invokeDynamicImport("node:path") as {
+      const nodePath = (await this.invokeDynamicImport("node:path")) as {
         dirname?: unknown;
         default?: {
           dirname?: unknown;
@@ -1511,7 +1526,7 @@ export class Bash {
         return undefined;
       }
       return dirname(pathValue);
-    } catch (_error) {
+    } catch {
       return undefined;
     }
   }
@@ -1536,7 +1551,9 @@ export class Bash {
       return "/";
     }
     const normalizedSlashes = inputPath.replace(/\\/g, "/");
-    const absolute = normalizedSlashes.startsWith("/") ? normalizedSlashes : `/${normalizedSlashes}`;
+    const absolute = normalizedSlashes.startsWith("/")
+      ? normalizedSlashes
+      : `/${normalizedSlashes}`;
     const out: string[] = [];
     for (const part of absolute.split("/")) {
       if (!part || part === ".") {
@@ -1600,7 +1617,7 @@ export class Bash {
         if (!runtime.FS.analyzePath(current).exists) {
           runtime.FS.mkdir(current);
         }
-      } catch (_error) {
+      } catch {
         // Ignore race/invalid path errors; write step will surface real failure.
       }
     }
@@ -1626,7 +1643,7 @@ export class Bash {
       if (runtime.FS.analyzePath(normalized).exists) {
         runtime.FS.unlink(normalized);
       }
-    } catch (_error) {
+    } catch {
       // Ignore missing/unlink failures for non-tracked files.
     }
   }
@@ -1641,15 +1658,12 @@ export class Bash {
         return undefined;
       }
       return runtime.FS.readFile(normalized, { encoding: "utf8" });
-    } catch (_error) {
+    } catch {
       return undefined;
     }
   }
 
-  private syncPyodideFiles(
-    runtime: PyodideRuntimeLike,
-    files: Record<string, string>,
-  ): void {
+  private syncPyodideFiles(runtime: PyodideRuntimeLike, files: Record<string, string>): void {
     const nextPaths = new Set(Object.keys(files).map((path) => this.normalizeVmPath(path)));
     for (const trackedPath of this.pyodideTrackedFiles) {
       if (!nextPaths.has(trackedPath)) {
@@ -1685,7 +1699,7 @@ export class Bash {
       let entries: string[];
       try {
         entries = runtime.FS.readdir(normalizedDir);
-      } catch (_error) {
+      } catch {
         return;
       }
 
@@ -1697,7 +1711,7 @@ export class Bash {
         let stat: { mode: number };
         try {
           stat = runtime.FS.stat(child);
-        } catch (_error) {
+        } catch {
           continue;
         }
 
@@ -1782,22 +1796,25 @@ export class Bash {
         mod = await this.invokeDynamicImport("pyodide");
       } catch (error) {
         throw new Error(
-          `moon_bash: python3 wasm runtime requires Pyodide (module \"pyodide\"). ${toErrorMessage(error)}`,
+          `moon_bash: python3 wasm runtime requires Pyodide (module "pyodide"). ${toErrorMessage(error)}`,
         );
       }
       const maybeModule = mod as {
         loadPyodide?: unknown;
         default?: unknown;
       };
-      const maybeFn = maybeModule.loadPyodide ??
+      const maybeFn =
+        maybeModule.loadPyodide ??
         (
-          maybeModule.default as {
-            loadPyodide?: unknown;
-          } | undefined
+          maybeModule.default as
+            | {
+                loadPyodide?: unknown;
+              }
+            | undefined
         )?.loadPyodide ??
         maybeModule.default;
       if (typeof maybeFn !== "function") {
-        throw new Error("moon_bash: unable to locate loadPyodide() in module \"pyodide\"");
+        throw new Error('moon_bash: unable to locate loadPyodide() in module "pyodide"');
       }
       loadPyodideFn = maybeFn as (options?: { indexURL?: string }) => Promise<unknown>;
     }
@@ -1822,11 +1839,7 @@ export class Bash {
       globals?: unknown;
       runPython?: unknown;
     };
-    if (
-      !candidate.FS ||
-      !candidate.globals ||
-      typeof candidate.runPython !== "function"
-    ) {
+    if (!candidate.FS || !candidate.globals || typeof candidate.runPython !== "function") {
       throw new Error("moon_bash: Pyodide runtime is missing required APIs");
     }
     return runtime as PyodideRuntimeLike;
@@ -1852,11 +1865,7 @@ export class Bash {
           globals?: unknown;
           runPython?: unknown;
         };
-        if (
-          !candidate.FS ||
-          !candidate.globals ||
-          typeof candidate.runPython !== "function"
-        ) {
+        if (!candidate.FS || !candidate.globals || typeof candidate.runPython !== "function") {
           throw new Error("moon_bash: custom python runtime is missing required APIs");
         }
         runtime = loaded as PyodideRuntimeLike;
@@ -1874,8 +1883,9 @@ export class Bash {
     if (typeof raw === "string") {
       parsed = JSON.parse(raw);
     } else if (raw && typeof raw === "object" && "toString" in raw) {
-      const asString = String(raw);
-      if (asString.startsWith("{") && asString.endsWith("}")) {
+      const maybeToString = (raw as { toString?: unknown }).toString;
+      const asString = typeof maybeToString === "function" ? maybeToString.call(raw) : null;
+      if (typeof asString === "string" && asString.startsWith("{") && asString.endsWith("}")) {
         parsed = JSON.parse(asString);
       }
     }
@@ -1891,9 +1901,10 @@ export class Bash {
     return {
       stdout: typeof obj.stdout === "string" ? obj.stdout : "",
       stderr: typeof obj.stderr === "string" ? obj.stderr : "",
-      exitCode: typeof obj.exitCode === "number" && Number.isFinite(obj.exitCode)
-        ? Math.floor(obj.exitCode)
-        : 1,
+      exitCode:
+        typeof obj.exitCode === "number" && Number.isFinite(obj.exitCode)
+          ? Math.floor(obj.exitCode)
+          : 1,
       error: typeof obj.error === "string" ? obj.error : undefined,
     };
   }
@@ -1954,7 +1965,7 @@ export class Bash {
         mod = await this.invokeDynamicImport("sql.js");
       } catch (error) {
         throw new Error(
-          `moon_bash: sqlite3 wasm runtime requires sql.js (module \"sql.js\"). ${toErrorMessage(error)}`,
+          `moon_bash: sqlite3 wasm runtime requires sql.js (module "sql.js"). ${toErrorMessage(error)}`,
         );
       }
       const maybeModule = mod as {
@@ -1972,9 +1983,7 @@ export class Bash {
     if (!resolvedWasmUrl) {
       resolvedWasmUrl = await this.resolveNodeModulePath("sql.js/dist/sql-wasm.wasm");
     }
-    const locateFile = resolvedWasmUrl
-      ? (_file: string) => resolvedWasmUrl as string
-      : undefined;
+    const locateFile = resolvedWasmUrl ? (_file: string) => resolvedWasmUrl as string : undefined;
     const runtime = await initSqlJs(locateFile ? { locateFile } : undefined);
     if (!runtime || typeof runtime !== "object" || typeof runtime.Database !== "function") {
       throw new Error("moon_bash: invalid sql.js runtime object");
@@ -2061,7 +2070,15 @@ export class Bash {
     if (value instanceof Uint8Array) {
       return this.bytesToBinaryString(value);
     }
-    return String(value);
+    if (
+      typeof value === "boolean" ||
+      typeof value === "number" ||
+      typeof value === "bigint" ||
+      typeof value === "symbol"
+    ) {
+      return stringifyPrimitive(value);
+    }
+    return JSON.stringify(value);
   }
 
   private runSqliteWithSqlJs(request: MoonBashVmRequest): MoonBashVmResponse {
@@ -2072,16 +2089,17 @@ export class Bash {
     const files = this.normalizeVmFiles(request.files);
     const args = Array.isArray(request.args) ? request.args : [];
     const parsedArgs = this.parseSqliteArgs(args);
-    const dbPath = parsedArgs.databasePath && parsedArgs.databasePath !== ":memory:"
-      ? parsedArgs.databasePath
-      : null;
+    const dbPath =
+      parsedArgs.databasePath && parsedArgs.databasePath !== ":memory:"
+        ? parsedArgs.databasePath
+        : null;
 
     let db: SqlJsDatabaseLike;
     if (dbPath && Object.prototype.hasOwnProperty.call(files, dbPath)) {
       const fileContent = files[dbPath];
       try {
         db = new runtime.Database(this.binaryStringToBytes(fileContent));
-      } catch (_error) {
+      } catch {
         db = new runtime.Database();
         if (fileContent.trim().length > 0) {
           try {
@@ -2243,7 +2261,10 @@ export class Bash {
 
   private enqueueNodeWorkerExec<T>(task: () => Promise<T>): Promise<T> {
     const run = this.nodeExecWorkerQueue.then(task);
-    this.nodeExecWorkerQueue = run.then(() => undefined, () => undefined);
+    this.nodeExecWorkerQueue = run.then(
+      () => undefined,
+      () => undefined,
+    );
     return run;
   }
 
@@ -2258,7 +2279,7 @@ export class Bash {
       ];
 
       try {
-        const fsModule = await this.invokeDynamicImport("node:fs") as {
+        const fsModule = (await this.invokeDynamicImport("node:fs")) as {
           existsSync?: (path: string | URL) => boolean;
           default?: {
             existsSync?: (path: string | URL) => boolean;
@@ -2459,7 +2480,7 @@ while (true) {
     }
 
     this.nodeExecWorkerInitPromise = (async () => {
-      const workerThreads = await this.invokeDynamicImport("node:worker_threads") as {
+      const workerThreads = (await this.invokeDynamicImport("node:worker_threads")) as {
         Worker?: new (specifier: string, options?: Record<string, unknown>) => NodeWorkerLike;
       };
       const WorkerCtor = workerThreads.Worker;
@@ -2494,7 +2515,11 @@ while (true) {
                 return "";
               }
               if (bridge === "custom") {
-                return await this.handleCustomWorkerRequest(payload, context.limitsJson, context.layoutMode);
+                return await this.handleCustomWorkerRequest(
+                  payload,
+                  context.limitsJson,
+                  context.layoutMode,
+                );
               }
               if (bridge === "fetch") {
                 return context.fetchBridge ? context.fetchBridge(payload) : "";
@@ -2514,18 +2539,23 @@ while (true) {
               return "";
             })
             .then((responsePayload) => {
-              worker.postMessage({ type: "bridge-response", id: requestId, payload: responsePayload });
+              worker.postMessage({
+                type: "bridge-response",
+                id: requestId,
+                payload: responsePayload,
+              });
             })
             .catch((error) => {
-              const fallback = bridge === "custom"
-                ? JSON.stringify({
-                  handled: false,
-                  stdout: "",
-                  stderr: "",
-                  exitCode: 1,
-                  error: toErrorMessage(error),
-                } satisfies MoonBashCustomResponse)
-                : "";
+              const fallback =
+                bridge === "custom"
+                  ? JSON.stringify({
+                      handled: false,
+                      stdout: "",
+                      stderr: "",
+                      exitCode: 1,
+                      error: toErrorMessage(error),
+                    } satisfies MoonBashCustomResponse)
+                  : "";
               worker.postMessage({ type: "bridge-response", id: requestId, payload: fallback });
             });
           return;
@@ -2542,11 +2572,14 @@ while (true) {
           }
           this.nodeExecWorkerPendingExec.delete(id);
           if (type === "exec-error") {
-            pending.reject(new Error(String(message.error ?? "moon_bash: worker execution failed")));
+            pending.reject(
+              new Error(toErrorMessage(message.error ?? "moon_bash: worker execution failed")),
+            );
             return;
           }
           try {
-            const parsed = JSON.parse(String(message.jsonResult ?? "{}")) as StateExecResult;
+            const jsonResult = typeof message.jsonResult === "string" ? message.jsonResult : "{}";
+            const parsed = JSON.parse(jsonResult) as StateExecResult;
             pending.resolve(parsed);
           } catch (error) {
             pending.reject(error instanceof Error ? error : new Error(String(error)));
@@ -2555,9 +2588,7 @@ while (true) {
       });
 
       worker.on("error", (error: unknown) => {
-        const normalized = error instanceof Error
-          ? error
-          : new Error(String(error));
+        const normalized = error instanceof Error ? error : new Error(String(error));
         this.resetNodeExecWorker(normalized);
       });
 
@@ -2643,7 +2674,7 @@ while (true) {
 
     const effectiveEnv: Record<string, string> = {
       ...this.baseEnv,
-      ...(execOptions.env ?? {}),
+      ...execOptions.env,
     };
     if (Array.isArray(this.options.commands)) {
       const allowed = [...this.options.commands];

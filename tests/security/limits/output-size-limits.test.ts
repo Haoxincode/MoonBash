@@ -5,7 +5,7 @@
  * to prevent memory exhaustion from large outputs.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { Bash } from "../../index.js";
 import { ExecutionLimitError } from "../../interpreter/errors.js";
 

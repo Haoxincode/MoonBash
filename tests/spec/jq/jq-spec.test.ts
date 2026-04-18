@@ -6,7 +6,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { parseJqTestFile } from "./parser.js";
 import { formatError, runJqTestCase } from "./runner.js";
 import { getSkipReason, isFileSkipped } from "./skips.js";

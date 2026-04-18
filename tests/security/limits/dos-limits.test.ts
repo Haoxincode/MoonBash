@@ -5,7 +5,7 @@
  * execution limit mechanisms.
  */
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vite-plus/test";
 import { Bash } from "../../index.js";
 import { Lexer } from "../../parser/lexer.js";
 import { Parser, parse } from "../../parser/parser.js";

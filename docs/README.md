@@ -76,8 +76,8 @@ Key pieces:
 Build and run it locally:
 
 ```bash
-pnpm build:website
-pnpm serve:website
+vp run build:website
+vp run serve:website
 ```
 
 Then open <http://localhost:4173>.

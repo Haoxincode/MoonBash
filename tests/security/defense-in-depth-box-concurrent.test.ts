@@ -5,7 +5,7 @@
  * sandboxed contexts from concurrent non-sandboxed operations.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 import { Bash } from "../Bash.js";
 import {
   DefenseInDepthBox,

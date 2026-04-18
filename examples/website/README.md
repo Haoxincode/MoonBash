@@ -29,21 +29,22 @@ Build output lands in `examples/website/dist/`.
 ## Build
 
 ```bash
-pnpm build:website
+vp run build:website
 ```
 
 This runs:
 
 1. `moon build --target js`
-2. an `esbuild` browser bundle for `examples/website/main.js`
-3. static asset copy into `examples/website/dist/`
+2. `vp build -c vite.website.config.ts` to bundle the website with Vite+ / Rolldown
+3. Vite rewrites `index.html`, bundles `main.js`, and emits the final static site to `examples/website/dist/`
 
 ## Serve
 
 ```bash
-pnpm serve:website
+vp run serve:website
 ```
 
+This uses `vp preview -c vite.website.config.ts --port 4173 --strictPort`.
 Then open <http://localhost:4173>.
 
 ## Deploy To Vercel
@@ -53,7 +54,7 @@ This repository can be deployed to Vercel as a static site.
 Included config:
 
 - `vercel.json` sets the build command and output directory
-- `scripts/vercel-build.sh` installs MoonBit in the build environment if needed, then runs `pnpm build:website`
+- `scripts/vercel-build.sh` installs MoonBit in the build environment if needed, then runs `vp run build:website`
 
 Expected Vercel behavior:
 

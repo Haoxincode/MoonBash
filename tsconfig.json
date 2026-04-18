@@ -11,10 +11,12 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
+    "types": ["node"],
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "isolatedModules": true
+    "isolatedModules": true,
+    "ignoreDeprecations": "6.0"
   },
-  "include": ["src/wrapper/**/*.ts"],
+  "include": ["src/wrapper/**/*.ts", "src/wrapper/**/*.d.ts"],
   "exclude": ["node_modules", "dist"]
 }
