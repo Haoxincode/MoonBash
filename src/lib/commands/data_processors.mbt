@@ -355,49 +355,39 @@ fn xan_select(ctx : CommandContext) -> @ast.ExecResult {
 
 /// xan slice -i START -l LENGTH file.csv: slice rows
 fn xan_slice(ctx : CommandContext) -> @ast.ExecResult {
-  let mut start = 0
-  let mut length : Int? = None
-  let mut file_idx = -1
-  let mut i = 1
-  while i < ctx.args.length() {
-    if ctx.args[i] == "-i" && i + 1 < ctx.args.length() {
-      start = cmd_parse_int(ctx.args[i + 1]).to_int()
-      i += 2
-    } else if ctx.args[i] == "-l" && i + 1 < ctx.args.length() {
-      length = Some(cmd_parse_int(ctx.args[i + 1]).to_int())
-      i += 2
-    } else if !(ctx.args[i].has_prefix("-")) {
-      file_idx = i
-      i += 1
-    } else {
-      i += 1
+  let config = xan_slice_parse_args(ctx.args)
+  let content = match config.file_path {
+    Some(path) => {
+      let resolved = try {
+        @fs.resolve_path(ctx.cwd, path)
+      } catch {
+        @fs.FsError(msg) => return @ast.ExecResult::err("xan slice: \{msg}\n")
+      }
+      try {
+        ctx.fs.read_file(resolved)
+      } catch {
+        @fs.FsError(msg) => return @ast.ExecResult::err("xan slice: \{msg}\n")
+      }
     }
-  }
-  let content = if file_idx >= 0 {
-    let resolved = try {
-      @fs.resolve_path(ctx.cwd, ctx.args[file_idx])
-    } catch {
-      @fs.FsError(msg) => return @ast.ExecResult::err("xan slice: \{msg}\n")
-    }
-    try {
-      ctx.fs.read_file(resolved)
-    } catch {
-      @fs.FsError(msg) => return @ast.ExecResult::err("xan slice: \{msg}\n")
-    }
-  } else {
-    ctx.stdin_content
+    None => ctx.stdin_content
   }
   let csv = @nyacsv.CSV::parse_string(content)
   let headers = csv.header()
   let rows = csv.data()
-  let end = match length {
+  let end = match config.length {
     Some(l) => {
-      let e = start + l
+      let e = config.start + l
       if e > rows.length() { rows.length() } else { e }
     }
     None => rows.length()
   }
-  let actual_start = if start < 0 { 0 } else if start > rows.length() { rows.length() } else { start }
+  let actual_start = if config.start < 0 {
+    0
+  } else if config.start > rows.length() {
+    rows.length()
+  } else {
+    config.start
+  }
   let out = StringBuilder::new()
   // Output headers
   out.write_string(headers.join(","))
