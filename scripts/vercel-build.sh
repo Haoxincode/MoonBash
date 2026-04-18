@@ -15,4 +15,8 @@ echo "[vercel-build] Moon version:"
 moon version
 
 cd "${ROOT_DIR}"
+echo "[vercel-build] Updating MoonBit registry index..."
+moon -C src update
+
+echo "[vercel-build] Building website..."
 pnpm build:website
