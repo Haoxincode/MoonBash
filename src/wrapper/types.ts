@@ -118,6 +118,12 @@ export interface TimerOptions {
    * Used by time/timeout builtins.
    */
   now?: () => number;
+
+  /**
+   * Optional wall-clock time (milliseconds since Unix epoch).
+   * Used by the date builtin.
+   */
+  wallNow?: () => number;
 }
 
 export interface InitialFileEntry {

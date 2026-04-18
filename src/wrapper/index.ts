@@ -67,6 +67,7 @@ interface StateExecResult extends ExecResult {
 type MoonBashFetchBridge = (requestJson: string) => string;
 type MoonBashSleepBridge = (durationMs: number) => string;
 type MoonBashNowBridge = () => number;
+type MoonBashWallNowBridge = () => number;
 type MoonBashVmBridge = (requestJson: string) => string;
 type MoonBashCustomBridge = (requestJson: string) => string;
 
@@ -248,6 +249,7 @@ interface NodeWorkerBridgeContext {
   fetchBridge?: MoonBashFetchBridge;
   sleepBridge?: MoonBashSleepBridge;
   nowBridge?: MoonBashNowBridge;
+  wallNowBridge?: MoonBashWallNowBridge;
   vmBridge?: MoonBashVmBridge;
 }
 
@@ -354,6 +356,8 @@ declare global {
   var __moon_bash_sleep: MoonBashSleepBridge | undefined;
   // eslint-disable-next-line no-var
   var __moon_bash_now: MoonBashNowBridge | undefined;
+  // eslint-disable-next-line no-var
+  var __moon_bash_wall_now: MoonBashWallNowBridge | undefined;
   // eslint-disable-next-line no-var
   var __moon_bash_vm: MoonBashVmBridge | undefined;
   // eslint-disable-next-line no-var
@@ -995,6 +999,14 @@ export class Bash {
     return 0;
   }
 
+  private defaultWallNowMs(): number {
+    if (typeof Date !== "undefined" && typeof Date.now === "function") {
+      const value = Date.now();
+      return Number.isFinite(value) ? Math.floor(value) : 0;
+    }
+    return 0;
+  }
+
   private defaultSleep(durationMs: number): void {
     if (!Number.isFinite(durationMs) || durationMs <= 0) {
       return;
@@ -1118,6 +1130,24 @@ export class Bash {
           return 0;
         }
         return Math.floor(value) % 2147483647;
+      } catch {
+        return 0;
+      }
+    };
+  }
+
+  private createWallNowBridge(): MoonBashWallNowBridge {
+    const wallNowImpl = this.options.timers?.wallNow;
+    if (!wallNowImpl) {
+      return () => this.defaultWallNowMs();
+    }
+    return (): number => {
+      try {
+        const value = wallNowImpl();
+        if (!Number.isFinite(value)) {
+          return 0;
+        }
+        return Math.floor(value);
       } catch {
         return 0;
       }
@@ -2440,6 +2470,10 @@ globalThis.__moon_bash_now = () => {
   const value = Number(callBridge("now", ""));
   return Number.isFinite(value) ? value : 0;
 };
+globalThis.__moon_bash_wall_now = () => {
+  const value = Number(callBridge("wall-now", ""));
+  return Number.isFinite(value) ? value : 0;
+};
 globalThis.__moon_bash_vm = (requestJson) => callBridge("vm", requestJson);
 globalThis.__moon_bash_custom = (requestJson) => callBridge("custom", requestJson);
 
@@ -2532,6 +2566,9 @@ while (true) {
               }
               if (bridge === "now") {
                 return context.nowBridge ? context.nowBridge().toString() : "0";
+              }
+              if (bridge === "wall-now") {
+                return context.wallNowBridge ? context.wallNowBridge().toString() : "0";
               }
               if (bridge === "vm") {
                 return context.vmBridge ? context.vmBridge(payload) : "";
@@ -2626,6 +2663,7 @@ while (true) {
           fetchBridge: this.createFetchBridge(),
           sleepBridge: this.createSleepBridge(),
           nowBridge: this.createNowBridge(),
+          wallNowBridge: this.createWallNowBridge(),
           vmBridge: this.createVmBridge(),
         };
 
@@ -2736,16 +2774,19 @@ while (true) {
     const fetchBridge = this.createFetchBridge();
     const sleepBridge = this.createSleepBridge();
     const nowBridge = this.createNowBridge();
+    const wallNowBridge = this.createWallNowBridge();
     const vmBridge = this.createVmBridge();
     const customBridge = this.createCustomBridge(limitsJson, layoutMode);
     const previousFetchBridge = globalThis.__moon_bash_fetch;
     const previousSleepBridge = globalThis.__moon_bash_sleep;
     const previousNowBridge = globalThis.__moon_bash_now;
+    const previousWallNowBridge = globalThis.__moon_bash_wall_now;
     const previousVmBridge = globalThis.__moon_bash_vm;
     const previousCustomBridge = globalThis.__moon_bash_custom;
     globalThis.__moon_bash_fetch = fetchBridge;
     globalThis.__moon_bash_sleep = sleepBridge;
     globalThis.__moon_bash_now = nowBridge;
+    globalThis.__moon_bash_wall_now = wallNowBridge;
     globalThis.__moon_bash_vm = vmBridge;
     globalThis.__moon_bash_custom = customBridge;
 
@@ -2794,6 +2835,11 @@ while (true) {
         delete globalThis.__moon_bash_now;
       } else {
         globalThis.__moon_bash_now = previousNowBridge;
+      }
+      if (previousWallNowBridge === undefined) {
+        delete globalThis.__moon_bash_wall_now;
+      } else {
+        globalThis.__moon_bash_wall_now = previousWallNowBridge;
       }
       if (previousVmBridge === undefined) {
         delete globalThis.__moon_bash_vm;

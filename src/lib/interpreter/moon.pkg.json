@@ -5,6 +5,7 @@
     "moon_bash/lib/fs",
     "moon_bash/lib/commands",
     "moon_bash/lib/regex",
-    "moon_bash/lib/ffi"
+    "moon_bash/lib/ffi",
+    "moonbitlang/x/time"
   ]
 }

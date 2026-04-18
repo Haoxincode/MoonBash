@@ -140,6 +140,63 @@ pub fn now_ms_sync() -> Int {
   host_now_ms_sync_js()
 }
 
+fn parse_host_int64_decimal(text : String) -> Int64 {
+  if text.length() == 0 {
+    return 0L
+  }
+  let mut i = 0
+  let mut sign = 1L
+  if text[0].to_int().unsafe_to_char() == '+' {
+    i = 1
+  } else if text[0].to_int().unsafe_to_char() == '-' {
+    sign = -1L
+    i = 1
+  }
+  let mut value = 0L
+  while i < text.length() {
+    let ch = text[i].to_int().unsafe_to_char()
+    if ch < '0' || ch > '9' {
+      break
+    }
+    value = value * 10L + (ch.to_int() - '0'.to_int()).to_int64()
+    i += 1
+  }
+  value * sign
+}
+
+/// JS bridge: read wall-clock milliseconds since Unix epoch.
+#cfg(target="js")
+extern "js" fn host_wall_now_ms_sync_js() -> String =
+  #| function() {
+  #|   try {
+  #|     const bridge = globalThis.__moon_bash_wall_now;
+  #|     let value;
+  #|     if (typeof bridge === "function") {
+  #|       value = bridge();
+  #|     } else if (typeof Date !== "undefined" && typeof Date.now === "function") {
+  #|       value = Date.now();
+  #|     } else {
+  #|       value = 0;
+  #|     }
+  #|     if (!Number.isFinite(value)) {
+  #|       return "0";
+  #|     }
+  #|     return Math.floor(value).toString();
+  #|   } catch (_error) {
+  #|     return "0";
+  #|   }
+  #| }
+
+#cfg(not(target="js"))
+fn host_wall_now_ms_sync_js() -> String {
+  "0"
+}
+
+/// Return wall-clock milliseconds since Unix epoch from the host.
+pub fn wall_now_ms_sync() -> Int64 {
+  parse_host_int64_decimal(host_wall_now_ms_sync_js())
+}
+
 /// JS bridge: delegate VM execution requests to `globalThis.__moon_bash_vm`.
 /// The bridge must return a JSON string.
 #cfg(target="js")

@@ -174,16 +174,6 @@ fn ExecContext::builtin_seq(
   }
   self.exit_code = 0
 }
-
-
-fn ExecContext::builtin_date(
-  self : ExecContext,
-  _args : Array[String]
-) -> Unit {
-  self.stdout_buf.write_string("Thu Jan  1 00:00:00 UTC 1970\n")
-  self.exit_code = 0
-}
-
 fn ExecContext::builtin_env(
   self : ExecContext,
   _args : Array[String]
