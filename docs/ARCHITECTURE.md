@@ -602,25 +602,40 @@ A complete trace of `echo "hello $USER" > output.txt`:
 ```
 MoonBit Source (.mbt)
        │
+       ├── src/lib/*            (core shell engine)
+       └── src/website/*        (browser demo mount package)
+       │
        ▼
 moon build --target js
        │
        ▼
-Pure JavaScript (moon_bash-core.js)
+Pure JavaScript packages under src/_build/js/debug/build/*
+       │
+       ├── lib/entry/entry.js   (core execution bridge)
+       └── website/website.js   (browser demo mount bridge)
        │
        ▼
-TypeScript Wrapper (src/wrapper/*.ts)
+TypeScript / JS integration layer
+       │
+       ├── src/wrapper/*.ts     (library wrapper)
+       └── examples/website/main.js
        │
        ▼
 tsup / esbuild bundling
        │
-       ├── dist/index.js        (Node.js ESM)
-       ├── dist/index.d.ts      (Type definitions)
-       └── dist/browser.js      (Browser ESM)
+       ├── dist/index.js                (Node.js ESM library build)
+       ├── dist/index.d.ts              (Type definitions)
+       └── examples/website/dist/*      (static browser demo)
        │
        ▼
-npm publish moon-bash
+npm publish moon-bash / serve website demo
 ```
+
+The browser demo path is intentionally separate from the npm package build:
+
+- library packaging still centers on the TypeScript wrapper under `src/wrapper/`
+- browser demo packaging uses `examples/website/main.js` plus the compiled MoonBit package in `src/website/`
+- this keeps the demo close to real browser constraints without pushing presentation logic into the shell core
 
 ### 6.1 Build Size Analysis (2026-02-19 Measured)
 

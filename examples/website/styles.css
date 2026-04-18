@@ -1,0 +1,314 @@
+:root {
+  --bg-top: #081018;
+  --bg-bottom: #04070b;
+  --panel: rgba(7, 12, 18, 0.9);
+  --panel-edge: rgba(133, 246, 216, 0.16);
+  --panel-glow: rgba(93, 193, 255, 0.18);
+  --text: #ecfff8;
+  --muted: #93afa7;
+  --accent: #8df5d2;
+  --accent-strong: #54e2b7;
+  --stderr: #ff998f;
+  --hint: #9cc8ff;
+  --shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+  --mono: "Iosevka Term", "IBM Plex Mono", "SFMono-Regular", "Cascadia Code",
+    "JetBrains Mono", ui-monospace, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: var(--mono);
+  color: var(--text);
+  background:
+    radial-gradient(circle at top left, rgba(84, 226, 183, 0.12), transparent 28%),
+    radial-gradient(circle at top right, rgba(93, 193, 255, 0.16), transparent 24%),
+    linear-gradient(180deg, var(--bg-top), var(--bg-bottom));
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-size: 28px 28px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.75), transparent);
+}
+
+#app {
+  min-height: 100dvh;
+  padding:
+    calc(24px + env(safe-area-inset-top, 0px))
+    calc(24px + env(safe-area-inset-right, 0px))
+    calc(24px + env(safe-area-inset-bottom, 0px))
+    calc(24px + env(safe-area-inset-left, 0px));
+}
+
+.moonbash-shell {
+  width: min(1100px, 100%);
+  min-height: calc(100dvh - 48px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  margin: 0 auto;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  border: 1px solid var(--panel-edge);
+  border-radius: 28px;
+  background:
+    linear-gradient(180deg, rgba(7, 12, 18, 0.96), rgba(4, 8, 12, 0.92)),
+    var(--panel);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  backdrop-filter: blur(22px);
+}
+
+.moonbash-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 22px 24px 20px;
+  border-bottom: 1px solid rgba(141, 245, 210, 0.12);
+  background:
+    linear-gradient(180deg, rgba(93, 193, 255, 0.08), transparent),
+    linear-gradient(90deg, rgba(141, 245, 210, 0.06), transparent 40%);
+}
+
+.moonbash-title {
+  max-width: 42rem;
+}
+
+.moonbash-badge {
+  display: inline-flex;
+  margin-bottom: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(141, 245, 210, 0.2);
+  color: var(--accent);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.moonbash-heading {
+  margin: 0;
+  font-size: clamp(32px, 5vw, 64px);
+  line-height: 0.95;
+  letter-spacing: -0.06em;
+}
+
+.moonbash-subtitle {
+  margin: 12px 0 0;
+  color: var(--muted);
+  line-height: 1.6;
+  max-width: 48rem;
+}
+
+.moonbash-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 240px;
+}
+
+.moonbash-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(84, 226, 183, 0.1);
+  color: var(--accent);
+  font-size: 12px;
+  text-align: center;
+}
+
+.moonbash-nav {
+  display: flex;
+  gap: 14px;
+}
+
+.moonbash-link {
+  color: var(--text);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+}
+
+.moonbash-link:hover {
+  color: var(--accent);
+  border-color: currentColor;
+}
+
+.moonbash-viewport {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  overflow: hidden;
+}
+
+.moonbash-output {
+  min-height: 0;
+  overflow: auto;
+  padding: 24px;
+}
+
+.moonbash-output::-webkit-scrollbar {
+  width: 10px;
+}
+
+.moonbash-output::-webkit-scrollbar-thumb {
+  background: rgba(141, 245, 210, 0.2);
+  border-radius: 999px;
+}
+
+.moonbash-line,
+.moonbash-command {
+  margin: 0 0 18px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.moonbash-line-intro {
+  color: var(--muted);
+}
+
+.moonbash-line-stdout {
+  color: var(--text);
+}
+
+.moonbash-line-stderr {
+  color: var(--stderr);
+}
+
+.moonbash-line-hint {
+  color: var(--hint);
+}
+
+.moonbash-command {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  color: var(--accent);
+}
+
+.moonbash-command-cwd {
+  color: var(--muted);
+}
+
+.moonbash-command-prompt {
+  color: var(--accent-strong);
+}
+
+.moonbash-command-text {
+  color: var(--text);
+}
+
+.moonbash-input-row {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 24px calc(20px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid rgba(141, 245, 210, 0.12);
+  background:
+    linear-gradient(180deg, rgba(4, 8, 12, 0.7), rgba(4, 8, 12, 0.95)),
+    rgba(4, 8, 12, 0.8);
+  box-shadow: inset 0 1px 0 rgba(93, 193, 255, 0.08);
+}
+
+.moonbash-input-row.is-busy {
+  opacity: 0.72;
+}
+
+.moonbash-location,
+.moonbash-prompt {
+  font-size: 14px;
+}
+
+.moonbash-location {
+  color: var(--muted);
+}
+
+.moonbash-prompt {
+  color: var(--accent-strong);
+}
+
+.moonbash-input {
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.moonbash-input::placeholder {
+  color: rgba(236, 255, 248, 0.32);
+}
+
+.moonbash-noscript {
+  max-width: 840px;
+  margin: 40px auto;
+  padding: 24px;
+  border-radius: 20px;
+  border: 1px solid rgba(141, 245, 210, 0.18);
+  background: rgba(7, 12, 18, 0.9);
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+@media (max-width: 840px) {
+  #app {
+    padding:
+      calc(14px + env(safe-area-inset-top, 0px))
+      calc(14px + env(safe-area-inset-right, 0px))
+      calc(14px + env(safe-area-inset-bottom, 0px))
+      calc(14px + env(safe-area-inset-left, 0px));
+  }
+
+  .moonbash-shell {
+    min-height: calc(100dvh - 28px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+    border-radius: 22px;
+  }
+
+  .moonbash-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .moonbash-meta {
+    align-items: flex-start;
+    min-width: auto;
+  }
+
+  .moonbash-status {
+    justify-content: flex-start;
+    text-align: left;
+  }
+
+  .moonbash-input-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .moonbash-location,
+  .moonbash-prompt {
+    display: inline-block;
+    width: fit-content;
+  }
+}

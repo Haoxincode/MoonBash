@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>MoonBash</title>
+    <meta
+      name="description"
+      content="A browser terminal recreating justbash.dev with MoonBash running in memory."
+    />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23061119'/%3E%3Cpath d='M16 19h32v26H16z' fill='none' stroke='%238df5d2' stroke-width='4'/%3E%3Cpath d='m22 28 7 6-7 6' fill='none' stroke='%238df5d2' stroke-linecap='round' stroke-linejoin='round' stroke-width='4'/%3E%3Cpath d='M34 40h8' stroke='%2354e2b7' stroke-linecap='round' stroke-width='4'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="app"></div>
+    <noscript>
+      <pre class="moonbash-noscript">
+moonbash
+
+A browser demo of MoonBash running fully in memory.
+
+Build it with:
+  pnpm build:website
+
+Then serve:
+  pnpm serve:website
+      </pre>
+    </noscript>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

@@ -18,11 +18,13 @@
     "build:mbt": "cd src && moon build --target js",
     "build:ts": "tsup",
     "build": "pnpm build:mbt && pnpm build:ts",
+    "build:website": "bash scripts/build-website.sh",
     "test:mbt": "cd src && moon test",
     "test": "vitest run",
     "test:safe": "bash scripts/test-safe.sh",
     "test:watch": "vitest",
-    "check": "cd src && moon check"
+    "check": "cd src && moon check",
+    "serve:website": "python3 -m http.server 4173 -d examples/website/dist"
   },
   "keywords": [
     "bash",

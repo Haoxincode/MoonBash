@@ -4,6 +4,7 @@ node_modules/
 # Build outputs
 dist/
 src/_build/
+examples/website/dist/
 
 # MoonBit
 target/

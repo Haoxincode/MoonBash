@@ -35,7 +35,8 @@ Phase 5: Multi-Platform Expansion            🔧 PARTIALLY COMPLETE
   → Compression: gzip/gunzip/zcat real DEFLATE via gmlewis/gzip (done)
   → tar: MBTAR1 self-contained format (bobzhang/tar unsuitable)
   → VM bridges: python3, sqlite3 (done)
-  → Remaining: WASM target, browser bundle, REPL
+  → Browser website demo + browser build path landed
+  → Remaining: WASM target, published browser packaging hardening, standalone REPL
 ```
 
 **Current comparison test pass rate: 522/523 (1 awk regression from `b38190a`)**
@@ -535,18 +536,26 @@ Migrated from handwritten evaluator to `bobzhang/moonjq` (MoonBit creator's pack
 
 ### 5.2 Browser Bundle
 
-- [ ] Browser-specific build target
+- [x] Browser-specific build path (`pnpm build:website`)
+- [x] Static website demo (`examples/website/`) replicating the `justbash.dev` full-screen terminal style
+- [x] MoonBit frontend mount package (`src/website/`) for browser UI bootstrapping
+- [x] Browser wrapper entry scaffold (`src/wrapper/browser.ts`)
 - [ ] IndexedDB-backed persistent VFS
 - [ ] xterm.js integration example
 - [ ] Web Worker support (off-main-thread execution)
 - [ ] CSP-compatible (no eval, no dynamic imports)
 
+Current status note (2026-04-18): the browser demo is real and locally runnable today, but the npm package export surface is still primarily Node-oriented. The website build bundles directly from source plus compiled MoonBit JS, which is sufficient to demonstrate browser usability and embedability.
+
 ### 5.3 Interactive Shell (REPL)
 
-- [ ] Line editing and history
-- [ ] Tab completion
+- [x] Browser demo line history
+- [x] Browser demo tab completion
+- [ ] General-purpose REPL abstraction
 - [ ] Prompt customization (`PS1`)
 - [ ] CLI binary (`npx moon-bash`)
+
+Current status note (2026-04-18): the website demo already includes a minimal interactive shell loop in the browser, but a reusable standalone REPL for package consumers or CLI use is still pending.
 
 ### 5.4 Advanced Features (Partially Complete)
 

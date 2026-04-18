@@ -17,7 +17,7 @@ MoonBash is a complete rewrite of [vercel-labs/just-bash](https://github.com/ver
 | WASM Required | No | No |
 | API Surface Compatible | N/A | 100% drop-in replacement |
 
-Status note (as of 2026-02-20): command coverage is complete (`87/87`) and comparison tests are at `522/523` (1 awk regression from `b38190a`). Security test suite fully passing (`188/188` attacks, all sandbox/limits/prototype-pollution suites). gzip/gunzip/zcat now use real DEFLATE compression via `gmlewis/gzip`. Spec compatibility hardening remains in progress. See `docs/ROADMAP.md`.
+Status note (as of 2026-04-18): command coverage is complete (`87/87`) and comparison tests are at `522/523` (1 awk regression from `b38190a`). Security test suite fully passing (`188/188` attacks, all sandbox/limits/prototype-pollution suites). gzip/gunzip/zcat now use real DEFLATE compression via `gmlewis/gzip`. A browser website demo now ships under `examples/website/`, recreating the `justbash.dev` style terminal with MoonBash running fully in-memory in the browser. Spec compatibility hardening remains in progress. See `docs/ROADMAP.md`.
 
 ## Build Size
 
@@ -62,6 +62,33 @@ console.log(result.stdout); // "HELLO FROM MOONBASH!\n"
 console.log(result.exitCode); // 0
 ```
 
+## Browser Demo
+
+MoonBash now includes a browser demo that recreates the `justbash.dev` terminal experience, but uses MoonBash as the runtime.
+
+Key pieces:
+
+- `src/website/` - MoonBit package that mounts the browser UI and terminal interaction layer
+- `src/wrapper/browser.ts` - browser-friendly TypeScript entry used by the demo bundle
+- `examples/website/` - static website assets and bootstrap code
+
+Build and run it locally:
+
+```bash
+pnpm build:website
+pnpm serve:website
+```
+
+Then open <http://localhost:4173>.
+
+What the demo proves:
+
+- MoonBash can run entirely in the browser as pure JavaScript
+- the in-memory filesystem can preload real repository docs for interactive exploration
+- custom commands such as `about`, `install`, and `github` can be layered on top without changing the MoonBit core
+
+See `examples/website/README.md` for the demo-specific README.
+
 ## Architecture Overview
 
 ```
@@ -96,6 +123,7 @@ console.log(result.exitCode); // 0
 | [Security](./SECURITY.md) | Sandbox security model and threat mitigation |
 | [FFI & Interop](./FFI.md) | MoonBit-JavaScript interop design |
 | [Roadmap](./ROADMAP.md) | Development phases and milestones |
+| [`examples/website/README.md`](../examples/website/README.md) | Browser demo structure, build, and local serving |
 
 ## License
 
