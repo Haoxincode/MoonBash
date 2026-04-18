@@ -17,7 +17,7 @@ MoonBash is a complete rewrite of [vercel-labs/just-bash](https://github.com/ver
 | WASM Required | No | No |
 | API Surface Compatible | N/A | 100% drop-in replacement |
 
-Status note (as of 2026-04-18): command coverage is complete (`87/87`) and comparison tests are at `522/523` (1 awk regression from `b38190a`). Security test suite fully passing (`188/188` attacks, all sandbox/limits/prototype-pollution suites). gzip/gunzip/zcat now use real DEFLATE compression via `gmlewis/gzip`. A browser website demo now ships under `examples/website/`, recreating the `justbash.dev` style terminal with MoonBash running fully in-memory in the browser. Spec compatibility hardening remains in progress. See `docs/ROADMAP.md`.
+Status note (as of 2026-04-18): command coverage is complete (`87/87`) and comparison tests are at `522/523` (1 awk regression from `b38190a`). Security test suite fully passing (`188/188` attacks, all sandbox/limits/prototype-pollution suites). gzip/gunzip/zcat now use real DEFLATE compression via `gmlewis/gzip`. A browser website demo now ships under `examples/website/`, recreating the `justbash.dev` style terminal with MoonBash running fully in-memory in the browser. Its runtime is now MoonBit-led: DOM building, state updates, command execution flow, history, completion, and autoplay verification all live in `src/website/*.mbt`, while the JS entry only injects configuration and wrapper exports. Spec compatibility hardening remains in progress. See `docs/ROADMAP.md`.
 
 ## Build Size
 
@@ -68,9 +68,10 @@ MoonBash now includes a browser demo that recreates the `justbash.dev` terminal 
 
 Key pieces:
 
-- `src/website/` - MoonBit package that mounts the browser UI and terminal interaction layer
-- `src/wrapper/browser.ts` - browser-friendly TypeScript entry used by the demo bundle
-- `examples/website/` - static website assets and bootstrap code
+- `src/website/` - MoonBit package for DOM creation, browser state, async command flow, and verification playback
+- `src/wrapper/browser.ts` - browser-friendly wrapper exports exposing `Bash`, `defineCommand`, and related APIs
+- `examples/website/main.js` - thin bootstrap that injects config/data into `globalThis`
+- `examples/website/` - static website assets and bundle output
 
 Build and run it locally:
 
@@ -86,6 +87,7 @@ What the demo proves:
 - MoonBash can run entirely in the browser as pure JavaScript
 - the in-memory filesystem can preload real repository docs for interactive exploration
 - custom commands such as `about`, `install`, and `github` can be layered on top without changing the MoonBit core
+- MoonBit can own the website runtime itself, not just the shell core, while keeping JS as a thin host/config bridge
 
 See `examples/website/README.md` for the demo-specific README.
 

@@ -15,9 +15,14 @@ This demo recreates the `justbash.dev` terminal experience with MoonBash running
 
 The demo is split into three pieces:
 
-- `src/website/website.mbt` - MoonBit mount layer that creates the DOM terminal UI and wires interaction
+- `src/website/*.mbt` - MoonBit-led website runtime:
+  - `config.mbt` parses injected config and builds verification plans
+  - `dom_helpers.mbt` creates and updates DOM with `tiye/dom-ffi`
+  - `app.mbt` owns shell state, history, tab completion, autoplay verification, and async flow
+  - `website.mbt` is the mount entry point
+- `src/website/bridge.mbt` - thin host bridge for `Bash` runtime creation and the few browser APIs not yet wrapped ergonomically
 - `src/wrapper/browser.ts` - browser-facing wrapper exports used by the demo bundle
-- `examples/website/main.js` - demo bootstrap that injects content, commands, and initial files
+- `examples/website/main.js` - thin bootstrap that injects config, docs, files, and wrapper exports into `globalThis`
 
 Build output lands in `examples/website/dist/`.
 
@@ -49,3 +54,4 @@ This demo is meant to prove usability, not just compilation:
 - the browser runtime can explore a preloaded virtual filesystem interactively
 - MoonBit can own part of the frontend integration layer, not only the shell core
 - the website can autoplay a real verification pass and surface concrete pass/fail results in the UI
+- the async execution path can be driven from MoonBit via `moonbitlang/async/js_async`, instead of staying in ad-hoc JS promise chains

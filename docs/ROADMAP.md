@@ -546,6 +546,7 @@ Migrated from handwritten evaluator to `bobzhang/moonjq` (MoonBit creator's pack
 - [ ] CSP-compatible (no eval, no dynamic imports)
 
 Current status note (2026-04-18): the browser demo is real and locally runnable today, but the npm package export surface is still primarily Node-oriented. The website build bundles directly from source plus compiled MoonBit JS, which is sufficient to demonstrate browser usability and embedability.
+Update (2026-04-18): the browser website runtime has since been refactored toward MoonBit. The demo still uses a thin JS bootstrap, but DOM construction, browser state, async command execution, history/completion, and autoplay verification now live in `src/website/*.mbt`.
 
 ### 5.3 Interactive Shell (REPL)
 
