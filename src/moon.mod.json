@@ -13,7 +13,9 @@
     "gmlewis/base64": "0.16.2",
     "moonbit-community/piediff": "0.0.8",
     "justjavac/glob": "0.1.2",
-    "bobzhang/moonjq": "0.1.0"
+    "bobzhang/moonjq": "0.1.0",
+    "tiye/dom-ffi": "0.2.3",
+    "moonbitlang/async": "0.18.0"
   },
   "readme": "../README.md",
   "repository": "",

@@ -1,0 +1,28 @@
+{
+  "import": [
+    {
+      "path": "moonbitlang/core/json",
+      "alias": "json"
+    },
+    {
+      "path": "moonbitlang/async",
+      "alias": "async"
+    },
+    {
+      "path": "moonbitlang/async/js_async",
+      "alias": "js_async"
+    },
+    {
+      "path": "tiye/dom-ffi",
+      "alias": "dom_ffi"
+    }
+  ],
+  "link": {
+    "js": {
+      "exports": [
+        "mount_demo"
+      ],
+      "format": "esm"
+    }
+  }
+}
