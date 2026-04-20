@@ -8,7 +8,7 @@
 4. **API Compatibility** - The TypeScript wrapper must expose an identical API to `just-bash`.
 5. **Incremental Migration** - Architecture must support incremental command implementation with fallback mechanisms.
 
-Status note (as of 2026-02-20): core architecture and command coverage are complete; compatibility hardening is still in progress. gzip/gunzip/zcat now use real DEFLATE compression via `gmlewis/gzip` (commit `1d0b311`). tar uses self-contained MBTAR1 format (`bobzhang/tar` is only an in-memory data structure library without binary serialization). For latest pass/fail truth, use `docs/OFFICIAL_TEST_CASE_ISSUES_2026-02-19.md` and `docs/ROADMAP.md`.
+Status note (as of 2026-04-20): core architecture and command coverage are complete; comparison tests are at `523/523`, compatibility hardening is still in progress, and the npm build now has both a readable release package path (`vp run build`) and a minified publish path (`vp run build:publish`). gzip/gunzip/zcat use real DEFLATE compression via `gmlewis/gzip`, and tar uses self-contained MBTAR1 format (`bobzhang/tar` is only an in-memory data structure library without binary serialization). For latest pass/fail truth, use `docs/ROADMAP.md`; for current package sizing, use `docs/README.md`.
 
 ## 1.1 Ecosystem-First Implementation Strategy
 
@@ -58,7 +58,7 @@ This keeps parser/interpreter code small and auditable while preserving performa
 │  └──────────┘  └──────────┘  └────────────────────┘        │
 │                                                             │
 │  Purpose: Parsing, evaluation, commands, algorithms, VFS    │
-│  Compiled: ~245 KB gzip (997 KB min), zero npm dependencies │
+│  Publish build: ~432 KB tgz / ~434 KB gzip, zero npm deps   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -639,11 +639,16 @@ The browser demo path is intentionally separate from the npm package build:
 - JS is retained mainly for host bootstrap/config injection and the minimum browser interop surface needed by the MoonBit package
 - this keeps the demo close to real browser constraints without pushing presentation logic back into the shell core or a large JS frontend
 
-### 6.1 Build Size Analysis (2026-02-19 Measured)
+### 6.1 Build Size Analysis
 
 MoonBit compiles to a single JS file with fully qualified names (e.g. `$moonbitlang$core$array$Array$push`) to avoid scope collisions. This inflates raw text size but compresses extremely well through standard JS tooling.
 
-**Full pipeline measurements** (87 commands including awk/sed/jq/tar/diff/gzip interpreters):
+There are two size stories that matter in practice:
+
+1. the standalone MoonBit-JS benchmark path (`release -> external minify -> gzip`), useful for understanding the compiler output ceiling
+2. the actual npm package produced by the current repository scripts (`vp run build` / `vp run build:publish`)
+
+**Standalone benchmark measurements** (2026-02-19, 87 commands including awk/sed/jq/tar/diff/gzip interpreters):
 
 | Stage | Size | vs Raw | Notes |
 |-------|------|--------|-------|
@@ -651,6 +656,13 @@ MoonBit compiles to a single JS file with fully qualified names (e.g. `$moonbitl
 | release (`moon build --target js --release`) | 4,342,023 bytes (4.2 MB) | 90.5% | DCE + inlining; no source map |
 | release + minify (`esbuild --minify`) | 1,021,156 bytes (997 KB) | 21.3% | Name mangling crushes FQNs to single letters |
 | release + minify + gzip | 251,147 bytes (245 KB) | 5.2% | Realistic network transfer size |
+
+**Current npm package measurements** (2026-04-20, actual repository build scripts):
+
+| Build flavor | `dist/index.mjs` | gzip | npm tarball | unpacked | Notes |
+|-------|------|------|------|------|-------|
+| release package (`vp run build`) | 4.56 MB | 663 KB | 650 KB | 4.57 MB | readable ESM output, no sourcemaps published |
+| publish package (`vp run build:publish`) | 1.65 MB | 434 KB | 432 KB | 1.67 MB | release build plus JS minification |
 
 **Why `--release` only saves ~9.5%:**
 Unlike C/Rust where debug builds embed DWARF symbols and panic stacks directly in the binary, MoonBit's debug mode is already lean — debug info lives in a separate `.js.map` file. The `--release` flag triggers additional DCE and inlining but the core computation code is already tightly generated.
@@ -661,15 +673,18 @@ The raw JS output is dominated by repeated fully qualified identifiers like `$Ha
 **Why gzip compresses further (997 KB → 245 KB, -75%):**
 Minified JS has high pattern repetition (single-letter variables, repeated structural patterns), making it extremely compressible. This is a fundamental advantage over Wasm — `.wasm` binaries are dense machine code with high information entropy, so they barely compress (typically only 20-30% reduction via gzip).
 
+**Why the publish build is larger than the old 245 KB benchmark:**
+The current npm package includes the TypeScript wrapper entry and is minified through the repository's `vp pack` pipeline rather than a standalone `esbuild --minify` benchmark on a raw MoonBit artifact. It is still small enough for the target runtimes, but the number is not directly comparable to the old benchmark headline.
+
 **Deployment target compatibility:**
 
 | Platform | Limit | Fits? |
 |----------|-------|-------|
 | Vercel Serverless Functions | 50 MB uncompressed | Yes |
-| Vercel Edge Functions | 1-4 MB (plan-dependent) | Yes (997 KB minified) |
-| Cloudflare Workers (free) | 1 MB compressed | Yes (245 KB gzip) |
+| Vercel Edge Functions | 1-4 MB (plan-dependent) | Yes (1.65 MB minified publish build) |
+| Cloudflare Workers (free) | 1 MB compressed | Yes (434 KB gzip publish build) |
 | Cloudflare Workers (paid) | 10 MB compressed | Yes |
-| Browser `<script>` | N/A (network cost) | 245 KB transfer |
+| Browser `<script>` | N/A (network cost) | 434 KB transfer (publish build) |
 
 **JS vs Wasm tradeoff for this use case:**
 An equivalent Rust→Wasm build would produce ~600-800 KB after `wasm-opt -Oz`, but Wasm cannot be minified (no variable renaming) and compresses poorly (~300 KB+ gzip). Additionally, Wasm incurs FFI overhead for every string crossing the JS↔Wasm boundary (deep copy required), while MoonBit's JS output operates on native V8 strings with zero copy cost. Wasm also requires async `WebAssembly.instantiate()`, preventing synchronous cold start.

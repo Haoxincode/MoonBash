@@ -28,6 +28,7 @@ Phase 4: Production Hardening                🔧 IN PROGRESS
   → Network: curl, html-to-markdown
   → Custom command bridge
   → Remaining: AgentFS adapter, npm publish
+  → Release/minified npm packaging paths landed (`vp run build`, `vp run build:publish`)
   → OverlayFs/MountableFs ⏸️ superseded by AgentFS
 
 Phase 5: Multi-Platform Expansion            🔧 PARTIALLY COMPLETE
@@ -61,7 +62,7 @@ Phase 5: Multi-Platform Expansion            🔧 PARTIALLY COMPLETE
 - [x] Initialize MoonBit project (`moon.mod.json`)
 - [x] Configure JS backend (`moon.pkg.json` with `"targets": {"js": {...}}`)
 - [x] Set up TypeScript wrapper project (`package.json`, `tsconfig.json`)
-- [x] Configure build pipeline (`moon build --target js` → `vp pack`)
+- [x] Configure build pipeline (`moon build --target js --release` → `vp pack`; optional publish minify via `vp run build:publish`)
 - [x] Set up test infrastructure (MoonBit tests + TS integration tests)
 - [ ] CI/CD pipeline (GitHub Actions)
 

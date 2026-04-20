@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
+const packMinify = process.env.MOONBASH_PACK_MINIFY === "1";
 
 export default defineConfig({
   resolve: {
@@ -30,6 +31,7 @@ export default defineConfig({
     entry: ["src/wrapper/index.ts"],
     dts: true,
     format: ["esm"],
+    minify: packMinify,
     sourcemap: false,
   },
   fmt: {

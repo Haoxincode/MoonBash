@@ -27,6 +27,7 @@
     "build:mbt": "moon -C src build --target js --release",
     "build:ts": "vp pack",
     "build": "moon -C src build --target js --release && vp pack",
+    "build:publish": "moon -C src build --target js --release && MOONBASH_PACK_MINIFY=1 vp pack",
     "build:website": "moon -C src build --target js --release && vp build -c vite.website.config.ts",
     "test:mbt": "moon -C src test",
     "test": "moon -C src build --target js --release && vp test run",

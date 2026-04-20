@@ -12,7 +12,7 @@ MoonBash is a complete rewrite of [vercel-labs/just-bash](https://github.com/ver
 | Type Safety | Structural (TS) | Algebraic Data Types + Pattern Matching |
 | ReDoS Protection | JS RegExp (vulnerable) | VM-based regex engine (immune) |
 | Commands | ~30 | 87 (incl. awk, sed, jq, tar, diff, gzip) |
-| Bundle Size | ~200KB+ | **245 KB** gzip / 997 KB minified |
+| Bundle Size | ~200KB+ | **432 KB** npm tarball / 434 KB gzip publish build |
 | Cold Start | Fast | Faster (sync init, no WASM instantiate) |
 | WASM Required | No | No |
 | API Surface Compatible | N/A | 100% drop-in replacement |
@@ -21,20 +21,20 @@ Status note (as of 2026-04-20): command coverage is complete (`87/87`) and compa
 
 ## Package Size
 
-Current npm package measurements, taken on `2026-04-20` from the actual release build (`moon -C src build --target js --release`), `vp pack`, and `npm pack --dry-run` outputs:
+Current npm package measurements, taken on `2026-04-20` from real release builds and `npm pack --dry-run` outputs:
 
-| Artifact | Size | Notes |
-|-------|------|-----------|
-| `dist/index.mjs` | 4.56 MB | raw ESM bundle produced by `vp pack` |
-| `dist/index.mjs` (gzip) | 663 KB | approximate compressed transfer size |
-| published npm tarball | 650 KB | `moon-bash-0.1.0.tgz` from `npm pack --dry-run` |
-| unpacked npm payload | 4.57 MB | release bundle plus declarations, no sourcemaps published |
+| Build flavor | `dist/index.mjs` | gzip | npm tarball | unpacked | Notes |
+|-------|------|------|------|------|-----------|
+| release package (`vp run build`) | 4.56 MB | 663 KB | 650 KB | 4.57 MB | readable ESM output, no sourcemaps published |
+| publish package (`vp run build:publish`) | 1.65 MB | 434 KB | 432 KB | 1.67 MB | release build plus JS minification |
 
 Why this is still larger than the older `997 KB` / `245 KB` figures sometimes cited in project notes:
 
 - those numbers refer to a separately minified MoonBit release artifact benchmark, not the current npm package emitted by `vp pack`
-- the npm package no longer ships sourcemaps; the tarball now contains only `dist/index.mjs`, `dist/index.d.mts`, and `package.json`
-- the shipped ESM bundle is optimized for correct packaging and TypeScript consumption first; more aggressive minification is a separate tradeoff
+- the npm package no longer ships sourcemaps; the tarball contains only `dist/index.mjs`, `dist/index.d.mts`, and `package.json`
+- `vp run build` keeps output readable for debugging, while `vp run build:publish` is intended to optimize publish size
+
+Compared with the standard release package, `vp run build:publish` cuts the raw ESM bundle by about `64%` and the npm tarball by about `34%`.
 
 ## Core Value Propositions
 
@@ -69,7 +69,7 @@ console.log(result.exitCode); // 0
 
 MoonBash currently has three distinct build outputs:
 
-- **npm package** - `vp run build` runs `moon -C src build --target js --release && vp pack`, bundling [`src/wrapper/index.ts`](../src/wrapper/index.ts) into an ESM package at `dist/`. The published entrypoints are `dist/index.mjs` and `dist/index.d.mts`; sourcemaps are not shipped in the npm package.
+- **npm package** - `vp run build` runs `moon -C src build --target js --release && vp pack`, bundling [`src/wrapper/index.ts`](../src/wrapper/index.ts) into an ESM package at `dist/`. `vp run build:publish` uses the same release build but enables `vp pack` minification via `MOONBASH_PACK_MINIFY=1`. The published entrypoints are `dist/index.mjs` and `dist/index.d.mts`; sourcemaps are not shipped in the npm package.
 - **MoonBit / mooncakes package** - the pure MoonBit runtime is packaged from `src/` using [`src/moon.mod.json`](../src/moon.mod.json). The TypeScript wrapper and browser demo are excluded from that package, and MoonBit publish artifacts are produced under `src/_build/publish/`.
 - **Browser demo** - `vp run build:website` builds the static site into `examples/website/dist/`.
 
@@ -78,6 +78,7 @@ Useful commands:
 - `vp run build:mbt` - compile the MoonBit core to JavaScript in `release` mode
 - `vp run build:ts` - bundle the TypeScript wrapper into the npm package under `dist/`
 - `vp run build` - run both steps for the npm package
+- `vp run build:publish` - run the release build plus minified npm packaging
 - `vp run build:website` - build the browser demo bundle
 
 Build pipeline in practice:
