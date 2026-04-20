@@ -17,21 +17,24 @@ MoonBash is a complete rewrite of [vercel-labs/just-bash](https://github.com/ver
 | WASM Required | No | No |
 | API Surface Compatible | N/A | 100% drop-in replacement |
 
-Status note (as of 2026-04-18): command coverage is complete (`87/87`) and comparison tests are at `522/523` (1 awk regression from `b38190a`). Security test suite fully passing (`188/188` attacks, all sandbox/limits/prototype-pollution suites). gzip/gunzip/zcat now use real DEFLATE compression via `gmlewis/gzip`. A browser website demo now ships under `examples/website/`, recreating the `justbash.dev` style terminal with MoonBash running fully in-memory in the browser. Its runtime is now MoonBit-led: DOM building, state updates, command execution flow, history, completion, and autoplay verification all live in `src/website/*.mbt`, while the JS entry only injects configuration and wrapper exports. Spec compatibility hardening remains in progress. See `docs/ROADMAP.md`.
+Status note (as of 2026-04-20): command coverage is complete (`87/87`) and comparison tests are at `523/523` (`100%`). Security test suites are fully passing, gzip/gunzip/zcat use real DEFLATE compression via `gmlewis/gzip`, and the browser website demo now ships under `examples/website/` with MoonBit owning the runtime flow in `src/website/*.mbt`. Spec compatibility hardening remains in progress. See `docs/ROADMAP.md`.
 
-## Build Size
+## Package Size
 
-A complete POSIX shell with awk, sed, jq, tar, diff, gzip and 87 commands, delivered as a single zero-dependency JS file:
+Current npm package measurements, taken on `2026-04-20` from the actual release build (`moon -C src build --target js --release`), `vp pack`, and `npm pack --dry-run` outputs:
 
-| Stage | Size | Reduction |
+| Artifact | Size | Notes |
 |-------|------|-----------|
-| MoonBit compile (release) | 4.2 MB | raw output |
-| + esbuild minify | 997 KB | -76% (FQN mangling) |
-| + gzip | **245 KB** | **-94% total** |
+| `dist/index.mjs` | 4.56 MB | raw ESM bundle produced by `vp pack` |
+| `dist/index.mjs` (gzip) | 663 KB | approximate compressed transfer size |
+| published npm tarball | 650 KB | `moon-bash-0.1.0.tgz` from `npm pack --dry-run` |
+| unpacked npm payload | 4.57 MB | release bundle plus declarations, no sourcemaps published |
 
-Why so small? MoonBit emits verbose fully-qualified names (`$moonbitlang$core$array$Array$push`) that compress extremely well. Minification crushes them to single letters; gzip exploits the remaining pattern repetition. Wasm binaries are dense machine code that cannot be minified and barely compress (~20-30% via gzip).
+Why this is still larger than the older `997 KB` / `245 KB` figures sometimes cited in project notes:
 
-Fits comfortably within Cloudflare Workers free tier (1 MB), Vercel Edge Functions, and any CDN.
+- those numbers refer to a separately minified MoonBit release artifact benchmark, not the current npm package emitted by `vp pack`
+- the npm package no longer ships sourcemaps; the tarball now contains only `dist/index.mjs`, `dist/index.d.mts`, and `package.json`
+- the shipped ESM bundle is optimized for correct packaging and TypeScript consumption first; more aggressive minification is a separate tradeoff
 
 ## Core Value Propositions
 
@@ -62,6 +65,29 @@ console.log(result.stdout); // "HELLO FROM MOONBASH!\n"
 console.log(result.exitCode); // 0
 ```
 
+## Build & Packaging
+
+MoonBash currently has three distinct build outputs:
+
+- **npm package** - `vp run build` runs `moon -C src build --target js --release && vp pack`, bundling [`src/wrapper/index.ts`](../src/wrapper/index.ts) into an ESM package at `dist/`. The published entrypoints are `dist/index.mjs` and `dist/index.d.mts`; sourcemaps are not shipped in the npm package.
+- **MoonBit / mooncakes package** - the pure MoonBit runtime is packaged from `src/` using [`src/moon.mod.json`](../src/moon.mod.json). The TypeScript wrapper and browser demo are excluded from that package, and MoonBit publish artifacts are produced under `src/_build/publish/`.
+- **Browser demo** - `vp run build:website` builds the static site into `examples/website/dist/`.
+
+Useful commands:
+
+- `vp run build:mbt` - compile the MoonBit core to JavaScript in `release` mode
+- `vp run build:ts` - bundle the TypeScript wrapper into the npm package under `dist/`
+- `vp run build` - run both steps for the npm package
+- `vp run build:website` - build the browser demo bundle
+
+Build pipeline in practice:
+
+```text
+MoonBit (.mbt) -> moon -C src build --target js --release -> generated JS in src/_build/...
+                -> src/wrapper/index.ts -> vp pack -> dist/index.mjs + dist/index.d.mts
+                -> examples/website/main.js + src/website -> vp build -c vite.website.config.ts -> examples/website/dist/
+```
+
 ## Browser Demo
 
 MoonBash now includes a browser demo that recreates the `justbash.dev` terminal experience, but uses MoonBash as the runtime.
@@ -89,7 +115,7 @@ What the demo proves:
 - custom commands such as `about`, `install`, and `github` can be layered on top without changing the MoonBit core
 - MoonBit can own the website runtime itself, not just the shell core, while keeping JS as a thin host/config bridge
 
-See `examples/website/README.md` for the demo-specific README.
+See [`examples/website/README.md`](../examples/website/README.md) for the demo-specific README.
 
 ## Architecture Overview
 

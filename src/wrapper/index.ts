@@ -52,9 +52,9 @@ export type {
   VmOptions,
 } from "./types";
 
-// Import the compiled MoonBit engine
+// Import the compiled MoonBit engine from the release build used by packaging.
 // @ts-ignore - generated file has no type declarations
-import { execute_with_state as mbExecuteWithState } from "../_build/js/debug/build/lib/entry/entry.js";
+import { execute_with_state as mbExecuteWithState } from "../_build/js/release/build/lib/entry/entry.js";
 
 interface StateExecResult extends ExecResult {
   files?: Record<string, string>;
@@ -2304,8 +2304,8 @@ export class Bash {
     }
     this.nodeEntryModuleUrlPromise = (async () => {
       const candidates = [
-        new URL("../_build/js/debug/build/lib/entry/entry.js", import.meta.url),
         new URL("../_build/js/release/build/lib/entry/entry.js", import.meta.url),
+        new URL("../_build/js/debug/build/lib/entry/entry.js", import.meta.url),
       ];
 
       try {

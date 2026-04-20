@@ -15,7 +15,7 @@ Comparison tests validate that just-bash produces the same output as real bash. 
 vp run test:comparison
 
 # Run a specific test file
-moon -C src build --target js && vp test run tests/comparison/ls.comparison.test.ts
+moon -C src build --target js --release && vp test run tests/comparison/ls.comparison.test.ts
 
 # Re-record fixtures (runs real bash, skips locked fixtures)
 vp run test:comparison:record
@@ -61,7 +61,7 @@ describe("mycommand - Real Bash Comparison", () => {
 ### 2. Record the fixture
 
 ```bash
-RECORD_FIXTURES=1 moon -C src build --target js && vp test run tests/comparison/mycommand.comparison.test.ts
+RECORD_FIXTURES=1 moon -C src build --target js --release && vp test run tests/comparison/mycommand.comparison.test.ts
 ```
 
 This creates `tests/comparison/fixtures/mycommand.comparison.fixtures.json`.
@@ -74,7 +74,7 @@ When bash behavior changes or you need to update expected outputs:
 
 ```bash
 # Re-record specific test file
-RECORD_FIXTURES=1 moon -C src build --target js && vp test run tests/comparison/ls.comparison.test.ts
+RECORD_FIXTURES=1 moon -C src build --target js --release && vp test run tests/comparison/ls.comparison.test.ts
 
 # Re-record all fixtures
 vp run test:comparison:record

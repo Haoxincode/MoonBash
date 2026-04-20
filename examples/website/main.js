@@ -6,7 +6,7 @@ import roadmapText from "../../docs/ROADMAP.md?raw";
 import agentsText from "../../AGENTS.md?raw";
 import moonMod from "../../src/moon.mod.json";
 import { Bash, defineCommand, getCommandNames } from "../../src/wrapper/browser.ts";
-import { mount_demo } from "../../src/_build/js/debug/build/website/website.js";
+import { mount_demo } from "../../src/_build/js/release/build/website/website.js";
 
 const GITHUB_URL = "https://github.com/Haoxincode/MoonBash";
 const DOCS_URL = `${GITHUB_URL}/tree/main/docs`;

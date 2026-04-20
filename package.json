@@ -11,28 +11,29 @@
   ],
   "license": "Apache-2.0",
   "files": [
-    "dist"
+    "dist/index.mjs",
+    "dist/index.d.mts"
   ],
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "dist/index.mjs",
+  "types": "dist/index.d.mts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "import": "./dist/index.mjs",
+      "types": "./dist/index.d.mts"
     }
   },
   "scripts": {
-    "build:mbt": "moon -C src build --target js",
+    "build:mbt": "moon -C src build --target js --release",
     "build:ts": "vp pack",
-    "build": "moon -C src build --target js && vp pack",
-    "build:website": "moon -C src build --target js && vp build -c vite.website.config.ts",
+    "build": "moon -C src build --target js --release && vp pack",
+    "build:website": "moon -C src build --target js --release && vp build -c vite.website.config.ts",
     "test:mbt": "moon -C src test",
-    "test": "moon -C src build --target js && vp test run",
-    "test:comparison": "moon -C src build --target js && vp test run tests/comparison/",
+    "test": "moon -C src build --target js --release && vp test run",
+    "test:comparison": "moon -C src build --target js --release && vp test run tests/comparison/",
     "test:comparison:record": "RECORD_FIXTURES=1 vp run test:comparison",
-    "test:safe": "bash scripts/test-safe.sh",
-    "test:watch": "moon -C src build --target js && vp test watch",
+    "test:safe": "moon -C src build --target js --release && bash scripts/test-safe.sh",
+    "test:watch": "moon -C src build --target js --release && vp test watch",
     "check": "moon -C src check",
     "serve:website": "vp preview -c vite.website.config.ts --port 4173 --strictPort"
   },

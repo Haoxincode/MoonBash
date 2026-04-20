@@ -39,9 +39,9 @@ Phase 5: Multi-Platform Expansion            🔧 PARTIALLY COMPLETE
   → Remaining: WASM target, published browser packaging hardening, standalone REPL
 ```
 
-**Current comparison test pass rate: 522/523 (1 awk regression from `b38190a`)**
+**Current comparison test pass rate: 523/523 (100%)**
 **Command coverage: 87/87 (100%)**
-**Spec/security hardening snapshot (2026-02-20): grep `54` failed, jq `170` failed, bash spec chunked run `683+` failed confirmed; security attacks `0` failed ✅ (fixed `6cbd88f`); awk spec `6` regression (`b38190a`); prototype-pollution `6` awk regression; gzip now uses real DEFLATE (`1d0b311`).**
+**Spec/security hardening snapshot (2026-04-20): comparison suite is green at `523/523`, security attacks remain `0` failed, and gzip uses real DEFLATE. Bash/grep/jq spec compatibility hardening remains in progress.**
 
 ### Status Convention
 

@@ -606,10 +606,10 @@ MoonBit Source (.mbt)
        └── src/website/*        (browser demo mount package)
        │
        ▼
-moon build --target js
+moon build --target js --release
        │
        ▼
-Pure JavaScript packages under src/_build/js/debug/build/*
+Pure JavaScript packages under src/_build/js/release/build/*
        │
        ├── lib/entry/entry.js   (core execution bridge)
        └── website/website.js   (browser demo mount bridge)
@@ -623,8 +623,8 @@ TypeScript / JS integration layer
        ▼
 Vite+ pack / Rolldown bundling
        │
-       ├── dist/index.js                (Node.js ESM library build)
-       ├── dist/index.d.ts              (Type definitions)
+       ├── dist/index.mjs               (Node.js ESM library build)
+       ├── dist/index.d.mts             (Type definitions)
        └── examples/website/dist/*      (static browser demo)
        │
        ▼

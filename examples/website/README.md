@@ -34,7 +34,7 @@ vp run build:website
 
 This runs:
 
-1. `moon build --target js`
+1. `moon build --target js --release`
 2. `vp build -c vite.website.config.ts` to bundle the website with Vite+ / Rolldown
 3. Vite rewrites `index.html`, bundles `main.js`, and emits the final static site to `examples/website/dist/`
 

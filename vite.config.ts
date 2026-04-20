@@ -30,7 +30,7 @@ export default defineConfig({
     entry: ["src/wrapper/index.ts"],
     dts: true,
     format: ["esm"],
-    sourcemap: true,
+    sourcemap: false,
   },
   fmt: {
     ignorePatterns: [
